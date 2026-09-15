@@ -47,6 +47,7 @@ import {
   Globe,
   Database,
   FlaskConical,
+  PowerOff,
 } from 'lucide-react';
 
 import {
@@ -580,25 +581,34 @@ export default function App() {
   const [ads] = useState<AdBannerItem[]>(DEFAULT_ADS);
   const [dismissedAdRibbon, setDismissedAdRibbon] = useState<boolean>(false);
 
-  // Persistent filters isolated per user
+  // Persistent filters isolated per user (Only run filters explicitly launched by the user)
   const [filters, setFilters] = useState<FilterRule[]>(() => {
     const uid = localStorage.getItem('footbalmonitor_current_user_id') || DEFAULT_USERS[0].id;
     const userSaved = localStorage.getItem(`footbalmonitor_filters_user_${uid}`);
+    const migrationFlag = localStorage.getItem('footbalmonitor_user_launched_only_v2');
+
     if (userSaved) {
       try {
         const parsed = JSON.parse(userSaved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (!migrationFlag) {
+            localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
+            // If previous session had massive bulk enabled, default to only filter #1 launched
+            return parsed.map((f: FilterRule, idx: number) => ({
+              ...f,
+              userId: uid,
+              enabled: idx === 0,
+            }));
+          }
+          return parsed;
+        }
       } catch (e) {}
     }
-    const legacySaved = localStorage.getItem('footbalmonitor_filters');
-    if (legacySaved) {
-      try {
-        const parsed = JSON.parse(legacySaved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {}
-    }
-    return EXPANDED_DEFAULT_FILTERS.map((f) => ({
+
+    localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
+    return EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
       ...f,
+      enabled: idx === 0, // Only 1 filter launched initially, user explicitly launches others
       userId: uid,
       botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
     }));
@@ -692,9 +702,10 @@ export default function App() {
 
     // Default filters for new user with default bot assignment
     const defaultBot = newUser.telegramBots.find((b) => b.isDefault) || newUser.telegramBots[0];
-    const initialForUser = EXPANDED_DEFAULT_FILTERS.map((f) => ({
+    const initialForUser = EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
       ...f,
       userId: newUser.id,
+      enabled: idx === 0,
       botId: defaultBot?.id,
     }));
     setFilters(initialForUser);
@@ -1505,11 +1516,19 @@ export default function App() {
   }, [matches, telegramConfig.autoUpdateOnFinish]);
 
   // Check filter triggers and auto-send alerts with Anti-Spam deduplication
+  // CRITICAL: ONLY run filters that are explicitly launched (enabled === true) by the current user!
   useEffect(() => {
+    if (!isMonitoringActive) return;
+
+    const activeLaunchedFilters = filters.filter(
+      (f) => f.enabled && (!f.userId || f.userId === currentUser?.id)
+    );
+    if (activeLaunchedFilters.length === 0) return;
+
     matches.forEach((match) => {
       const analysis = calculatePressureAnalysis(match);
 
-      filters.filter((f) => f.enabled).forEach((rule) => {
+      activeLaunchedFilters.forEach((rule) => {
         const evalResult = evaluateFilterRule(match, rule);
         if (!evalResult.matches) return;
 
@@ -1668,6 +1687,7 @@ export default function App() {
       });
     });
   }, [
+    isMonitoringActive,
     matches,
     filters,
     currentUser,
@@ -2261,7 +2281,9 @@ export default function App() {
                   const dangDiff = match.stats.dangerousAttacks[0] - match.stats.dangerousAttacks[1];
                   const isHighPressure = Math.abs(dangDiff) >= 25;
                   const analysis = calculatePressureAnalysis(match);
-                  const matchingRules = filters.filter((f) => f.enabled && evaluateFilterRule(match, f).matches);
+                  const matchingRules = filters.filter(
+                    (f) => f.enabled && (!f.userId || f.userId === currentUser?.id) && evaluateFilterRule(match, f).matches
+                  );
 
                   return (
                     <div
@@ -2451,8 +2473,13 @@ export default function App() {
                   {/* Algorithmic Pressure & Filter Intelligence Inspector */}
                   {(() => {
                     const analysis = calculatePressureAnalysis(selectedMatch);
-                    const matchingRules = filters.filter((f) => f.enabled && evaluateFilterRule(selectedMatch, f).matches);
-                    const evaluatedRules = filters.filter((f) => f.enabled).map((rule) => ({
+                    const userLaunchedFilters = filters.filter(
+                      (f) => f.enabled && (!f.userId || f.userId === currentUser?.id)
+                    );
+                    const matchingRules = userLaunchedFilters.filter(
+                      (f) => evaluateFilterRule(selectedMatch, f).matches
+                    );
+                    const evaluatedRules = userLaunchedFilters.map((rule) => ({
                       rule,
                       result: evaluateFilterRule(selectedMatch, rule),
                     }));
@@ -2512,11 +2539,21 @@ export default function App() {
                         {/* Evaluated Rules Matrix */}
                         <div className="pt-2 border-t border-slate-800/80">
                           <div className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center justify-between">
-                            <span>Проверка совпадения фильтров для этого матча:</span>
-                            <span className="text-emerald-400">{matchingRules.length} из {filters.filter((f) => f.enabled).length} сработало</span>
+                            <span>Проверка запущенных фильтров для этого матча:</span>
+                            <span className="text-emerald-400 font-mono font-bold">
+                              {matchingRules.length} из {userLaunchedFilters.length} совпало
+                            </span>
                           </div>
-                          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                            {evaluatedRules.map(({ rule, result }) => (
+                          {userLaunchedFilters.length === 0 ? (
+                            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-center space-y-1.5">
+                              <p className="text-xs text-slate-400 font-medium">Нет запущенных фильтров</p>
+                              <p className="text-[11px] text-slate-500">
+                                Перейдите во вкладку «Фильтры» и нажмите «Запустить» на нужных стратегиях.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                              {evaluatedRules.map(({ rule, result }) => (
                               <div
                                 key={rule.id}
                                 className={`p-2 rounded-lg border flex items-center justify-between text-xs transition ${
@@ -2565,7 +2602,8 @@ export default function App() {
                                 </div>
                               </div>
                             ))}
-                          </div>
+                            </div>
+                          )}
                           <button
                             onClick={() => {
                               setEditingFilter(null);
@@ -3045,12 +3083,73 @@ export default function App() {
               </div>
             </div>
 
+            {/* Active Filter Controller Bar */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 border ${
+                  filters.filter((f) => f.enabled).length > 0
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 shadow-sm shadow-emerald-950/40'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-500'
+                }`}>
+                  {filters.filter((f) => f.enabled).length}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white">
+                      Запущено в мониторинг: {filters.filter((f) => f.enabled).length} из {filters.length} фильтров
+                    </span>
+                    {filters.filter((f) => f.enabled).length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                        СИГНАЛЫ АКТИВНЫ
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                        Остановлены
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Работают и отправляют сигналы только включенные вами фильтры. Выключенные фильтры не создают спама и не присылают уведомлений.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  onClick={() => {
+                    setFilters((prev) => prev.map((f) => ({ ...f, enabled: false })));
+                  }}
+                  disabled={filters.filter((f) => f.enabled).length === 0}
+                  className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Остановить все активные фильтры"
+                >
+                  <PowerOff className="h-3.5 w-3.5" />
+                  Остановить все ({filters.filter((f) => f.enabled).length})
+                </button>
+
+                <button
+                  onClick={() => setActiveFilterCategory('active')}
+                  className={`px-3 py-2 border rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                    activeFilterCategory === 'active'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-bold shadow-md shadow-emerald-950/40'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  }`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Только запущенные
+                </button>
+              </div>
+            </div>
+
             {/* Category Filter Chips & Search Bar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80">
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
                     { id: 'all', label: 'Все', icon: '⚡' },
+                    { id: 'active', label: 'Запущенные', icon: '🟢' },
+                    { id: 'stopped', label: 'Остановленные', icon: '⚪' },
                     { id: 'goals', label: 'Голы', icon: '⚽' },
                     { id: 'corners', label: 'Угловые', icon: '🚩' },
                     { id: 'comeback', label: 'Камбэк', icon: '🎯' },
@@ -3063,6 +3162,10 @@ export default function App() {
                   const count =
                     cat.id === 'all'
                       ? filters.length
+                      : cat.id === 'active'
+                      ? filters.filter((f) => f.enabled).length
+                      : cat.id === 'stopped'
+                      ? filters.filter((f) => !f.enabled).length
                       : cat.id === 'custom'
                       ? filters.filter((f) => !f.isPreset).length
                       : filters.filter((f) => f.category === cat.id).length;
@@ -3112,6 +3215,10 @@ export default function App() {
                 const matchCategory =
                   activeFilterCategory === 'all'
                     ? true
+                    : activeFilterCategory === 'active'
+                    ? rule.enabled
+                    : activeFilterCategory === 'stopped'
+                    ? !rule.enabled
                     : activeFilterCategory === 'custom'
                     ? !rule.isPreset
                     : rule.category === activeFilterCategory;
@@ -3146,7 +3253,9 @@ export default function App() {
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredList.map((filter) => {
-                    const matchingLiveMatches = matches.filter((m) => evaluateFilterRule(m, filter).matches);
+                    const matchingLiveMatches = filter.enabled
+                      ? matches.filter((m) => evaluateFilterRule(m, filter).matches)
+                      : [];
                     const hasLiveMatches = matchingLiveMatches.length > 0;
 
                     return (
@@ -3189,13 +3298,24 @@ export default function App() {
                                   prev.map((f) => (f.id === filter.id ? { ...f, enabled: !f.enabled } : f))
                                 )
                               }
-                              className={`text-xs px-2.5 py-1 rounded-full font-semibold transition ${
+                              className={`text-xs px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition ${
                                 filter.enabled
-                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
-                                  : 'bg-slate-800 text-slate-500 hover:text-slate-400'
+                                  ? 'bg-emerald-500 text-slate-950 border border-emerald-400 hover:bg-emerald-400 shadow-md shadow-emerald-950/40'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700'
                               }`}
+                              title={filter.enabled ? 'Нажмите, чтобы остановить этот фильтр' : 'Нажмите, чтобы запустить этот фильтр в работу'}
                             >
-                              {filter.enabled ? 'Активен' : 'Отключен'}
+                              {filter.enabled ? (
+                                <>
+                                  <span className="h-2 w-2 rounded-full bg-slate-950 animate-pulse" />
+                                  ЗАПУЩЕН
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-3 w-3 text-emerald-400 fill-emerald-400" />
+                                  ЗАПУСТИТЬ
+                                </>
+                              )}
                             </button>
                           </div>
 
@@ -3213,20 +3333,30 @@ export default function App() {
 
                           {/* Live match indicator */}
                           <div className="pt-1">
-                            {hasLiveMatches ? (
-                              <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 font-semibold flex items-center justify-between">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                                  Совпадает прямо сейчас ({matchingLiveMatches.length}):
-                                </span>
-                                <span className="font-mono text-white text-[10px]">
-                                  {matchingLiveMatches.map((m) => m.homeTeam).join(', ')}
-                                </span>
-                              </div>
+                            {filter.enabled ? (
+                              hasLiveMatches ? (
+                                <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 font-semibold flex items-center justify-between">
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                                    Совпадает прямо сейчас ({matchingLiveMatches.length}):
+                                  </span>
+                                  <span className="font-mono text-white text-[10px]">
+                                    {matchingLiveMatches.map((m) => m.homeTeam).join(', ')}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-500 flex items-center gap-1.5">
+                                  <Clock className="h-3 w-3" />
+                                  В работе • Ожидание подходящей ситуации в live
+                                </div>
+                              )
                             ) : (
-                              <div className="px-2.5 py-1 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-500 flex items-center gap-1.5">
-                                <Clock className="h-3 w-3" />
-                                Ожидание подходящей ситуации в live
+                              <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/40 border border-slate-800/60 text-[10px] text-slate-500 flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
+                                  Остановлен пользователем
+                                </span>
+                                <span className="text-slate-600 font-mono">Сигналы отключены</span>
                               </div>
                             )}
                           </div>

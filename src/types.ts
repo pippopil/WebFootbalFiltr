@@ -72,6 +72,8 @@ export type ScoreCondition =
 
 export type FilterCategory =
   | 'all'
+  | 'active'
+  | 'stopped'
   | 'goals'
   | 'corners'
   | 'pressure'
