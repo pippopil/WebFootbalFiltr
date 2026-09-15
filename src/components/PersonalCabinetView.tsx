@@ -875,10 +875,10 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               <label className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer">
                 <div>
                   <div className="text-xs font-bold text-slate-200">
-                    Показывать рекламные плашки в шапке и ленте
+                    Показывать рекламные баннеры (вверху, слева и справа)
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Отображение верхнего промо-баннера и карточек букмекеров-партнёров
+                    Отображение верхнего промо-баннера, боковых баннеров-небоскребов слева/справа и карточек партнёров
                   </div>
                 </div>
                 <input

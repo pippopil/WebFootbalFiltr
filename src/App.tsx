@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Activity,
   Bell,
@@ -48,6 +48,17 @@ import {
   Database,
   FlaskConical,
   PowerOff,
+  SlidersHorizontal,
+  TableProperties,
+  LayoutGrid,
+  ChevronRight,
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  Crosshair,
+  Pin,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 
 import {
@@ -84,113 +95,243 @@ import { RealMatchTesterModal } from './components/RealMatchTesterModal';
 import { PersonalCabinetView } from './components/PersonalCabinetView';
 import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
+import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
+import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 
 const INITIAL_SIGNALS: SignalAlert[] = [
   {
     id: 'sig-seed-1',
     timestamp: '15:42:10',
-    matchId: 'm-1',
-    matchName: 'Arsenal vs Chelsea',
-    league: 'Premier League',
-    country: 'England',
-    minute: 68,
+    matchId: 'm-den-1',
+    matchName: 'Hvidovre vs Koge',
+    league: '1st Division',
+    country: '🇩🇰 Дания',
+    minute: 79,
+    period: '2-й тайм',
     score: '1:1',
-    ruleName: 'Штурм аутсайдера / Фаворит давит',
+    finalScore: '2:1',
+    ruleName: 'NoName',
     marketSuggestion: 'ТБ 0.5 во 2-м тайме',
-    message: '⚽ [СИГНАЛ] England | Premier League\nArsenal 1:1 Chelsea (68\')\n🎯 Исход: ТБ 0.5 во 2-м тайме\n🔥 Давление: 84/100 | Оп. атаки 64-38',
+    message: '⚽ [СИГНАЛ] Дания | 1st Division\nHvidovre 1:1 Koge (79\')\n🎯 Исход: ТБ 0.5 во 2-м тайме',
     sentToTelegram: true,
     telegramStatusText: 'Доставлено в TG',
+    botName: 'Основной Бот',
     outcome: 'WIN',
     odds: 1.82,
     stake: 1000,
     profit: 820,
-    finalScore: '2:1',
-    resolutionNote: 'Гол забит на 82-й минуте (2:1)',
+    statsSnapshot: {
+      homeScore: 1,
+      awayScore: 1,
+      attacks: [52, 38],
+      dangerousAttacks: [41, 24],
+      shotsOnTarget: [6, 3],
+      shotsOffTarget: [5, 2],
+      corners: [5, 3],
+      yellowCards: [2, 1],
+      redCards: [0, 0],
+    },
     resolvedAt: '16:05:00',
   },
   {
     id: 'sig-seed-2',
-    timestamp: '14:20:05',
-    matchId: 'm-2',
-    matchName: 'Real Madrid vs Sevilla',
-    league: 'La Liga',
-    country: 'Spain',
-    minute: 74,
+    timestamp: '15:20:05',
+    matchId: 'm-fin-1',
+    matchName: 'Ilves vs KuPS',
+    league: 'Veikkausliiga',
+    country: '🇫🇮 Финляндия',
+    minute: 32,
+    period: '1-й тайм',
     score: '0:0',
-    ruleName: 'Супер-доминация по xG при 0:0',
-    marketSuggestion: 'ТБ 0.5 в матче / Победа 1',
-    message: '⚽ [СИГНАЛ] Spain | La Liga\nReal Madrid 0:0 Sevilla (74\')\n🎯 Исход: ТБ 0.5 в матче\n🔥 Давление: 78/100 | xG 2.10 vs 0.35',
+    ruleName: 'ТБ 1.5 Фаворит',
+    marketSuggestion: 'ТБ 0.5 в 1-м тайме',
+    message: '⚽ [СИГНАЛ] Финляндия | Veikkausliiga\nIlves 0:0 KuPS (32\')\n🎯 Исход: ТБ 0.5 в 1-м тайме',
     sentToTelegram: true,
     telegramStatusText: 'Доставлено в TG',
+    botName: 'Основной Бот',
     outcome: 'WIN',
     odds: 1.95,
     stake: 1000,
     profit: 950,
-    finalScore: '1:0',
-    resolutionNote: 'Гол на 86-й минуте (1:0)',
-    resolvedAt: '14:40:00',
+    finalScore: '1:1',
+    statsSnapshot: {
+      homeScore: 0,
+      awayScore: 0,
+      attacks: [34, 21],
+      dangerousAttacks: [25, 12],
+      shotsOnTarget: [4, 1],
+      shotsOffTarget: [3, 2],
+      corners: [4, 1],
+      yellowCards: [1, 0],
+      redCards: [0, 0],
+    },
+    resolvedAt: '15:40:00',
   },
   {
     id: 'sig-seed-3',
-    timestamp: '13:10:44',
-    matchId: 'm-3',
-    matchName: 'Bayern Munich vs RB Leipzig',
-    league: 'Bundesliga',
-    country: 'Germany',
-    minute: 82,
-    score: '2:1',
-    ruleName: 'Серия угловых в концовке',
-    marketSuggestion: 'Тотал больше угловых',
-    message: '⚽ [СИГНАЛ] Germany | Bundesliga\nBayern Munich 2:1 RB Leipzig (82\')\n🎯 Исход: ТБ угловых\n🚩 Угловые: 8-5',
-    sentToTelegram: false,
-    telegramStatusText: 'Локальный сигнал',
+    timestamp: '14:48:30',
+    matchId: 'm-par-1',
+    matchName: 'Olimpia vs Libertad',
+    league: 'Primera Division',
+    country: '🇵🇾 Парагвай',
+    minute: 34,
+    period: '1-й тайм',
+    score: '0:1',
+    ruleName: 'Осада угловыми',
+    marketSuggestion: 'ТБ угловых в 1Т',
+    message: '⚽ [СИГНАЛ] Парагвай | Primera Division\nOlimpia 0:1 Libertad (34\')\n🎯 Исход: ТБ угловых',
+    sentToTelegram: true,
+    telegramStatusText: 'Доставлено в TG',
+    botName: 'VIP Бот',
     outcome: 'WIN',
     odds: 1.90,
     stake: 1000,
     profit: 900,
-    finalScore: '2:1',
-    resolutionNote: 'Подано 3 угловых в концовке (итог 16)',
-    resolvedAt: '13:25:00',
+    finalScore: '1:2',
+    statsSnapshot: {
+      homeScore: 0,
+      awayScore: 1,
+      attacks: [39, 25],
+      dangerousAttacks: [29, 16],
+      shotsOnTarget: [4, 3],
+      shotsOffTarget: [4, 1],
+      corners: [6, 2],
+      yellowCards: [1, 2],
+      redCards: [0, 0],
+    },
+    resolvedAt: '15:35:00',
   },
   {
     id: 'sig-seed-4',
-    timestamp: '12:05:12',
-    matchId: 'm-4',
-    matchName: 'Juventus vs Napoli',
-    league: 'Serie A',
-    country: 'Italy',
-    minute: 65,
-    score: '0:1',
-    ruleName: 'Потенциал камбэка фаворита',
-    marketSuggestion: '1X / Фора (0) / ИТБ1 (0.5)',
-    message: '⚽ [СИГНАЛ] Italy | Serie A\nJuventus 0:1 Napoli (65\')\n🎯 Исход: 1X Камбэк\n🔥 Давление: 72/100',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    outcome: 'LOSS',
-    odds: 2.10,
+    timestamp: '14:35:12',
+    matchId: 'm-idn-1',
+    matchName: 'Persija vs Bali United',
+    league: 'Liga 1',
+    country: '🇮🇩 Индонезия',
+    minute: 35,
+    period: '1-й тайм',
+    score: '1:0',
+    ruleName: 'Штурм аутсайдера',
+    marketSuggestion: '1X (двойной шанс)',
+    message: '⚽ [СИГНАЛ] Индонезия | Liga 1\nPersija 1:0 Bali United (35\')\n🎯 Исход: 1X',
+    sentToTelegram: false,
+    telegramStatusText: 'Локальный сигнал',
+    outcome: 'WIN',
+    odds: 1.75,
     stake: 1000,
-    profit: -1000,
-    finalScore: '0:1',
-    resolutionNote: 'Матч завершился со счетом 0:1, камбэк не состоялся',
-    resolvedAt: '12:35:00',
+    profit: 750,
+    finalScore: '2:1',
+    statsSnapshot: {
+      homeScore: 1,
+      awayScore: 0,
+      attacks: [36, 28],
+      dangerousAttacks: [24, 18],
+      shotsOnTarget: [5, 2],
+      shotsOffTarget: [3, 2],
+      corners: [4, 3],
+      yellowCards: [1, 1],
+      redCards: [0, 0],
+    },
+    resolvedAt: '15:15:00',
   },
   {
     id: 'sig-seed-5',
-    timestamp: '11:45:00',
-    matchId: 'm-5',
-    matchName: 'Flamengo vs Palmeiras',
-    league: 'Serie A Betano',
-    country: 'Brazil',
-    minute: 38,
-    score: '0:0',
-    ruleName: 'Гол в первом тайме',
-    marketSuggestion: 'ТБ 0.5 в 1-м тайме',
-    message: '⚽ [СИГНАЛ] Brazil | Serie A\nFlamengo 0:0 Palmeiras (38\')\n🎯 Исход: ТБ 0.5 в 1-м тайме\n🔥 Давление: 68/100',
+    timestamp: '13:54:00',
+    matchId: 'm-uru-1',
+    matchName: 'Nacional vs Penarol',
+    league: 'Primera Division',
+    country: '🇺🇾 Уругвай',
+    minute: 54,
+    period: '2-й тайм',
+    score: '1:1',
+    ruleName: 'Прессинг в большинстве',
+    marketSuggestion: 'Победа 1 (П1)',
+    message: '⚽ [СИГНАЛ] Уругвай | Primera Division\nNacional 1:1 Penarol (54\')\n🎯 Исход: П1',
     sentToTelegram: true,
     telegramStatusText: 'Доставлено в TG',
-    outcome: 'PENDING',
-    odds: 2.05,
+    botName: 'Основной Бот',
+    outcome: 'WIN',
+    odds: 2.15,
     stake: 1000,
+    profit: 1150,
+    finalScore: '2:1',
+    statsSnapshot: {
+      homeScore: 1,
+      awayScore: 1,
+      attacks: [58, 32],
+      dangerousAttacks: [46, 19],
+      shotsOnTarget: [8, 3],
+      shotsOffTarget: [6, 2],
+      corners: [7, 2],
+      yellowCards: [3, 4],
+      redCards: [0, 1],
+    },
+    resolvedAt: '14:45:00',
+  },
+  {
+    id: 'sig-seed-6',
+    timestamp: '13:20:18',
+    matchId: 'm-pol-1',
+    matchName: 'Legia vs Lech Poznan',
+    league: 'Ekstraklasa',
+    country: '🇵🇱 Польша',
+    minute: 68,
+    period: '2-й тайм',
+    score: '0:0',
+    ruleName: 'Сухое доминирование при 0:0',
+    marketSuggestion: 'ТБ 0.5 в матче',
+    message: '⚽ [СИГНАЛ] Польша | Ekstraklasa\nLegia 0:0 Lech Poznan (68\')\n🎯 Исход: ТБ 0.5 в матче',
+    sentToTelegram: true,
+    telegramStatusText: 'Доставлено в TG',
+    botName: 'Основной Бот',
+    outcome: 'PENDING',
+    odds: 1.88,
+    stake: 1000,
+    statsSnapshot: {
+      homeScore: 0,
+      awayScore: 0,
+      attacks: [62, 38],
+      dangerousAttacks: [53, 22],
+      shotsOnTarget: [7, 2],
+      shotsOffTarget: [5, 3],
+      corners: [8, 3],
+      yellowCards: [1, 2],
+      redCards: [0, 0],
+    },
+  },
+  {
+    id: 'sig-seed-7',
+    timestamp: '12:45:00',
+    matchId: 'm-nor-1',
+    matchName: 'Bodo/Glimt vs Molde',
+    league: 'Eliteserien',
+    country: '🇳🇴 Норвегия',
+    minute: 71,
+    period: '2-й тайм',
+    score: '2:1',
+    ruleName: 'Тотал Больше 2.5',
+    marketSuggestion: 'ТБ 3.5 в матче',
+    message: '⚽ [СИГНАЛ] Норвегия | Eliteserien\nBodo/Glimt 2:1 Molde (71\')\n🎯 Исход: ТБ 3.5 в матче',
+    sentToTelegram: true,
+    telegramStatusText: 'Доставлено в TG',
+    botName: 'Основной Бот',
+    outcome: 'WIN',
+    odds: 1.85,
+    stake: 1000,
+    profit: 850,
+    finalScore: '3:1',
+    statsSnapshot: {
+      homeScore: 2,
+      awayScore: 1,
+      attacks: [65, 48],
+      dangerousAttacks: [54, 35],
+      shotsOnTarget: [9, 5],
+      shotsOffTarget: [7, 4],
+      corners: [9, 5],
+      yellowCards: [2, 2],
+      redCards: [0, 0],
+    },
+    resolvedAt: '13:30:00',
   },
 ];
 
@@ -579,7 +720,35 @@ export default function App() {
 
   // Ads state
   const [ads] = useState<AdBannerItem[]>(DEFAULT_ADS);
-  const [dismissedAdRibbon, setDismissedAdRibbon] = useState<boolean>(false);
+  const [dismissedTopBanner, setDismissedTopBanner] = useState<boolean>(false);
+  const [dismissedLeftBanner, setDismissedLeftBanner] = useState<boolean>(false);
+  const [dismissedRightBanner, setDismissedRightBanner] = useState<boolean>(false);
+
+  const topAd = useMemo(() => {
+    return (
+      ads.find((a) => a.bannerType === 'top_billboard') ||
+      ads.find((a) => a.bannerType === 'top_ribbon') ||
+      ads[0]
+    );
+  }, [ads]);
+
+  const leftAd = useMemo(() => {
+    return (
+      ads.find((a) => a.bannerType === 'skyscraper_left' || a.side === 'left') ||
+      ads.find((a) => a.id === 'ad-skyscraper-left') ||
+      ads[1] ||
+      ads[0]
+    );
+  }, [ads]);
+
+  const rightAd = useMemo(() => {
+    return (
+      ads.find((a) => a.bannerType === 'skyscraper_right' || a.side === 'right') ||
+      ads.find((a) => a.id === 'ad-skyscraper-right') ||
+      ads[2] ||
+      ads[0]
+    );
+  }, [ads]);
 
   // Persistent filters isolated per user (Only run filters explicitly launched by the user)
   const [filters, setFilters] = useState<FilterRule[]>(() => {
@@ -637,8 +806,16 @@ export default function App() {
   }, [filters, currentUser?.id]);
 
   const [selectedMatchId, setSelectedMatchId] = useState<string>(INITIAL_MATCHES[0].id);
+  const [inspectorOffset, setInspectorOffset] = useState<number>(0);
+  const [inspectorAlignMode, setInspectorAlignMode] = useState<'opposite' | 'sticky' | 'top'>('opposite');
+  const [isLargeScreen, setIsLargeScreen] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
+  const matchesGridRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLDivElement>(null);
+
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet'>('matches');
+  const [filterViewMode, setFilterViewMode] = useState<'matrix' | 'cards'>('matrix');
+  const [signalsViewMode, setSignalsViewMode] = useState<'table' | 'cards'>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Persistent signals tracker state
@@ -1617,6 +1794,7 @@ export default function App() {
 
         const shouldSendTg = rule.telegramEnabled && telegramConfig.autoSend && !!targetBotToken && !!targetChatId;
 
+        const periodStr = match.minute <= 45 ? '1-й тайм' : (match.status === 'HT' ? 'Перерыв' : '2-й тайм');
         const newAlert: SignalAlert = {
           id: alertId,
           timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -1625,6 +1803,7 @@ export default function App() {
           league: match.league,
           country: match.country,
           minute: match.minute,
+          period: periodStr,
           score: currentScoreStr,
           initialScore: currentScoreStr,
           ruleId: rule.id,
@@ -1638,6 +1817,18 @@ export default function App() {
           botToken: targetBotToken,
           chatId: targetChatId,
           userId: currentUser?.id,
+          statsSnapshot: {
+            homeScore: match.score[0],
+            awayScore: match.score[1],
+            attacks: [match.stats.attacks[0], match.stats.attacks[1]],
+            dangerousAttacks: [match.stats.dangerousAttacks[0], match.stats.dangerousAttacks[1]],
+            shotsOnTarget: [match.stats.shotsOnTarget[0], match.stats.shotsOnTarget[1]],
+            shotsOffTarget: [match.stats.shotsOffTarget[0], match.stats.shotsOffTarget[1]],
+            corners: [match.stats.corners[0], match.stats.corners[1]],
+            yellowCards: [match.stats.yellowCards[0], match.stats.yellowCards[1]],
+            redCards: [match.stats.redCards[0], match.stats.redCards[1]],
+            possession: [match.stats.possession[0], match.stats.possession[1]],
+          },
           message: `⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
             (rule.targetMarket ? `🎯 Исход: ${rule.targetMarket}\n` : '') +
             `🔥 Давление: ${analysis.pressureIndex}/100 | Оп. атаки ${match.stats.dangerousAttacks[0]}-${match.stats.dangerousAttacks[1]} | Удары в створ ${match.stats.shotsOnTarget[0]}-${match.stats.shotsOnTarget[1]} | Углы ${match.stats.corners[0]}-${match.stats.corners[1]}`,
@@ -1712,6 +1903,84 @@ export default function App() {
         m.country.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [matches, searchQuery]);
+
+  // Screen resize watcher for desktop 2-column layout
+  useEffect(() => {
+    const handleResize = () => {
+      setIsLargeScreen(window.innerWidth >= 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Calculate and align inspector column opposite the selected match card
+  const updateInspectorPosition = useCallback((targetId?: string) => {
+    if (typeof window === 'undefined' || window.innerWidth < 1024) {
+      setInspectorOffset(0);
+      return;
+    }
+
+    if (inspectorAlignMode === 'top') {
+      setInspectorOffset(0);
+      return;
+    }
+
+    const idToFind = targetId || selectedMatchId;
+    if (!idToFind) return;
+
+    const cardElement = document.getElementById(`match-card-${idToFind}`);
+    const gridElement = matchesGridRef.current;
+
+    if (cardElement && gridElement) {
+      const gridRect = gridElement.getBoundingClientRect();
+      const cardRect = cardElement.getBoundingClientRect();
+      // Calculate distance from grid container top to the selected match card top
+      const relativeTop = cardRect.top - gridRect.top;
+      setInspectorOffset(Math.max(0, Math.round(relativeTop)));
+    }
+  }, [selectedMatchId, inspectorAlignMode]);
+
+  // Keep inspector synchronized when activeTab is matches, list length changes, or filter updates
+  useEffect(() => {
+    if (activeTab !== 'matches') return;
+    updateInspectorPosition();
+    const rAf = requestAnimationFrame(() => updateInspectorPosition());
+    const timer = setTimeout(() => updateInspectorPosition(), 50);
+    return () => {
+      cancelAnimationFrame(rAf);
+      clearTimeout(timer);
+    };
+  }, [selectedMatchId, activeTab, filteredMatches.length, searchQuery, inspectorAlignMode, updateInspectorPosition]);
+
+  // Handle selecting a match with instant position calculation and smooth alignment
+  const handleSelectMatch = useCallback((matchId: string, shouldScrollIfHidden: boolean = false) => {
+    setSelectedMatchId(matchId);
+
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      const cardElement = document.getElementById(`match-card-${matchId}`);
+      const gridElement = matchesGridRef.current;
+      if (cardElement && gridElement && inspectorAlignMode === 'opposite') {
+        const gridRect = gridElement.getBoundingClientRect();
+        const cardRect = cardElement.getBoundingClientRect();
+        const relativeTop = cardRect.top - gridRect.top;
+        setInspectorOffset(Math.max(0, Math.round(relativeTop)));
+
+        // If card was clicked near the extreme edge of viewport, smoothly adjust
+        if (shouldScrollIfHidden) {
+          const viewportHeight = window.innerHeight;
+          if (cardRect.top < 80 || cardRect.bottom > viewportHeight - 60) {
+            cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }
+      }
+    } else {
+      // On mobile/tablet (< 1024px), scroll to the statistics inspector smoothly
+      setTimeout(() => {
+        const inspectorCard = document.getElementById('match-inspector-card');
+        inspectorCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
+  }, [inspectorAlignMode]);
 
   // Filter manager operations
   const handleSaveFilter = (savedRule: FilterRule) => {
@@ -1843,6 +2112,7 @@ export default function App() {
       league: selectedMatch.league,
       country: selectedMatch.country,
       minute: selectedMatch.minute,
+      period: selectedMatch.minute <= 45 ? '1-й тайм' : (selectedMatch.status === 'HT' ? 'Перерыв' : '2-й тайм'),
       score: currentScore,
       initialScore: currentScore,
       ruleId: activeRule?.id,
@@ -1851,6 +2121,18 @@ export default function App() {
       outcome: 'PENDING',
       odds: 1.85,
       stake: 1000,
+      statsSnapshot: {
+        homeScore: selectedMatch.score[0],
+        awayScore: selectedMatch.score[1],
+        attacks: [selectedMatch.stats.attacks[0], selectedMatch.stats.attacks[1]],
+        dangerousAttacks: [selectedMatch.stats.dangerousAttacks[0], selectedMatch.stats.dangerousAttacks[1]],
+        shotsOnTarget: [selectedMatch.stats.shotsOnTarget[0], selectedMatch.stats.shotsOnTarget[1]],
+        shotsOffTarget: [selectedMatch.stats.shotsOffTarget[0], selectedMatch.stats.shotsOffTarget[1]],
+        corners: [selectedMatch.stats.corners[0], selectedMatch.stats.corners[1]],
+        yellowCards: [selectedMatch.stats.yellowCards[0], selectedMatch.stats.yellowCards[1]],
+        redCards: [selectedMatch.stats.redCards[0], selectedMatch.stats.redCards[1]],
+        possession: [selectedMatch.stats.possession[0], selectedMatch.stats.possession[1]],
+      },
       message: displayMsg,
       sentToTelegram: res.ok,
       telegramStatusText: res.ok ? `Доставлено в TG (#${res.messageId}) - ожидает расчета` : (res.error || 'Ошибка отправки'),
@@ -1884,6 +2166,7 @@ export default function App() {
       league: selectedMatch.league,
       country: selectedMatch.country,
       minute: selectedMatch.minute,
+      period: selectedMatch.minute <= 45 ? '1-й тайм' : (selectedMatch.status === 'HT' ? 'Перерыв' : '2-й тайм'),
       score: currentScore,
       initialScore: currentScore,
       ruleId: activeRule?.id,
@@ -1892,6 +2175,18 @@ export default function App() {
       outcome: 'PENDING',
       odds: 1.85,
       stake: 1000,
+      statsSnapshot: {
+        homeScore: selectedMatch.score[0],
+        awayScore: selectedMatch.score[1],
+        attacks: [selectedMatch.stats.attacks[0], selectedMatch.stats.attacks[1]],
+        dangerousAttacks: [selectedMatch.stats.dangerousAttacks[0], selectedMatch.stats.dangerousAttacks[1]],
+        shotsOnTarget: [selectedMatch.stats.shotsOnTarget[0], selectedMatch.stats.shotsOnTarget[1]],
+        shotsOffTarget: [selectedMatch.stats.shotsOffTarget[0], selectedMatch.stats.shotsOffTarget[1]],
+        corners: [selectedMatch.stats.corners[0], selectedMatch.stats.corners[1]],
+        yellowCards: [selectedMatch.stats.yellowCards[0], selectedMatch.stats.yellowCards[1]],
+        redCards: [selectedMatch.stats.redCards[0], selectedMatch.stats.redCards[1]],
+        possession: [selectedMatch.stats.possession[0], selectedMatch.stats.possession[1]],
+      },
       message: `🔔 Сигнал отправлен (#${res.messageId}). Ожидание завершения матча для переписывания...`,
       sentToTelegram: true,
       telegramStatusText: `Доставлено (#${res.messageId}) - перепишется через 3 сек...`,
@@ -2120,17 +2415,91 @@ export default function App() {
         </div>
       </header>
 
-      {/* Top Sponsor Ad Banner Ribbon */}
-      {currentUser.adPreferences.showBanners && !dismissedAdRibbon && (
-        <AdBanner
-          ad={ads.find((a) => a.bannerType === 'top_ribbon') || ads[0]}
-          variant="top_ribbon"
-          onDismiss={() => setDismissedAdRibbon(true)}
-        />
-      )}
+      {/* Outer Layout Wrapper with Left & Right Flanking Ad Banners */}
+      <div className="flex-1 w-full max-w-[1880px] mx-auto px-2 sm:px-4 lg:px-6 flex justify-center items-start gap-4 xl:gap-6 relative">
+        {/* Left Skyscraper Banner (Desktop) */}
+        {currentUser.adPreferences.showBanners && !dismissedLeftBanner && leftAd && (
+          <aside
+            id="ad-flank-left"
+            className="hidden xl:block w-44 2xl:w-56 shrink-0 pt-6 sticky top-16 z-20"
+          >
+            <AdBanner
+              ad={leftAd}
+              variant="skyscraper"
+              side="left"
+              onDismiss={() => setDismissedLeftBanner(true)}
+            />
+          </aside>
+        )}
 
-      {/* Main Container */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+        {/* Restore Left Banner pill if dismissed */}
+        {dismissedLeftBanner && currentUser.adPreferences.showBanners && (
+          <button
+            onClick={() => setDismissedLeftBanner(false)}
+            className="hidden xl:flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 bg-slate-900/95 border border-amber-500/40 px-2 py-1 rounded-r-lg fixed left-0 top-32 z-30 transition shadow-lg backdrop-blur-sm active:scale-95"
+            title="Восстановить баннер слева"
+          >
+            <ChevronRight className="h-3 w-3" />
+            <span className="font-bold">Баннер слева</span>
+          </button>
+        )}
+
+        {/* Main Container */}
+        <div className="flex-1 max-w-7xl w-full mx-auto py-6 space-y-6 min-w-0">
+          {/* Top Billboard Ad Banner ("такой же баннер сверху") */}
+          {currentUser.adPreferences.showBanners && !dismissedTopBanner && topAd && (
+            <div id="ad-billboard-top" className="w-full">
+              <AdBanner
+                ad={topAd}
+                variant="top_billboard"
+                onDismiss={() => setDismissedTopBanner(true)}
+              />
+            </div>
+          )}
+
+          {/* Restore Top Banner button if dismissed */}
+          {dismissedTopBanner && currentUser.adPreferences.showBanners && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => setDismissedTopBanner(false)}
+                className="flex items-center gap-1.5 text-[11px] font-bold text-amber-400 hover:text-amber-300 bg-slate-900/95 border border-amber-500/40 px-3 py-1 rounded-xl transition shadow-md active:scale-95"
+                title="Восстановить верхний рекламный баннер"
+              >
+                <Flame className="h-3 w-3 text-amber-400" />
+                <span>Восстановить верхний баннер</span>
+              </button>
+            </div>
+          )}
+
+          {/* Mobile partner promotions bar if banners are enabled */}
+          {currentUser.adPreferences.showBanners && (
+            <div className="xl:hidden flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
+              <span className="text-slate-400 font-medium flex items-center gap-1.5 min-w-0 truncate">
+                <Sparkles className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                <span className="truncate">Спецпредложения партнёров:</span>
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={leftAd.ctaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 text-[11px] hover:bg-amber-500/30 transition flex items-center gap-1"
+                >
+                  <span>{leftAd.badge}</span>
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                <a
+                  href={rightAd.ctaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30 text-[11px] hover:bg-indigo-500/30 transition flex items-center gap-1"
+                >
+                  <span>{rightAd.badge}</span>
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              </div>
+            </div>
+          )}
         {/* Status Bar */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div
@@ -2216,7 +2585,7 @@ export default function App() {
 
         {/* Tab 1: Live Matches & Detailed In-Play Analytics */}
         {activeTab === 'matches' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div id="matches-grid-container" ref={matchesGridRef} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start relative">
             {/* Matches list (5 cols) */}
             <div className="lg:col-span-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -2288,10 +2657,11 @@ export default function App() {
                   return (
                     <div
                       key={match.id}
-                      onClick={() => setSelectedMatchId(match.id)}
-                      className={`cursor-pointer rounded-xl border p-4 transition-all ${
+                      id={`match-card-${match.id}`}
+                      onClick={() => handleSelectMatch(match.id, true)}
+                      className={`cursor-pointer rounded-xl border p-4 transition-all relative ${
                         isSelected
-                          ? 'bg-slate-900 border-emerald-500 shadow-lg shadow-emerald-950/40'
+                          ? 'bg-slate-900 border-emerald-500 shadow-xl shadow-emerald-950/40 ring-1 ring-emerald-500/50'
                           : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
                       }`}
                     >
@@ -2402,6 +2772,28 @@ export default function App() {
                           ))}
                         </div>
                       )}
+
+                      {/* Active selection indicator pointing right to statistics */}
+                      {isSelected && isLargeScreen && inspectorAlignMode === 'opposite' && (
+                        <div
+                          className="hidden lg:flex absolute -right-3 top-5 z-10 h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-slate-950 shadow-md shadow-emerald-950/60 border-2 border-slate-900"
+                          title="Статистика этого матча отображается прямо напротив"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5 stroke-[3]" />
+                        </div>
+                      )}
+
+                      {isSelected && (
+                        <div className="mt-2.5 pt-2 border-t border-emerald-500/20 flex items-center justify-between text-[11px] text-emerald-400 font-medium">
+                          <span className="flex items-center gap-1.5">
+                            <Crosshair className="h-3 w-3 text-emerald-400" />
+                            <span>Статистика открыта напротив →</span>
+                          </span>
+                          <span className="lg:hidden text-[10px] text-slate-400">
+                            (см. ниже в инспекторе)
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2409,9 +2801,101 @@ export default function App() {
             </div>
 
             {/* Match In-Depth Inspector (7 cols) */}
-            <div className="lg:col-span-7 space-y-4">
+            <div
+              id="match-inspector-column"
+              ref={inspectorRef}
+              style={
+                isLargeScreen && inspectorAlignMode === 'opposite'
+                  ? {
+                      marginTop: `${inspectorOffset}px`,
+                      transition: 'margin-top 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+                    }
+                  : isLargeScreen && inspectorAlignMode === 'sticky'
+                  ? {
+                      position: 'sticky',
+                      top: '5.5rem',
+                    }
+                  : undefined
+              }
+              className="lg:col-span-7 space-y-4"
+            >
               {selectedMatch && (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+                <div id="match-inspector-card" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 relative shadow-xl">
+                  {/* Position status & alignment bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800/80 text-xs">
+                    <div className="flex items-center gap-2 text-slate-300 font-medium">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                      <span className="text-slate-400">Панель:</span>
+                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                        <Crosshair className="h-3.5 w-3.5" />
+                        {inspectorAlignMode === 'opposite' ? 'Напротив выбранного матча' : inspectorAlignMode === 'sticky' ? 'Закреплена (Sticky)' : 'Вверху страницы'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {/* Button to quickly scroll back to the match card in the list */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const card = document.getElementById(`match-card-${selectedMatch.id}`);
+                          card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-medium border border-slate-700 flex items-center gap-1 transition"
+                        title="Прокрутить к карточке этого матча в списке"
+                      >
+                        <ArrowUp className="h-3 w-3 text-emerald-400" />
+                        <span>К матчу в списке</span>
+                      </button>
+
+                      {/* Alignment modes */}
+                      <div className="hidden sm:flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectorAlignMode('opposite');
+                            updateInspectorPosition();
+                          }}
+                          className={`px-2 py-0.5 rounded-md font-medium transition ${
+                            inspectorAlignMode === 'opposite'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Статистика плавно позиционируется строго напротив выбранного матча"
+                        >
+                          Напротив
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectorAlignMode('sticky');
+                          }}
+                          className={`px-2 py-0.5 rounded-md font-medium transition ${
+                            inspectorAlignMode === 'sticky'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Закрепить панель при прокрутке экрана"
+                        >
+                          Sticky
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectorAlignMode('top');
+                            setInspectorOffset(0);
+                          }}
+                          className={`px-2 py-0.5 rounded-md font-medium transition ${
+                            inspectorAlignMode === 'top'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Зафиксировать вверху"
+                        >
+                          Вверху
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                   {/* Title Bar */}
                   <div className="flex items-start justify-between border-b border-slate-800 pb-4">
                     <div>
@@ -2891,6 +3375,33 @@ export default function App() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setFilterViewMode('matrix')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                      filterViewMode === 'matrix'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    <span>Матрица сканера</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterViewMode('cards')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                      filterViewMode === 'cards'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    <span>Карточки ({filters.length})</span>
+                  </button>
+                </div>
+
                 <button
                   onClick={() => {
                     setEditingFilter(null);
@@ -2936,7 +3447,20 @@ export default function App() {
               </div>
             </div>
 
-            {/* Quick Strategy Templates Banner */}
+            {filterViewMode === 'matrix' ? (
+              <ScannerMatrixFilterView
+                filters={filters}
+                onSaveFilter={handleSaveFilter}
+                onDeleteFilter={handleDeleteFilter}
+                isMonitoringActive={isMonitoringActive}
+                onToggleMonitoring={() => setIsMonitoringActive(!isMonitoringActive)}
+                userBots={currentUser?.telegramBots}
+                currentUserId={currentUser?.id}
+                liveMatches={matches}
+              />
+            ) : (
+              <>
+                {/* Quick Strategy Templates Banner */}
             <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                 <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
@@ -3585,11 +4109,42 @@ export default function App() {
                 </div>
               );
             })()}
+              </>
+            )}
           </div>
         )}
 
         {/* Tab 3: Signal Feed & Real-time Tracker */}
         {activeTab === 'signals' && (() => {
+          const updateSignalOutcome = (signalId: string, outcome: SignalOutcome) => {
+            setSignals((prev) =>
+              prev.map((s) => {
+                if (s.id !== signalId) return s;
+                const stake = s.stake || 1000;
+                const profit =
+                  outcome === 'WIN'
+                    ? Number(((s.odds - 1) * stake).toFixed(2))
+                    : outcome === 'LOSS'
+                    ? -stake
+                    : 0;
+                return {
+                  ...s,
+                  outcome,
+                  profit,
+                  resolvedAt: new Date().toLocaleTimeString('ru-RU'),
+                  resolutionNote:
+                    outcome === 'WIN'
+                      ? 'Ставка рассчитана как выигрышная'
+                      : outcome === 'LOSS'
+                      ? 'Ставка не зашла'
+                      : outcome === 'REFUND'
+                      ? 'Возврат ставки'
+                      : 'В ожидании расчета',
+                };
+              })
+            );
+          };
+
           const totalCount = signals.length;
           const winsCount = signals.filter((s) => s.outcome === 'WIN').length;
           const lossesCount = signals.filter((s) => s.outcome === 'LOSS').length;
@@ -3616,9 +4171,8 @@ export default function App() {
 
           return (
             <div className="space-y-6">
-              {/* Header & KPI Summary */}
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
                       <Target className="h-5 w-5 text-emerald-400" />
@@ -3628,7 +4182,34 @@ export default function App() {
                       Учет результатов ставок, проходимость стратегий в реальном времени и экспорт отчетов
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setSignalsViewMode('table')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                          signalsViewMode === 'table'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <TableProperties className="h-3.5 w-3.5" />
+                        <span>Таблица сканера</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSignalsViewMode('cards')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                          signalsViewMode === 'cards'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Target className="h-3.5 w-3.5" />
+                        <span>Карточки Win Rate & ROI</span>
+                      </button>
+                    </div>
+
                     <button
                       onClick={handleExportSignalsCsv}
                       className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition"
@@ -3652,7 +4233,34 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Tracker KPI Cards */}
+                {signalsViewMode === 'table' ? (
+                  <ScannerSignalsTableView
+                    signals={signals}
+                    matches={matches}
+                    isMonitoringActive={isMonitoringActive}
+                    onToggleMonitoring={() => setIsMonitoringActive((prev) => !prev)}
+                    onClearSignals={() => {
+                      if (window.confirm('Очистить всю историю сигналов текущей сессии?')) {
+                        setSignals([]);
+                      }
+                    }}
+                    onOpenAIAnalyst={(match) => {
+                      setSelectedMatchId(match.id);
+                      handleOpenAIAnalyst(match);
+                    }}
+                    onSelectMatch={(match) => {
+                      setSelectedMatchId(match.id);
+                      setActiveTab('matches');
+                    }}
+                    onDeleteSignal={(id) => {
+                      setSignals((prev) => prev.filter((s) => s.id !== id));
+                    }}
+                    onUpdateOutcome={updateSignalOutcome}
+                    onExportCsv={handleExportSignalsCsv}
+                  />
+                ) : (
+                  <div className="space-y-6">
+                    {/* Tracker KPI Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                     <div className="text-[11px] text-slate-400">Проходимость (Win Rate)</div>
@@ -3768,7 +4376,6 @@ export default function App() {
                     />
                   </div>
                 </div>
-              </div>
 
               {/* Signals Cards Feed */}
               {filteredSignalsList.length === 0 ? (
@@ -4001,8 +4608,10 @@ export default function App() {
                 </div>
               )}
             </div>
-          );
-        })()}
+          )}
+        </div>
+      );
+    })()}
 
         {/* Tab 4: Backtesting & ROI Laboratory */}
         {activeTab === 'backtest' && (
@@ -4791,6 +5400,34 @@ export default function App() {
           }}
         />
       </div>
+
+      {/* Restore Right Banner pill if dismissed */}
+      {dismissedRightBanner && currentUser.adPreferences.showBanners && (
+        <button
+          onClick={() => setDismissedRightBanner(false)}
+          className="hidden xl:flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-slate-900/95 border border-indigo-500/40 px-2 py-1 rounded-l-lg fixed right-0 top-32 z-30 transition shadow-lg backdrop-blur-sm active:scale-95"
+          title="Восстановить баннер справа"
+        >
+          <span className="font-bold">Баннер справа</span>
+          <ChevronLeft className="h-3 w-3" />
+        </button>
+      )}
+
+      {/* Right Skyscraper Banner (Desktop) */}
+      {currentUser.adPreferences.showBanners && !dismissedRightBanner && rightAd && (
+        <aside
+          id="ad-flank-right"
+          className="hidden xl:block w-44 2xl:w-56 shrink-0 pt-6 sticky top-16 z-20"
+        >
+          <AdBanner
+            ad={rightAd}
+            variant="skyscraper"
+            side="right"
+            onDismiss={() => setDismissedRightBanner(true)}
+          />
+        </aside>
+      )}
+    </div>
     </div>
   );
 }

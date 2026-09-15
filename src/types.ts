@@ -29,6 +29,10 @@ export interface Match {
     draw: number;
     away: number;
     over25: number;
+    over05?: number;
+    over15?: number;
+    under05?: number;
+    under15?: number;
     btts?: number;
     over35?: number;
     under25?: number;
@@ -154,6 +158,66 @@ export interface FilterRule {
   customBotToken?: string;    // Индивидуальный токен бота для этого конкретного фильтра
   customChatId?: string;      // Индивидуальный chat_id / @канал для этого конкретного фильтра
   userId?: string;            // ID владельца фильтра
+
+  // Матрица параметров сканера (Обо всем понемножку)
+  scannerMatrix?: ScannerMatrixConfig;
+}
+
+export type StatSideChoice = 'K1' | 'K2' | '12';
+
+export interface ScannerStatRow {
+  side: StatSideChoice;
+  operator: '>=' | '<=' | '==' | '>' | '<' | 'DIFF';
+  diffThreshold?: number;
+  ind1Min?: number;
+  ind1Max?: number;
+  ind2Min?: number;
+  ind2Max?: number;
+  totalMin?: number;
+  totalMax?: number;
+}
+
+export interface ScannerOddsItem {
+  checked: boolean;
+  min: number;
+  max: number;
+}
+
+export interface ScannerMatrixConfig {
+  // Исходы
+  p1: ScannerOddsItem;
+  draw: ScannerOddsItem;
+  p2: ScannerOddsItem;
+  dc1X: ScannerOddsItem;
+  dc12: ScannerOddsItem;
+  dcX2: ScannerOddsItem;
+
+  // Период и сыгранные минуты
+  period: 'ALL' | '1H' | '2H';
+  minuteRange: {
+    checked: boolean;
+    min: number;
+    max: number;
+  };
+
+  // Тоталы
+  tb05: ScannerOddsItem;
+  tb15: ScannerOddsItem;
+  tb25: ScannerOddsItem;
+  tm05: ScannerOddsItem;
+  tm15: ScannerOddsItem;
+  tm25: ScannerOddsItem;
+
+  // 9 статистических строк
+  goals: ScannerStatRow;
+  attacks: ScannerStatRow;
+  dangerousAttacks: ScannerStatRow;
+  possession: ScannerStatRow;
+  shotsOnTarget: ScannerStatRow;
+  shotsOffTarget: ScannerStatRow;
+  corners: ScannerStatRow;
+  yellowCards: ScannerStatRow;
+  redCards: ScannerStatRow;
 }
 
 export type SignalOutcome = 'WIN' | 'LOSS' | 'PENDING' | 'REFUND';
@@ -167,6 +231,19 @@ export interface SignalAlert {
   country: string;
   minute: number;
   score: string;
+  period?: string; // 1-й тайм, 2-й тайм, Перерыв
+  statsSnapshot?: {
+    homeScore: number;
+    awayScore: number;
+    attacks: [number, number];
+    dangerousAttacks: [number, number];
+    shotsOnTarget: [number, number];
+    shotsOffTarget: [number, number];
+    corners: [number, number];
+    yellowCards: [number, number];
+    redCards: [number, number];
+    possession?: [number, number];
+  };
   ruleId?: string;
   ruleName: string;
   message: string;
@@ -246,10 +323,12 @@ export interface AdBannerItem {
   promoCode?: string;
   ctaText: string;
   ctaUrl: string;
-  bannerType: 'top_ribbon' | 'in_feed' | 'sidebar';
+  bannerType: 'top_ribbon' | 'top_billboard' | 'in_feed' | 'sidebar' | 'skyscraper_left' | 'skyscraper_right' | 'skyscraper';
   partnerName: string;
   bgGradient: string;
   active: boolean;
+  features?: string[];
+  side?: 'left' | 'right';
 }
 
 export interface TelegramConfig {

@@ -538,6 +538,7 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
       botId: formData.botId === 'custom' ? undefined : (formData.botId || undefined),
       customBotToken: formData.customBotToken?.trim() || undefined,
       customChatId: formData.customChatId?.trim() || undefined,
+      scannerMatrix: formData.scannerMatrix,
     };
 
     onSave(finalRule);

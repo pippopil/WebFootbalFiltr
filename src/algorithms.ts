@@ -598,6 +598,141 @@ export function evaluateFilterRule(
     }
   }
 
+  // 35. Classic Scanner Matrix Configuration (Сканер "Обо всем понемножку")
+  if (rule.scannerMatrix) {
+    const m = rule.scannerMatrix;
+
+    // Период
+    if (m.period === '1H') {
+      totalCriteria++;
+      if (match.minute <= 45 && match.status !== 'FT') passedCount++;
+      else unmetCriteria.push('Матч не в 1-м тайме');
+    } else if (m.period === '2H') {
+      totalCriteria++;
+      if (match.minute > 45 && match.status !== 'FT') passedCount++;
+      else unmetCriteria.push('Матч не во 2-м тайме');
+    }
+
+    // Минуты матча
+    if (m.minuteRange?.checked) {
+      totalCriteria++;
+      if (match.minute >= m.minuteRange.min && match.minute <= m.minuteRange.max) passedCount++;
+      else unmetCriteria.push(`Минута ${match.minute}' вне диапазона (${m.minuteRange.min}'-${m.minuteRange.max}')`);
+    }
+
+    // Котировки исходов
+    const checkOdd = (label: string, item?: { checked: boolean; min: number; max: number }, value?: number) => {
+      if (!item?.checked || value === undefined) return;
+      totalCriteria++;
+      if (value >= item.min && value <= item.max) passedCount++;
+      else unmetCriteria.push(`Кэф ${label} (${value.toFixed(2)}) вне коридора [${item.min} - ${item.max}]`);
+    };
+
+    checkOdd('П1', m.p1, match.odds.home);
+    checkOdd('X', m.draw, match.odds.draw);
+    checkOdd('П2', m.p2, match.odds.away);
+
+    const dc1X = match.odds.draw ? (1 / (1 / match.odds.home + 1 / match.odds.draw)) : undefined;
+    const dc12 = match.odds.away ? (1 / (1 / match.odds.home + 1 / match.odds.away)) : undefined;
+    const dcX2 = (match.odds.draw && match.odds.away) ? (1 / (1 / match.odds.draw + 1 / match.odds.away)) : undefined;
+    checkOdd('1X', m.dc1X, dc1X);
+    checkOdd('12', m.dc12, dc12);
+    checkOdd('X2', m.dcX2, dcX2);
+
+    // Тоталы
+    checkOdd('ТБ 0.5', m.tb05, match.odds.over15 ? Math.max(1.05, match.odds.over15 * 0.68) : 1.12);
+    checkOdd('ТБ 1.5', m.tb15, match.odds.over15 ?? 1.35);
+    checkOdd('ТБ 2.5', m.tb25, match.odds.over25);
+    checkOdd('ТМ 0.5', m.tm05, match.odds.under25 ? match.odds.under25 * 3.2 : 7.5);
+    checkOdd('ТМ 1.5', m.tm15, match.odds.under25 ? match.odds.under25 * 1.7 : 3.2);
+    checkOdd('ТМ 2.5', m.tm25, match.odds.under25 ?? (match.odds.over25 ? 1 / (1 - 1 / match.odds.over25 + 0.1) : 2.10));
+
+    // Проверка статистической строки матрицы
+    const checkRow = (name: string, row?: import('./types').ScannerStatRow, values?: [number, number]) => {
+      if (!row || !values) return;
+      const [v1, v2] = values;
+      const total = v1 + v2;
+
+      // Индивидуальные пороги
+      if (row.ind1Min !== undefined && row.ind1Min !== null && !isNaN(row.ind1Min)) {
+        totalCriteria++;
+        if (v1 >= row.ind1Min) passedCount++;
+        else unmetCriteria.push(`${name} К1 (${v1}) < ${row.ind1Min}`);
+      }
+      if (row.ind1Max !== undefined && row.ind1Max !== null && !isNaN(row.ind1Max)) {
+        totalCriteria++;
+        if (v1 <= row.ind1Max) passedCount++;
+        else unmetCriteria.push(`${name} К1 (${v1}) > ${row.ind1Max}`);
+      }
+      if (row.ind2Min !== undefined && row.ind2Min !== null && !isNaN(row.ind2Min)) {
+        totalCriteria++;
+        if (v2 >= row.ind2Min) passedCount++;
+        else unmetCriteria.push(`${name} К2 (${v2}) < ${row.ind2Min}`);
+      }
+      if (row.ind2Max !== undefined && row.ind2Max !== null && !isNaN(row.ind2Max)) {
+        totalCriteria++;
+        if (v2 <= row.ind2Max) passedCount++;
+        else unmetCriteria.push(`${name} К2 (${v2}) > ${row.ind2Max}`);
+      }
+
+      // Общий тотал
+      if (row.totalMin !== undefined && row.totalMin !== null && !isNaN(row.totalMin)) {
+        totalCriteria++;
+        if (total >= row.totalMin) passedCount++;
+        else unmetCriteria.push(`Всего ${name} (${total}) < ${row.totalMin}`);
+      }
+      if (row.totalMax !== undefined && row.totalMax !== null && !isNaN(row.totalMax)) {
+        totalCriteria++;
+        if (total <= row.totalMax) passedCount++;
+        else unmetCriteria.push(`Всего ${name} (${total}) > ${row.totalMax}`);
+      }
+
+      // Разница / сторона
+      if (row.diffThreshold !== undefined && row.diffThreshold !== null && !isNaN(row.diffThreshold)) {
+        totalCriteria++;
+        let actualDiff = 0;
+        if (row.side === 'K1') actualDiff = v1 - v2;
+        else if (row.side === 'K2') actualDiff = v2 - v1;
+        else actualDiff = Math.abs(v1 - v2);
+
+        let ok = false;
+        switch (row.operator) {
+          case '>=':
+          case 'DIFF':
+            ok = actualDiff >= row.diffThreshold;
+            break;
+          case '<=':
+            ok = actualDiff <= row.diffThreshold;
+            break;
+          case '==':
+            ok = actualDiff === row.diffThreshold;
+            break;
+          case '>':
+            ok = actualDiff > row.diffThreshold;
+            break;
+          case '<':
+            ok = actualDiff < row.diffThreshold;
+            break;
+          default:
+            ok = actualDiff >= row.diffThreshold;
+        }
+
+        if (ok) passedCount++;
+        else unmetCriteria.push(`Разница ${name} (${actualDiff}) не удовлетворяет ${row.operator} ${row.diffThreshold}`);
+      }
+    };
+
+    checkRow('Голы', m.goals, [match.score[0], match.score[1]]);
+    checkRow('Атаки', m.attacks, match.stats.attacks);
+    checkRow('Опасные атаки', m.dangerousAttacks, match.stats.dangerousAttacks);
+    checkRow('Владение', m.possession, match.stats.possession);
+    checkRow('Удары в створ', m.shotsOnTarget, match.stats.shotsOnTarget);
+    checkRow('Удары мимо', m.shotsOffTarget, match.stats.shotsOffTarget);
+    checkRow('Угловые', m.corners, match.stats.corners);
+    checkRow('ЖК', m.yellowCards, match.stats.yellowCards);
+    checkRow('КК', m.redCards, match.stats.redCards);
+  }
+
   const progressPercent = totalCriteria > 0 ? Math.round((passedCount / totalCriteria) * 100) : 100;
   const matches = unmetCriteria.length === 0;
 
