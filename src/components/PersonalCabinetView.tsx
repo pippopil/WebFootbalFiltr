@@ -27,6 +27,12 @@ import {
   Bell,
   Volume2,
   VolumeX,
+  Sun,
+  Moon,
+  Zap,
+  Scale,
+  Flame,
+  ArrowRight,
 } from 'lucide-react';
 import { UserProfile, TelegramBotProfile, FilterRule, AdBannerItem } from '../types';
 
@@ -42,6 +48,9 @@ interface PersonalCabinetViewProps {
   ads?: AdBannerItem[];
   onSaveFilters?: (filters: FilterRule[]) => void;
   onOpenFilterModal?: (filter?: FilterRule) => void;
+  currentTheme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
+  onSetTheme?: (theme: 'dark' | 'light') => void;
 }
 
 export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
@@ -56,11 +65,15 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   ads,
   onSaveFilters,
   onOpenFilterModal,
+  currentTheme = 'dark',
+  onToggleTheme,
+  onSetTheme,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'bots' | 'profile' | 'users' | 'ads'>('bots');
+  const [activeSubTab, setActiveSubTab] = useState<'bots' | 'plans' | 'ads' | 'users' | 'profile'>('bots');
   const [showTokens, setShowTokens] = useState<Record<string, boolean>>({});
   const [testingBotId, setTestingBotId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ botId: string; ok: boolean; message: string } | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   // New Bot Form State
   const [isAddingBot, setIsAddingBot] = useState(false);
@@ -77,6 +90,13 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPlan, setNewUserPlan] = useState<'FREE' | 'PRO_ANALYST' | 'VIP_CLUB'>('PRO_ANALYST');
+
+  // Max bots allowed based on user tier (FREE = 1 bot, PRO = 5 bots, VIP = 15 bots)
+  const maxBotsAllowed = React.useMemo(() => {
+    if (currentUser.plan === 'FREE') return 1;
+    if (currentUser.plan === 'PRO_ANALYST') return 5;
+    return 15; // VIP_CLUB
+  }, [currentUser.plan]);
 
   // Count filters bound to each bot
   const botFilterCounts = React.useMemo(() => {
@@ -98,6 +118,18 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   // Handle Add Bot
   const handleAddBot = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Check plan bot limit
+    if (currentUser.telegramBots.length >= maxBotsAllowed) {
+      if (currentUser.plan === 'FREE') {
+        setShowUpgradeModal(true);
+        return;
+      } else {
+        alert(`На вашем тарифе (${currentUser.plan}) доступно подключение до ${maxBotsAllowed} ботов. Для дальнейшего расширения перейдите на VIP.`);
+        return;
+      }
+    }
+
     if (!newBotName.trim() || !newBotToken.trim() || !newBotChatId.trim()) {
       alert('Заполните название бота, токен от @BotFather и Chat ID / @канал.');
       return;
@@ -362,6 +394,18 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveSubTab('plans')}
+          className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition ${
+            activeSubTab === 'plans'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/40'
+              : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
+          }`}
+        >
+          <Shield className="h-4 w-4 text-emerald-400" />
+          <span>Тарифы: FREE vs PRO</span>
+        </button>
+
+        <button
           onClick={() => setActiveSubTab('users')}
           className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition ${
             activeSubTab === 'users'
@@ -408,17 +452,76 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 Сетка привязанных Telegram-ботов
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Вы можете привязать неограниченное количество ботов и назначать отдельные фильтры на нужные каналы
+                {currentUser.plan === 'FREE'
+                  ? 'Тариф FREE: подключение 1 бота с мгновенной отправкой без задержек. В PRO доступно до 5 ботов.'
+                  : 'Тариф PRO: вы можете подключить до 5 ботов и распределить разные стратегии по отдельным каналам.'}
               </p>
             </div>
 
             <button
-              onClick={() => setIsAddingBot(!isAddingBot)}
+              onClick={() => {
+                if (currentUser.telegramBots.length >= maxBotsAllowed) {
+                  if (currentUser.plan === 'FREE') {
+                    setShowUpgradeModal(true);
+                    return;
+                  } else {
+                    alert(`На вашем тарифе (${currentUser.plan}) доступно подключение до ${maxBotsAllowed} ботов. Для расширения сетки перейдите на VIP.`);
+                    return;
+                  }
+                }
+                setIsAddingBot(!isAddingBot);
+              }}
               className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 transition active:scale-95 shrink-0"
             >
               <Plus className="h-4 w-4" />
               <span>{isAddingBot ? 'Закрыть форму' : '+ Добавить бота'}</span>
             </button>
+          </div>
+
+          {/* Plan & Bot Capacity Notice */}
+          <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 backdrop-blur-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className={`p-2.5 rounded-xl shrink-0 ${currentUser.plan === 'FREE' ? 'bg-slate-800 text-slate-300' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                <Bot className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-white">
+                    Подключено ботов: <strong className="text-emerald-400">{currentUser.telegramBots.length} из {maxBotsAllowed}</strong>
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                    currentUser.plan === 'FREE'
+                      ? 'bg-slate-800 text-slate-300 border border-slate-700'
+                      : currentUser.plan === 'PRO_ANALYST'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  }`}>
+                    {currentUser.plan === 'FREE' ? 'Тариф FREE (1 бот)' : currentUser.plan === 'PRO_ANALYST' ? 'Тариф PRO (до 5 ботов)' : 'Тариф VIP (до 15 ботов)'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> 0 секунд задержки
+                  </span>
+                  <span>— мгновенная отправка сигналов в реальном времени! Полный функционал фильтров в ручном режиме.</span>
+                </p>
+              </div>
+            </div>
+
+            {currentUser.plan === 'FREE' ? (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('plans')}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md transition active:scale-95 shrink-0 flex items-center gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                <span>До 5 ботов на разные фильтры (PRO) →</span>
+              </button>
+            ) : (
+              <span className="text-xs text-emerald-400 font-semibold bg-emerald-950/40 border border-emerald-500/30 px-3 py-1.5 rounded-xl shrink-0">
+                ⭐ PRO-режим: до 5 ботов активны
+              </span>
+            )}
           </div>
 
           {/* Test Result Notification */}
@@ -673,6 +776,370 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB: PLANS & ACCESS MODEL */}
+      {activeSubTab === 'plans' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Shield className="h-5 w-5 text-emerald-400" />
+                Тарифные планы и модель доступа
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Честная модель: 0 сек задержки и полный ручной конструктор на тарифе FREE. До 5 ботов на разные стратегии и Ad-Free на тарифе PRO.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
+              <span>Текущий тариф:</span>
+              <strong className="text-emerald-400 font-extrabold uppercase">
+                {currentUser.plan === 'FREE'
+                  ? 'FREE (1 бот)'
+                  : currentUser.plan === 'PRO_ANALYST'
+                  ? 'PRO Analyst (до 5 ботов)'
+                  : 'VIP Club'}
+              </strong>
+            </div>
+          </div>
+
+          {/* Core Product Guarantee Strip */}
+          <div className="p-4 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-950 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <Zap className="h-5 w-5 text-amber-400 shrink-0" />
+              <div>
+                <span className="font-bold text-white">Принцип мгновенной доставки (0 секунд задержки):</span>
+                <p className="text-slate-300 text-[11px] mt-0.5">
+                  Мы принципиально <strong>не делаем искусственных задержек</strong> даже на бесплатном тарифе! Сигнал отправляется мгновенно в момент срабатывания триггера, чтобы вы успевали совершить ставку по выгодному коэффициенту.
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0 flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono font-bold text-[11px] border border-emerald-500/30">
+                Ping ~150ms
+              </span>
+            </div>
+          </div>
+
+          {/* Pricing Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* PLAN 1: FREE */}
+            <div
+              className={`rounded-2xl p-5 border flex flex-col justify-between transition relative ${
+                currentUser.plan === 'FREE'
+                  ? 'bg-slate-900 border-emerald-500 shadow-xl shadow-emerald-950/30 ring-1 ring-emerald-500/40'
+                  : 'bg-slate-900/70 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-[10px] font-extrabold uppercase border border-slate-700">
+                    Базовый доступ
+                  </span>
+                  {currentUser.plan === 'FREE' && (
+                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Активен
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-bold text-white">FREE</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Полный функционал для каждого игрока без скрытых платежей
+                  </p>
+                </div>
+
+                <div className="py-2 border-y border-slate-800/80">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-extrabold text-white">0 ₽</span>
+                    <span className="text-xs text-slate-400">/ навсегда</span>
+                  </div>
+                </div>
+
+                <ul className="space-y-2.5 text-xs text-slate-300">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Полный функционал фильтров в ручном режиме:</strong> все 20+ метрик (xG, удары, опасные атаки, угловые, давление, прогрузы коэффициентов Smart Money, камбэки).</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>0 секунд задержки:</strong> моментальная отправка сигналов в Telegram без замедления.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>1 Telegram-бот:</strong> отправка в личный чат или ваш канал.</span>
+                  </li>
+                  <li className="flex items-start gap-2 text-slate-400">
+                    <Sparkles className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span><strong>Рекламная поддержка:</strong> показ проверенных фрибетов и акций легальных БК РФ (Единый ЦУПИС, 18+).</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Неограниченный бэктестинг стратегий по базе матчей.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-5 mt-4 border-t border-slate-800">
+                {currentUser.plan === 'FREE' ? (
+                  <button
+                    disabled
+                    className="w-full py-2.5 rounded-xl bg-slate-800/70 border border-slate-700 text-slate-400 text-xs font-bold cursor-default"
+                  >
+                    ✓ Ваш текущий тариф
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onUpdateCurrentUser({
+                        ...currentUser,
+                        plan: 'FREE',
+                        role: 'user',
+                        adPreferences: {
+                          ...currentUser.adPreferences,
+                          showBanners: true,
+                        },
+                      });
+                      alert('Переключено на бесплатный тариф FREE. Лимит: 1 бот, реклама включена.');
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition active:scale-95"
+                  >
+                    Переключить на FREE (Тест)
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* PLAN 2: PRO ANALYST (BEST VALUE) */}
+            <div
+              className={`rounded-2xl p-5 border flex flex-col justify-between transition relative ${
+                currentUser.plan === 'PRO_ANALYST'
+                  ? 'bg-gradient-to-b from-slate-900 to-emerald-950/20 border-emerald-500 shadow-xl shadow-emerald-950/40 ring-2 ring-emerald-500/50'
+                  : 'bg-slate-900 border-amber-500/40 shadow-lg hover:border-amber-500/70'
+              }`}
+            >
+              {/* Highlight badge */}
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-black text-[10px] tracking-wider uppercase shadow-md flex items-center gap-1">
+                <Flame className="h-3 w-3" />
+                <span>Хит выбора</span>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold uppercase border border-emerald-500/30">
+                    Для профи & капперов
+                  </span>
+                  {currentUser.plan === 'PRO_ANALYST' && (
+                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Активен
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-1.5">
+                    <span>PRO Analyst</span>
+                    <Sparkles className="h-4 w-4 text-amber-400" />
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Мульти-боты под разные стратегии и работа без отвлекающей рекламы
+                  </p>
+                </div>
+
+                <div className="py-2 border-y border-slate-800/80">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-extrabold text-emerald-400">1 490 ₽</span>
+                    <span className="text-xs text-slate-400">/ месяц</span>
+                  </div>
+                </div>
+
+                <ul className="space-y-2.5 text-xs text-slate-200">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong className="text-amber-300">До 5 Telegram-ботов одновременно:</strong> привязывайте отдельные боты под разные фильтры (например: Бот угловых, Бот камбэков, Бот Smart Money, Бот голов во 2-м тайме, Бот карточек).</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong className="text-emerald-300">Полное отключение рекламы (Ad-Free):</strong> чистый интерфейс без баннеров для максимальной концентрации.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>0 секунд задержки:</strong> приоритетные выделенные очереди отправки при пиковой нагрузке выходных.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Неограниченное число активных фильтров и правил.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Приоритетная техническая поддержка в Telegram.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-5 mt-4 border-t border-slate-800">
+                {currentUser.plan === 'PRO_ANALYST' ? (
+                  <button
+                    disabled
+                    className="w-full py-2.5 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-default"
+                  >
+                    ✓ Ваш текущий тариф
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onUpdateCurrentUser({
+                        ...currentUser,
+                        plan: 'PRO_ANALYST',
+                        role: 'pro',
+                        adPreferences: {
+                          ...currentUser.adPreferences,
+                          showBanners: false,
+                        },
+                      });
+                      alert('Тариф PRO Analyst успешно активирован! Доступно подключение до 5 ботов и отключены рекламные баннеры.');
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-950/40 transition active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <span>Активировать PRO (1 490 ₽)</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* PLAN 3: VIP SYNDICATE */}
+            <div
+              className={`rounded-2xl p-5 border flex flex-col justify-between transition relative ${
+                currentUser.plan === 'VIP_CLUB'
+                  ? 'bg-slate-900 border-amber-500 shadow-xl shadow-amber-950/30 ring-1 ring-amber-500/40'
+                  : 'bg-slate-900/70 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-extrabold uppercase border border-amber-500/30">
+                    Для синдикатов
+                  </span>
+                  {currentUser.plan === 'VIP_CLUB' && (
+                    <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Активен
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-1.5">
+                    <span>VIP Syndicate</span>
+                    <Crown className="h-4 w-4 text-amber-400" />
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Для закрытых сообществ, каналов и алгоритмических команд
+                  </p>
+                </div>
+
+                <div className="py-2 border-y border-slate-800/80">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-extrabold text-amber-400">3 990 ₽</span>
+                    <span className="text-xs text-slate-400">/ месяц</span>
+                  </div>
+                </div>
+
+                <ul className="space-y-2.5 text-xs text-slate-300">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span><strong>До 15 Telegram-ботов</strong> для распределения по сеткам каналов.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span><strong>Персональный Webhook API:</strong> получение потока сигналов в ваши скрипты.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span><strong>Доступ в закрытый VIP-чат:</strong> готовые пресеты с винрейтом 80%+.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span>Полное отключение рекламы.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-5 mt-4 border-t border-slate-800">
+                {currentUser.plan === 'VIP_CLUB' ? (
+                  <button
+                    disabled
+                    className="w-full py-2.5 rounded-xl bg-amber-600/20 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-default"
+                  >
+                    ✓ Ваш текущий тариф
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onUpdateCurrentUser({
+                        ...currentUser,
+                        plan: 'VIP_CLUB',
+                        role: 'vip',
+                        adPreferences: {
+                          ...currentUser.adPreferences,
+                          showBanners: false,
+                        },
+                      });
+                      alert('Тариф VIP Syndicate успешно активирован! Доступно до 15 ботов и Webhook API.');
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-xs transition active:scale-95"
+                  >
+                    Подключить VIP (3 990 ₽)
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Russian Legislation Compliance Card */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Scale className="h-5 w-5 text-cyan-400" />
+              <h3 className="text-sm font-bold text-white">
+                Правовой статус и соответствие законодательству Российской Федерации
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs text-slate-300">
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-1">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <Shield className="h-3.5 w-3.5 text-emerald-400" />
+                  244-ФЗ (Об азартных играх)
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Сервис является исключительно информационно-аналитическим программным комплексом. Не принимает ставки, не организует пари и не выплачивает выигрыши.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-1">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  38-ФЗ «О рекламе» (ст. 27)
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Все рекламные баннеры маркируются идентификаторами (erid) через ОРД. Сотрудничество ведется исключительно с лицензированными БК Единого ЦУПИС (ЕРАИ), строго 18+.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-1">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400" />
+                  152-ФЗ (Персональные данные)
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Безопасное хранение данных пользователей, регистрация через email/Telegram и политика конфиденциальности в строгом соответствии с законами РФ.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1017,6 +1484,55 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
             </div>
           </div>
 
+          {/* Theme Switcher Setting */}
+          <div className="pt-4 border-t border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-bold text-slate-200">Тема оформления интерфейса:</label>
+                <div className="text-[11px] text-slate-400">
+                  Выберите комфортную для глаз цветовую гамму приложения
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-semibold text-emerald-400">
+                {currentTheme === 'dark' ? '🌙 Тёмная тема' : '☀️ Светлая тема'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  onSetTheme?.('dark');
+                  onUpdateCurrentUser({ ...currentUser, theme: 'dark' });
+                }}
+                className={`flex items-center justify-center gap-2.5 p-3 rounded-xl border text-xs font-bold transition shadow-sm ${
+                  currentTheme === 'dark'
+                    ? 'bg-slate-800 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/40'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+              >
+                <Moon className="h-4 w-4 text-sky-400" />
+                <span>Тёмная (Dark Night)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onSetTheme?.('light');
+                  onUpdateCurrentUser({ ...currentUser, theme: 'light' });
+                }}
+                className={`flex items-center justify-center gap-2.5 p-3 rounded-xl border text-xs font-bold transition shadow-sm ${
+                  currentTheme === 'light'
+                    ? 'bg-slate-800 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/40'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+              >
+                <Sun className="h-4 w-4 text-amber-400" />
+                <span>Светлая (Clean Light)</span>
+              </button>
+            </div>
+          </div>
+
           <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
             <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
               <input
@@ -1029,6 +1545,89 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               />
               <span>Звуковые оповещения при поступлении новых сигналов</span>
             </label>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade to PRO Modal (When user on FREE tries to exceed 1 bot limit) */}
+      {showUpgradeModal && (
+        <div
+          id="upgrade-to-pro-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setShowUpgradeModal(false)}
+        >
+          <div
+            className="bg-slate-900 border border-amber-500/50 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                  <Bot className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Подключение до 5 ботов доступно в PRO
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    Лимит тарифа FREE: 1 активный Telegram-бот
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-slate-950/70 rounded-xl p-4 border border-slate-800 space-y-2.5 text-xs text-slate-300">
+              <div className="flex items-start gap-2 text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  <strong>На тарифе FREE:</strong> вам уже доступен <strong>полный функционал фильтров в ручном режиме</strong>, 1 бот и <strong>мгновенные сигналы без задержек (0 сек)</strong>.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-amber-300">
+                <Sparkles className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  <strong>В тарифе PRO (1 490 ₽/мес):</strong> вы можете подключить <strong>до 5 Telegram-ботов</strong>, чтобы направить разные стратегии (угловые, камбэки, Smart Money, голы) в отдельные каналы + <strong>полное отключение рекламы</strong>.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdateCurrentUser({
+                    ...currentUser,
+                    plan: 'PRO_ANALYST',
+                    role: 'pro',
+                    adPreferences: {
+                      ...currentUser.adPreferences,
+                      showBanners: false,
+                    },
+                  });
+                  setShowUpgradeModal(false);
+                  setIsAddingBot(true);
+                  alert('Тариф PRO успешно активирован! Теперь вы можете добавить до 5 ботов.');
+                }}
+                className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-950/40 transition active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                <span>Перейти на PRO (1 490 ₽)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowUpgradeModal(false)}
+                className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition"
+              >
+                Остаться на FREE (1 бот)
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -23,6 +23,10 @@ export function getEstimatedOdds(targetMarket: string | undefined, minute: numbe
     return 1.78;
   }
 
+  if (marketLower.includes('прогруз') || marketLower.includes('smart money') || marketLower.includes('steam')) {
+    return 1.82;
+  }
+
   // Goals (ТБ 0.5 / ТБ 1.5)
   if (minute >= 80) return 2.35;
   if (minute >= 70) return 1.88;
@@ -108,6 +112,44 @@ export function evaluateMarketOutcome(
     };
   }
 
+  // Category: Dropping Odds / Smart Money (Steam Moves)
+  if (ruleCategory === 'odds_drop' || market.includes('прогруз') || market.includes('smart money') || market.includes('steam')) {
+    if (market.includes('п1') || market.includes('победа 1') || market.includes('хозяев') || market.includes('home')) {
+      if (finalScore[0] > finalScore[1]) {
+        return {
+          outcome: 'WIN',
+          reason: `Прогруз на П1 оправдался: победа хозяев ${finalScore[0]}:${finalScore[1]}`,
+        };
+      }
+      return {
+        outcome: 'LOSS',
+        reason: `Прогруз на П1 не сыграл: итоговый счет ${finalScore[0]}:${finalScore[1]}`,
+      };
+    }
+    if (market.includes('п2') || market.includes('победа 2') || market.includes('гостей') || market.includes('away')) {
+      if (finalScore[1] > finalScore[0]) {
+        return {
+          outcome: 'WIN',
+          reason: `Прогруз на П2 оправдался: победа гостей ${finalScore[0]}:${finalScore[1]}`,
+        };
+      }
+      return {
+        outcome: 'LOSS',
+        reason: `Прогруз на П2 не сыграл: итоговый счет ${finalScore[0]}:${finalScore[1]}`,
+      };
+    }
+    if (newGoals >= 1 || finalGoals >= 3) {
+      return {
+        outcome: 'WIN',
+        reason: `Прогруз подтвердился результатом: голов в матче ${finalGoals} (${finalScore[0]}:${finalScore[1]})`,
+      };
+    }
+    return {
+      outcome: 'LOSS',
+      reason: `Прогруз не подтвердился результатом (${finalScore[0]}:${finalScore[1]})`,
+    };
+  }
+
   // Default: Total Over Goals (ТБ 0.5 во 2-м тайме / еще гол)
   if (newGoals >= 1) {
     return {
@@ -156,8 +198,11 @@ function snapshotMatchesRule(
   if (rule.scoreCondition === 'ONE_GOAL_DIFF' && Math.abs(scoreDiff) !== 1) {
     return { matches: false, reason: 'Разница не в 1 гол' };
   }
-  if (rule.scoreCondition === 'TOTAL_UNDER_2' && homeScore + awayScore > 2) {
-    return { matches: false, reason: 'Тотал больше 2' };
+  if ((rule.scoreCondition === 'TOTAL_UNDER_25' || rule.scoreCondition === 'TOTAL_UNDER_2') && homeScore + awayScore > 2) {
+    return { matches: false, reason: 'ТБ 2.5 уже пробит (тотал голов > 2)' };
+  }
+  if (rule.maxTotalGoals !== undefined && homeScore + awayScore > rule.maxTotalGoals) {
+    return { matches: false, reason: `Тотал голов ${homeScore + awayScore} > ${rule.maxTotalGoals} (ТБ пробит)` };
   }
   if (rule.scoreCondition === 'TOTAL_OVER_2' && homeScore + awayScore <= 2) {
     return { matches: false, reason: 'Тотал меньше или равен 2' };
@@ -232,6 +277,42 @@ function snapshotMatchesRule(
         matches: false,
         reason: `Индекс давления ${pressure.pressureIndex}% < ${rule.minPressureIndex}%`,
       };
+    }
+  }
+
+  // 11. Dropping Odds & Smart Money Load
+  if (
+    rule.minOddsDropPercent !== undefined ||
+    rule.minMoneyVolumePercent !== undefined ||
+    rule.minMoneyLoadAmount !== undefined
+  ) {
+    const flows =
+      snapshot.marketFlows && snapshot.marketFlows.length > 0
+        ? snapshot.marketFlows
+        : snapshot.oddsDrop
+        ? [snapshot.oddsDrop]
+        : [];
+
+    const targetMarketFilter =
+      rule.oddsDropMarket && rule.oddsDropMarket !== 'ANY' ? rule.oddsDropMarket : null;
+    const relevantFlows = targetMarketFilter
+      ? flows.filter((f) => f.market === targetMarketFilter)
+      : flows;
+
+    const qualifying = relevantFlows.find((f) => {
+      const dropOk =
+        rule.minOddsDropPercent === undefined || f.dropPercent >= rule.minOddsDropPercent;
+      const volOk =
+        rule.minMoneyVolumePercent === undefined ||
+        f.moneyVolumePercent >= rule.minMoneyVolumePercent;
+      const amtOk =
+        rule.minMoneyLoadAmount === undefined ||
+        (f.moneyVolumeAmountEur ?? 0) >= rule.minMoneyLoadAmount;
+      return dropOk && volOk && amtOk;
+    });
+
+    if (!qualifying) {
+      return { matches: false, reason: 'Нет подтвержденного прогруза линии' };
     }
   }
 

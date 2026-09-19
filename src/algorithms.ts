@@ -1,4 +1,153 @@
-import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType } from './types';
+import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData } from './types';
+
+/**
+ * Calculates real-time odds movements (Odds Flow) and smart money volume distribution.
+ * Compares opening/initial odds with current live odds across key markets (1, X, 2, Over/Under 2.5, BTTS).
+ */
+export function calculateMatchOddsFlows(
+  match: {
+    homeTeam: string;
+    awayTeam: string;
+    odds: { home: number; draw: number; away: number; over25: number; under25?: number; btts?: number };
+    initialOdds?: { home?: number; draw?: number; away?: number; over25?: number; under25?: number; btts?: number };
+    minute?: number;
+    league?: string;
+  }
+): OddsDropData[] {
+  const flows: OddsDropData[] = [];
+  const init = match.initialOdds;
+  const curr = match.odds;
+  if (!curr) return flows;
+
+  const marketsToCheck: Array<{
+    market: 'HOME' | 'DRAW' | 'AWAY' | 'OVER' | 'UNDER' | 'BTTS';
+    name: string;
+    cur: number | undefined;
+    baseInit: number | undefined;
+    defaultBookie: string;
+  }> = [
+    {
+      market: 'HOME',
+      name: `П1 (${match.homeTeam})`,
+      cur: curr.home,
+      baseInit: init?.home,
+      defaultBookie: 'Betfair Exchange / Pinnacle',
+    },
+    {
+      market: 'DRAW',
+      name: 'Ничья (X)',
+      cur: curr.draw,
+      baseInit: init?.draw,
+      defaultBookie: 'Pinnacle Sports',
+    },
+    {
+      market: 'AWAY',
+      name: `П2 (${match.awayTeam})`,
+      cur: curr.away,
+      baseInit: init?.away,
+      defaultBookie: 'Betfair Exchange / Bet365',
+    },
+    {
+      market: 'OVER',
+      name: 'ТБ 2.5',
+      cur: curr.over25,
+      baseInit: init?.over25,
+      defaultBookie: 'Pinnacle / Asian Handicap',
+    },
+    {
+      market: 'UNDER',
+      name: 'ТМ 2.5',
+      cur: curr.under25,
+      baseInit: init?.under25,
+      defaultBookie: 'Betfair Exchange',
+    },
+    {
+      market: 'BTTS',
+      name: 'Обе забьют (Да)',
+      cur: curr.btts,
+      baseInit: init?.btts,
+      defaultBookie: 'Pinnacle / 1xBet',
+    },
+  ];
+
+  for (const m of marketsToCheck) {
+    if (m.cur === undefined || m.cur <= 1.01) continue;
+    if (m.baseInit && m.baseInit > m.cur) {
+      const dropPct = Number((((m.baseInit - m.cur) / m.baseInit) * 100).toFixed(1));
+      if (dropPct >= 2.0) {
+        // Exchange/Sharp bookmaker liquidity model
+        const moneyVolPct = Math.min(95, Math.max(52, Math.round(50 + dropPct * 1.45)));
+        const moneyAmtEur = Math.round((50000 + dropPct * 7500) / 1000) * 1000;
+
+        flows.push({
+          market: m.market,
+          marketName: m.name,
+          initialOdds: m.baseInit,
+          currentOdds: m.cur,
+          dropPercent: dropPct,
+          moneyVolumePercent: moneyVolPct,
+          moneyVolumeAmountEur: moneyAmtEur,
+          bookmaker: m.defaultBookie,
+          detectedAtMinute: match.minute || 1,
+        });
+      }
+    }
+  }
+
+  flows.sort((a, b) => b.dropPercent - a.dropPercent);
+  return flows;
+}
+
+/**
+ * Enriches a match with persistent odds tracker logic, calculating market flows and primary odds drop.
+ */
+export function enrichMatchWithOddsTracker(match: Match, prevMatch?: Match): Match {
+  // 1. Inherit or preserve initial opening odds
+  const initialOdds =
+    match.initialOdds ||
+    prevMatch?.initialOdds ||
+    (prevMatch?.odds ? { ...prevMatch.odds } : { ...match.odds });
+
+  // 2. If the match already has rich market flows and designated odds drop, preserve them
+  if (match.marketFlows && match.marketFlows.length > 0 && match.oddsDrop) {
+    return {
+      ...match,
+      initialOdds,
+    };
+  }
+
+  // 3. Compute live market flows from odds differences
+  const calculatedFlows = calculateMatchOddsFlows({
+    homeTeam: match.homeTeam,
+    awayTeam: match.awayTeam,
+    odds: match.odds,
+    initialOdds,
+    minute: match.minute,
+    league: match.league,
+  });
+
+  const allFlows = [
+    ...(match.marketFlows || []),
+    ...(match.oddsDrop ? [match.oddsDrop] : []),
+    ...calculatedFlows,
+  ];
+
+  const uniqueFlowsMap = new Map<string, OddsDropData>();
+  for (const f of allFlows) {
+    if (!uniqueFlowsMap.has(f.market) || (uniqueFlowsMap.get(f.market)!.dropPercent < f.dropPercent)) {
+      uniqueFlowsMap.set(f.market, f);
+    }
+  }
+  const flows = Array.from(uniqueFlowsMap.values()).sort((a, b) => b.dropPercent - a.dropPercent);
+  const bestDrop = flows[0] || match.oddsDrop;
+
+  return {
+    ...match,
+    initialOdds,
+    marketFlows: flows.length > 0 ? flows : match.marketFlows,
+    oddsDrop: bestDrop || match.oddsDrop,
+  };
+}
 
 /**
  * Calculates in-depth match pressure, momentum index, and goal probability.
@@ -110,12 +259,42 @@ export function evaluateFilterRule(
   let totalCriteria = 0;
   const unmetCriteria: string[] = [];
 
-  // 1. Minute Range
+  // 1. Minute Range / Prematch Timing Window
   totalCriteria++;
-  if (match.minute >= rule.minMinute && match.minute <= rule.maxMinute) {
-    passedCount++;
+  const isPrematchRule = rule.ruleType === 'PREMATCH' || getBetTypeForSignal(rule, match.minute, match) === 'PREMATCH';
+
+  if (isPrematchRule) {
+    // В стратегиях матчей, когда анализ матча идет до матча, анализ проводится за 1 час (60 мин) до начала матча
+    if (match.status === 'PREMATCH' || match.startsInMinutes !== undefined) {
+      const targetTiming = rule.prematchTimingMinutes ?? 60;
+      const minutesToStart = match.startsInMinutes ?? 60;
+      if (minutesToStart <= targetTiming && minutesToStart >= 0) {
+        passedCount++;
+      } else if (minutesToStart > targetTiming) {
+        unmetCriteria.push(`До матча ${minutesToStart} мин. Анализ стратегии проводится строго за 1 час (60 мин) до начала`);
+      } else {
+        passedCount++;
+      }
+    } else if (match.minute === 0) {
+      passedCount++;
+    } else if (match.status === 'LIVE') {
+      if (rule.maxMinute > 0 && match.minute <= rule.maxMinute) {
+        passedCount++;
+      } else {
+        unmetCriteria.push(`Матч уже идёт (${match.minute}'). Предматчевый отбор проводится за 1 час до начала матча`);
+      }
+    } else {
+      unmetCriteria.push(`Матч завершён (FT). Анализ проводился за 1 час до начала`);
+    }
   } else {
-    unmetCriteria.push(`Минута ${match.minute}' вне диапазона (${rule.minMinute}'-${rule.maxMinute}')`);
+    // Лайв-стратегия
+    if (match.status === 'PREMATCH') {
+      unmetCriteria.push(`Матч ещё не начался (лайв-стратегия активна с ${rule.minMinute}' по ${rule.maxMinute}')`);
+    } else if (match.minute >= rule.minMinute && match.minute <= rule.maxMinute) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Минута ${match.minute}' вне диапазона (${rule.minMinute}'-${rule.maxMinute}')`);
+    }
   }
 
   // 2. Score Condition
@@ -150,9 +329,13 @@ export function evaluateFilterRule(
       scoreOk = diffGoals === 1;
       if (!scoreOk) unmetCriteria.push(`Разница не в 1 мяч (сейчас ${h}:${a})`);
       break;
+    case 'TOTAL_UNDER_25':
+      scoreOk = totalGoals <= 2;
+      if (!scoreOk) unmetCriteria.push(`ТБ 2.5 уже пробит (счёт ${h}:${a}, забито ${totalGoals} голов)`);
+      break;
     case 'TOTAL_UNDER_2':
-      scoreOk = totalGoals <= 1;
-      if (!scoreOk) unmetCriteria.push(`Тотал голов > 1 (сейчас ${totalGoals})`);
+      scoreOk = totalGoals <= 2;
+      if (!scoreOk) unmetCriteria.push(`Тотал голов > 2 (сейчас ${totalGoals})`);
       break;
     case 'TOTAL_OVER_2':
       scoreOk = totalGoals >= 2;
@@ -162,6 +345,16 @@ export function evaluateFilterRule(
       scoreOk = true;
   }
   if (scoreOk) passedCount++;
+
+  // 2b. Max Total Goals limit (e.g. maxTotalGoals: 2 means ТБ 2.5 не пробит)
+  if (rule.maxTotalGoals !== undefined) {
+    totalCriteria++;
+    if (totalGoals <= rule.maxTotalGoals) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Тотал голов (${totalGoals}) превышает ${rule.maxTotalGoals} (ТБ ${rule.maxTotalGoals}.5 уже пробит, счёт ${h}:${a})`);
+    }
+  }
 
   // 3. Dangerous Attacks Difference
   if (rule.minDangerousAttacksDiff !== undefined) {
@@ -263,6 +456,21 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Суммарный xG ${totalXg.toFixed(2)} < ${rule.minXgTotal}`);
+    }
+  }
+
+  // 11b. xG Deficit / xG Over Score Difference (Стратегия «Дефицит голов по xG к 75'»)
+  if (rule.minXgOverScoreDiff !== undefined) {
+    totalCriteria++;
+    const totalXg = match.stats.xg[0] + match.stats.xg[1];
+    const totalGoals = match.score[0] + match.score[1];
+    const xgOverScore = totalXg - totalGoals;
+    if (xgOverScore >= rule.minXgOverScoreDiff) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(
+        `Перевес xG над счётом ${xgOverScore.toFixed(2)} (xG ${totalXg.toFixed(2)} vs ${totalGoals} голов) < требуемых +${rule.minXgOverScoreDiff.toFixed(2)}`
+      );
     }
   }
 
@@ -537,13 +745,31 @@ export function evaluateFilterRule(
     }
   }
 
-  // 30. Guest Scored 2 Quick Goals in 1st Half (Стратегия «2 гола гостей в 1Т за ≤ 15 мин»)
-  if (rule.requireGuestTwoQuickGoals1H) {
+  // 30. Two Quick Goals in 1st Half + No goals since (Стратегия «2 быстрых гола в 1Т — сигнал на 75' без голов»)
+  if (rule.requireGuestTwoQuickGoals1H || rule.requireTwoQuickGoals1H || rule.requireNoGoalsSinceQuickGoals) {
     totalCriteria++;
-    if (match.history?.guestScoredTwoQuickFirstHalf || (a >= 2 && match.minute <= 50)) {
+    const had2Quick = Boolean(
+      match.history?.guestScoredTwoQuickFirstHalf ||
+      match.history?.twoQuickGoalsFirstHalf ||
+      (match.history?.goalsAtFirstHalfQuick && match.history.goalsAtFirstHalfQuick >= 2) ||
+      (match.history?.twoQuickGoalsMinute && match.history.twoQuickGoalsMinute <= 45)
+    );
+
+    // Initial total goals when the two quick goals occurred (typically 2, e.g. 0:2, 2:0, or 1:1)
+    const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? 2;
+    const currentTotalGoals = h + a;
+
+    // Condition: no goals since those 2 goals!
+    const noGoalsAfter =
+      match.history?.noGoalsSinceQuickGoals === true ||
+      (match.history?.noGoalsSinceQuickGoals !== false && currentTotalGoals <= initialQuickGoals);
+
+    if (had2Quick && noGoalsAfter) {
       passedCount++;
+    } else if (!had2Quick) {
+      unmetCriteria.push(`В 1-м тайме не зафиксировано 2 быстрых голов подряд`);
     } else {
-      unmetCriteria.push(`Гости не забивали 2 быстрых гола подряд в 1Т`);
+      unmetCriteria.push(`После 2 быстрых голов в 1Т уже был забит гол (текущий счёт ${h}:${a}, всего голов: ${currentTotalGoals})`);
     }
   }
 
@@ -595,6 +821,100 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Котировки не образуют сверхрезультативную комбинацию`);
+    }
+  }
+
+  // 34b. Dropping Odds & Money Volume Load (Smart Money & Steam Moves)
+  if (
+    rule.minOddsDropPercent !== undefined ||
+    rule.minMoneyVolumePercent !== undefined ||
+    rule.minMoneyLoadAmount !== undefined
+  ) {
+    totalCriteria++;
+
+    // 1. Gather all active market flows
+    let flows =
+      match.marketFlows && match.marketFlows.length > 0
+        ? [...match.marketFlows]
+        : match.oddsDrop
+        ? [match.oddsDrop]
+        : [];
+
+    // 2. Dynamic fallback: if flows are not pre-cached, compute them on-the-fly from initial vs current odds
+    if (flows.length === 0 && (match.initialOdds || match.odds)) {
+      flows = calculateMatchOddsFlows({
+        homeTeam: match.homeTeam,
+        awayTeam: match.awayTeam,
+        odds: match.odds,
+        initialOdds: match.initialOdds,
+        minute: match.minute,
+        league: match.league,
+      });
+    }
+
+    // 3. Filter by target market if specified (HOME, AWAY, OVER, etc.)
+    const targetMarketFilter =
+      rule.oddsDropMarket && rule.oddsDropMarket !== 'ANY'
+        ? rule.oddsDropMarket
+        : null;
+
+    const relevantFlows = targetMarketFilter
+      ? flows.filter((f) => f.market === targetMarketFilter)
+      : flows;
+
+    // 4. Check for at least ONE single market flow that satisfies ALL active smart money criteria COHESIVELY
+    const qualifying = relevantFlows.find((f) => {
+      const dropOk =
+        rule.minOddsDropPercent === undefined ||
+        f.dropPercent >= rule.minOddsDropPercent;
+      const volOk =
+        rule.minMoneyVolumePercent === undefined ||
+        f.moneyVolumePercent >= rule.minMoneyVolumePercent;
+      const amtOk =
+        rule.minMoneyLoadAmount === undefined ||
+        (f.moneyVolumeAmountEur ?? 0) >= rule.minMoneyLoadAmount;
+      return dropOk && volOk && amtOk;
+    });
+
+    if (qualifying) {
+      passedCount++;
+    } else {
+      const targetLabel = targetMarketFilter ? ` на исход ${targetMarketFilter}` : '';
+      if (relevantFlows.length === 0) {
+        unmetCriteria.push(
+          `Отсутствует зафиксированный прогруз линии${targetLabel} (нет падения кэфа)`
+        );
+      } else {
+        const bestFlow = relevantFlows[0];
+        const failReasons: string[] = [];
+        if (
+          rule.minOddsDropPercent !== undefined &&
+          bestFlow.dropPercent < rule.minOddsDropPercent
+        ) {
+          failReasons.push(
+            `падение -${bestFlow.dropPercent.toFixed(1)}% < -${rule.minOddsDropPercent}%`
+          );
+        }
+        if (
+          rule.minMoneyVolumePercent !== undefined &&
+          bestFlow.moneyVolumePercent < rule.minMoneyVolumePercent
+        ) {
+          failReasons.push(
+            `деньги ${bestFlow.moneyVolumePercent}% < ${rule.minMoneyVolumePercent}%`
+          );
+        }
+        if (
+          rule.minMoneyLoadAmount !== undefined &&
+          (bestFlow.moneyVolumeAmountEur ?? 0) < rule.minMoneyLoadAmount
+        ) {
+          failReasons.push(
+            `сумма €${(bestFlow.moneyVolumeAmountEur ?? 0).toLocaleString('ru-RU')} < €${rule.minMoneyLoadAmount.toLocaleString('ru-RU')}`
+          );
+        }
+        unmetCriteria.push(
+          `Прогруз (${bestFlow.marketName}): ${failReasons.join(', ')}`
+        );
+      }
     }
   }
 
@@ -771,16 +1091,17 @@ export function getBetTypeForSignal(
 ): BetType {
   if (rule?.ruleType === 'PREMATCH') return 'PREMATCH';
   if (rule?.ruleType === 'LIVE') return 'LIVE';
+  if (match?.status === 'PREMATCH') return 'PREMATCH';
+  if (match?.startsInMinutes !== undefined && match.minute === 0) return 'PREMATCH';
 
   if (rule) {
     const isPrematchRule =
-      rule.minModelIpt !== undefined ||
+      (rule.minMinute === 0 && rule.minModelIpt !== undefined) ||
       rule.isDeadlyCombination === true ||
       rule.requireH2hOver15High === true ||
       rule.requireNoZeroZeroLast5 === true ||
       rule.requireRedCardLastMatch === true ||
       rule.maxOddsUnder25 !== undefined ||
-      rule.id === 'strat-7' ||
       rule.id === 'strat-14' ||
       rule.id === 'strat-16' ||
       rule.id === 'strat-deadly-combo' ||
@@ -824,6 +1145,11 @@ export function extractSignalFactors(
   const liveFactors: string[] = [];
 
   // Pre-match indicators
+  if (match.status === 'PREMATCH' || match.startsInMinutes !== undefined) {
+    const minLeft = match.startsInMinutes ?? 60;
+    prematchFactors.push(`Анализ за 1 час до матча (${minLeft} мин до старта${match.startTime ? `, начало в ${match.startTime}` : ''})`);
+  }
+
   if (match.odds) {
     prematchFactors.push(`Линия БК: П1 ${match.odds.home.toFixed(2)} | X ${match.odds.draw.toFixed(2)} | П2 ${match.odds.away.toFixed(2)}`);
     prematchFactors.push(`ТБ 2.5: ${match.odds.over25.toFixed(2)}${match.odds.btts ? ` • ОЗ: ${match.odds.btts.toFixed(2)}` : ''}`);
@@ -864,6 +1190,17 @@ export function extractSignalFactors(
 }
 
 /**
+ * Safely escape characters that break Telegram HTML parse_mode: &, <, >
+ */
+export function escapeTelegramHtml(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
  * Enhanced Telegram Alert formatter with separation for Live vs Pre-match bets.
  */
 export function formatExtendedTelegramAlert(
@@ -875,12 +1212,19 @@ export function formatExtendedTelegramAlert(
   const betType = forcedBetType || getBetTypeForSignal(rule, match.minute, match);
   const isPrematch = betType === 'PREMATCH';
 
+  const homeTeam = escapeTelegramHtml(match.homeTeam);
+  const awayTeam = escapeTelegramHtml(match.awayTeam);
+  const league = escapeTelegramHtml(match.league);
+  const country = escapeTelegramHtml(match.country);
+  const ruleName = escapeTelegramHtml(rule.name);
+  const targetMarket = escapeTelegramHtml(rule.targetMarket || '');
+
   const diffDang = match.stats.dangerousAttacks[0] - match.stats.dangerousAttacks[1];
   const dangSign =
     diffDang > 0
-      ? `+${diffDang} (${match.homeTeam})`
+      ? `+${diffDang} (${homeTeam})`
       : diffDang < 0
-      ? `+${Math.abs(diffDang)} (${match.awayTeam})`
+      ? `+${Math.abs(diffDang)} (${awayTeam})`
       : 'Равенство';
 
   const totalShots =
@@ -890,16 +1234,35 @@ export function formatExtendedTelegramAlert(
     match.stats.shotsOffTarget[1];
   const totalCorners = match.stats.corners[0] + match.stats.corners[1];
 
-  const marketLine = rule.targetMarket
-    ? `🎯 <b>Рекомендуемый исход:</b> <u>${rule.targetMarket}</u>\n`
+  const marketLine = targetMarket
+    ? `🎯 <b>Рекомендуемый исход:</b> <u>${targetMarket}</u>\n`
     : '';
 
+  const quickGoalsPatternLine = (rule.requireGuestTwoQuickGoals1H || rule.requireNoGoalsSinceQuickGoals)
+    ? `⚡ <b>Паттерн:</b> 2 быстрых гола в 1-м тайме (≤15 мин между голами) + без голов до 75'\n⏱ <b>Точка входа:</b> 75-я минута матча — ожидание гола (ТБ) по повышенному кэфу\n\n`
+    : '';
+
+  const strat7PatternLine = (rule.id === 'strat-7' || rule.name.includes('Стратегия 7') || rule.scoreCondition === 'TOTAL_UNDER_25')
+    ? `📐 <b>Стратегия 7 (ТБ 2.5 на 70'):</b> 70-я минута матча при непробитом ТБ 2.5 (текущий счёт: <code>${match.score[0]}:${match.score[1]}</code>, тотал ≤ 2).\n⏱ <b>Точка входа:</b> 70-я минута — ставка на ТБ 2.5 / гол в концовке по повышенному кэфу!\n\n`
+    : '';
+
+  const activeDrop = match.oddsDrop || (match.marketFlows && match.marketFlows[0]);
+  const oddsDropPatternLine =
+    rule.category === 'odds_drop' || rule.minOddsDropPercent !== undefined || activeDrop
+      ? activeDrop
+        ? `📉 <b>Прогруз линии (Smart Money):</b> <u>${escapeTelegramHtml(activeDrop.marketName)}</u>\n` +
+          `   • Движение кэфа: <b>-${activeDrop.dropPercent.toFixed(1)}%</b> (<code>${activeDrop.initialOdds.toFixed(2)}</code> ➔ <code>${activeDrop.currentOdds.toFixed(2)}</code>)\n` +
+          `   • Доля денег: <b>${activeDrop.moneyVolumePercent}% пула рынка</b>${activeDrop.moneyVolumeAmountEur ? ` (≈ €${activeDrop.moneyVolumeAmountEur.toLocaleString('ru-RU')})` : ''}\n` +
+          `   • Биржа/Букмекер: <i>${escapeTelegramHtml(activeDrop.bookmaker || 'Betfair Exchange / Pinnacle')}</i>\n\n`
+        : ''
+      : '';
+
   const headerTag = isPrematch
-    ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР СТАВКИ]</b>\n💡 <b>Стратегия: ${rule.name}</b>`
-    : `🔴 <b>[ЛАЙВ СТАВКА В РЕАЛЬНОМ ВРЕМЕНИ]</b>\n⚡ <b>Сигнал: ${rule.name}</b>`;
+    ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР ЗА 1 ЧАС ДО МАТЧА]</b>\n💡 <b>Стратегия: ${ruleName}</b>\n⏱ <i>Анализ завершён за 60 минут до начала (старт через ${match.startsInMinutes ?? 60} мин${match.startTime ? `, ${escapeTelegramHtml(match.startTime)}` : ''})</i>`
+    : `🔴 <b>[ЛАЙВ СТАВКА В РЕАЛЬНОМ ВРЕМЕНИ]</b>\n⚡ <b>Сигнал: ${ruleName}</b>`;
 
   const prematchSection = (
-    `📊 <b>Предматчевые показатели:</b>\n` +
+    `📊 <b>Предматчевые показатели (за 1 час до свистка):</b>\n` +
     `💰 <b>Линия БК:</b> П1 <code>${match.odds.home.toFixed(2)}</code> | X <code>${match.odds.draw.toFixed(2)}</code> | П2 <code>${match.odds.away.toFixed(2)}</code>\n` +
     `📈 <b>Тотал 2.5:</b> <code>${match.odds.over25.toFixed(2)}</code>` +
     (match.odds.btts ? ` | <b>ОЗ:</b> <code>${match.odds.btts.toFixed(2)}</code>` : '') +
@@ -918,15 +1281,24 @@ export function formatExtendedTelegramAlert(
     `⚡ <b>Владение мячом:</b> ${match.stats.possession[0]}% - ${match.stats.possession[1]}%\n\n`
   );
 
+  const matchTimeDisplay = isPrematch
+    ? `(⏳ До начала: ${match.startsInMinutes ?? 60} мин${match.startTime ? ` [${escapeTelegramHtml(match.startTime)}]` : ''})`
+    : `(<b>${match.minute}'</b>)`;
+
+  const escapedReasons = analysis.reasons.map((r) => escapeTelegramHtml(r));
+
   return (
     `${headerTag}\n` +
-    `🏆 <b>${match.countryCode} ${match.country} | ${match.league}</b>\n\n` +
-    `⚔️ <b>${match.homeTeam} ${match.score[0]} : ${match.score[1]} ${match.awayTeam}</b> (${isPrematch && match.minute === 0 ? 'До матча / Старт' : `<b>${match.minute}'</b>`})\n` +
+    `🏆 <b>${match.countryCode} ${country} | ${league}</b>\n\n` +
+    `⚔️ <b>${homeTeam} vs ${awayTeam}</b> ${matchTimeDisplay}\n` +
     `${marketLine}` +
+    `${quickGoalsPatternLine}` +
+    `${strat7PatternLine}` +
+    `${oddsDropPatternLine}` +
     (isPrematch ? prematchSection + '\n' : liveSection) +
     (!isPrematch && (rule.minOddsOver25 || rule.maxOddsFavorite || rule.minModelIpt) ? prematchSection + '\n' : '') +
-    (analysis.reasons.length > 0 ? `💡 <i>Факторы: ${analysis.reasons.join(' • ')}</i>\n` : '') +
-    `⏱ <i>Время: ${new Date().toLocaleTimeString('ru-RU')} | Источник: ${match.source}</i>\n` +
+    (escapedReasons.length > 0 ? `💡 <i>Факторы: ${escapedReasons.join(' • ')}</i>\n` : '') +
+    `⏱ <i>Время: ${new Date().toLocaleTimeString('ru-RU')} | Источник: ${escapeTelegramHtml(match.source)}</i>\n` +
     `🤖 <i>Footbalmonitor Pro ${isPrematch ? 'Pre-Match Selection' : 'Live Engine'}</i>`
   );
 }
@@ -961,10 +1333,12 @@ export function formatResolvedTelegramAlert(
       ? `-${signal.stake || 1000} ₽`
       : '0 ₽';
 
-  const home = matchDetails?.homeTeam || signal.matchName.split(' vs ')[0] || 'Хозяева';
-  const away = matchDetails?.awayTeam || signal.matchName.split(' vs ')[1] || 'Гости';
-  const league = matchDetails?.league || signal.league;
-  const country = matchDetails?.country || signal.country;
+  const home = escapeTelegramHtml(matchDetails?.homeTeam || signal.matchName.split(' vs ')[0] || 'Хозяева');
+  const away = escapeTelegramHtml(matchDetails?.awayTeam || signal.matchName.split(' vs ')[1] || 'Гости');
+  const league = escapeTelegramHtml(matchDetails?.league || signal.league);
+  const country = escapeTelegramHtml(matchDetails?.country || signal.country);
+  const ruleName = escapeTelegramHtml(signal.ruleName);
+  const marketSuggestion = escapeTelegramHtml(signal.marketSuggestion || '');
 
   const scoreChangeNote =
     signal.score !== finalScore
@@ -977,11 +1351,11 @@ export function formatResolvedTelegramAlert(
     `${statusHeader}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🏷 <b>Категория:</b> ${betTypeLabel}\n` +
-    `📋 <b>Стратегия:</b> ${signal.ruleName}\n` +
+    `📋 <b>Стратегия:</b> ${ruleName}\n` +
     `🏆 <b>${country} | ${league}</b>\n` +
     `⚽ <b>${home} ${finalScore} ${away}</b> [Матч завершён]\n` +
     `${scoreChangeNote}\n\n` +
-    (signal.marketSuggestion ? `🎯 <b>Рекомендация:</b> <u>${signal.marketSuggestion}</u>\n` : '') +
+    (marketSuggestion ? `🎯 <b>Рекомендация:</b> <u>${marketSuggestion}</u>\n` : '') +
     `📈 <b>Коэффициент:</b> <code>${signal.odds.toFixed(2)}</code>\n` +
     `💰 <b>Итог:</b> <b>${isWin ? '✅ ПРОШЛО' : isLoss ? '❌ НЕ ПРОШЛО' : '🔄 ВОЗВРАТ'}</b> [${profitText}]\n\n` +
     `⏱ <i>Результат зафиксирован: ${new Date().toLocaleTimeString('ru-RU')}</i>\n` +

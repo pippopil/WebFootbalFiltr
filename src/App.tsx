@@ -22,6 +22,7 @@ import {
   Filter,
   ArrowUpRight,
   TrendingUp,
+  TrendingDown,
   Cpu,
   Shield,
   Layers,
@@ -59,6 +60,8 @@ import {
   Pin,
   ArrowDown,
   ArrowUp,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 import {
@@ -76,6 +79,7 @@ import {
   UserProfile,
   TelegramBotProfile,
   AdBannerItem,
+  OddsDropData,
 } from './types';
 import { EXPANDED_DEFAULT_FILTERS } from './data/defaultFilters';
 import { DEFAULT_USERS } from './data/defaultUsers';
@@ -86,6 +90,10 @@ import {
   formatExtendedTelegramAlert,
   formatResolvedTelegramAlert,
   evaluateSignalOutcome,
+  getBetTypeForSignal,
+  calculateMatchIPT,
+  enrichMatchWithOddsTracker,
+  calculateMatchOddsFlows,
 } from './algorithms';
 import { FilterBuilderModal } from './components/FilterBuilderModal';
 import { BacktestingView } from './components/BacktestingView';
@@ -361,6 +369,41 @@ const INITIAL_MATCHES: Match[] = [
     momentum: [15, 30, 45, 60, -20, 55, 70, 65],
     lastEvent: "67' Опасный удар со штрафного (Arsenal)",
     odds: { home: 1.65, draw: 3.4, away: 5.5, over25: 1.62, btts: 1.60 },
+    oddsDrop: {
+      market: 'HOME',
+      marketName: 'П1 (Arsenal)',
+      initialOdds: 2.15,
+      currentOdds: 1.65,
+      dropPercent: 23.3,
+      moneyVolumePercent: 79,
+      moneyVolumeAmountEur: 184500,
+      bookmaker: 'Betfair Exchange / Pinnacle',
+      detectedAtMinute: 35,
+    },
+    marketFlows: [
+      {
+        market: 'HOME',
+        marketName: 'П1 (Arsenal)',
+        initialOdds: 2.15,
+        currentOdds: 1.65,
+        dropPercent: 23.3,
+        moneyVolumePercent: 79,
+        moneyVolumeAmountEur: 184500,
+        bookmaker: 'Betfair Exchange',
+        detectedAtMinute: 35,
+      },
+      {
+        market: 'OVER',
+        marketName: 'ТБ 2.5',
+        initialOdds: 1.95,
+        currentOdds: 1.62,
+        dropPercent: 16.9,
+        moneyVolumePercent: 71,
+        moneyVolumeAmountEur: 92000,
+        bookmaker: 'Pinnacle',
+        detectedAtMinute: 20,
+      },
+    ],
     history: {
       homeConcededLastMatch: 2,
       awayConcededLastMatch: 2,
@@ -397,7 +440,32 @@ const INITIAL_MATCHES: Match[] = [
     },
     momentum: [40, 50, 75, 80, 85, 90, 80, 88],
     lastEvent: "72' Сейв вратаря Valencia после удара в створ",
+    initialOdds: { home: 1.85, draw: 3.6, away: 4.8, over25: 1.85, under25: 1.95, btts: 1.85 },
     odds: { home: 1.44, draw: 3.8, away: 8.5, over25: 1.65, btts: 1.80 },
+    oddsDrop: {
+      market: 'HOME',
+      marketName: 'П1 (Real Madrid)',
+      initialOdds: 1.85,
+      currentOdds: 1.44,
+      dropPercent: 22.2,
+      moneyVolumePercent: 82,
+      moneyVolumeAmountEur: 215000,
+      bookmaker: 'Betfair Exchange / Pinnacle',
+      detectedAtMinute: 65,
+    },
+    marketFlows: [
+      {
+        market: 'HOME',
+        marketName: 'П1 (Real Madrid)',
+        initialOdds: 1.85,
+        currentOdds: 1.44,
+        dropPercent: 22.2,
+        moneyVolumePercent: 82,
+        moneyVolumeAmountEur: 215000,
+        bookmaker: 'Betfair Exchange',
+        detectedAtMinute: 65,
+      },
+    ],
     history: {
       homeConcededLastMatch: 1,
       awayConcededLastMatch: 2,
@@ -521,6 +589,17 @@ const INITIAL_MATCHES: Match[] = [
     momentum: [60, 75, 80, 85, 88],
     lastEvent: "16' Плотный дальний удар фаворита в створ",
     odds: { home: 1.25, draw: 6.5, away: 12.0, over25: 1.55, btts: 1.85 },
+    oddsDrop: {
+      market: 'HOME',
+      marketName: 'П1 (Manchester City)',
+      initialOdds: 1.45,
+      currentOdds: 1.22,
+      dropPercent: 15.8,
+      moneyVolumePercent: 84,
+      moneyVolumeAmountEur: 245000,
+      bookmaker: 'Betfair Exchange / Pinnacle',
+      detectedAtMinute: 11,
+    },
     history: {
       homeLast5NoZeroZero: true,
       awayLast5NoZeroZero: true,
@@ -535,7 +614,7 @@ const INITIAL_MATCHES: Match[] = [
     homeTeam: 'Napoli',
     awayTeam: 'Cagliari',
     score: [0, 0],
-    minute: 60,
+    minute: 76,
     status: 'LIVE',
     source: 'Sofascore',
     stats: {
@@ -550,7 +629,7 @@ const INITIAL_MATCHES: Match[] = [
       xg: [1.74, 0.18],
     },
     momentum: [45, 60, 70, 80, 85, 90],
-    lastEvent: "59' Штурм ворот Cagliari, спасение защитника",
+    lastEvent: "75' Штурм ворот Cagliari: суммарный xG 1.92 при счёте 0:0, гол назревает",
     odds: { home: 1.48, draw: 4.2, away: 7.5, over25: 1.62, btts: 1.75 },
     history: {
       homeLast5NoZeroZero: true,
@@ -668,27 +747,158 @@ const INITIAL_MATCHES: Match[] = [
     league: 'Primeira Liga',
     homeTeam: 'Benfica',
     awayTeam: 'Sporting',
-    score: [1, 2],
-    minute: 48,
+    score: [0, 2],
+    minute: 75,
     status: 'LIVE',
     source: 'Flashscore',
     stats: {
-      possession: [50, 50],
-      dangerousAttacks: [40, 43],
-      attacks: [72, 78],
-      shotsOnTarget: [4, 5],
-      shotsOffTarget: [3, 4],
-      corners: [4, 4],
-      yellowCards: [2, 1],
+      possession: [55, 45],
+      dangerousAttacks: [58, 48],
+      attacks: [92, 82],
+      shotsOnTarget: [6, 5],
+      shotsOffTarget: [5, 3],
+      corners: [6, 4],
+      yellowCards: [3, 2],
       redCards: [0, 0],
-      xg: [1.15, 1.40],
+      xg: [1.65, 1.40],
     },
-    momentum: [10, -30, 20, -25, 15],
-    lastEvent: "46' Начало второго тайма",
-    odds: { home: 2.10, draw: 3.3, away: 3.4, over25: 1.65, btts: 1.55 },
+    momentum: [25, -20, 35, 15, 40],
+    lastEvent: "75' С 29-й мин без голов после 2 быстрых голов Спортинга в 1Т (21', 29')",
+    odds: { home: 14.0, draw: 6.0, away: 1.22, over25: 1.95, btts: 2.20 },
     history: {
       guestScoredTwoQuickFirstHalf: true,
+      twoQuickGoalsFirstHalf: true,
+      goalsAtFirstHalfQuick: 2,
+      noGoalsSinceQuickGoals: true,
+      twoQuickGoalsMinute: 29,
       h2hOver15Pct: 85,
+    },
+  },
+  {
+    id: 'm-12',
+    country: 'Spain',
+    countryCode: '🇪🇸',
+    league: 'La Liga',
+    homeTeam: 'Barcelona',
+    awayTeam: 'Getafe',
+    score: [0, 0],
+    minute: 0,
+    status: 'PREMATCH',
+    startTime: '21:00',
+    startsInMinutes: 60, // Ровно 1 час до начала матча
+    source: 'Sofascore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [0, 0],
+      attacks: [0, 0],
+      shotsOnTarget: [0, 0],
+      shotsOffTarget: [0, 0],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [0, 0],
+    },
+    momentum: [0, 0, 0, 0],
+    lastEvent: "До матча: 1 час (21:00). Проведён предматчевый отбор за 60 мин до свистка",
+    odds: {
+      home: 1.18,
+      draw: 7.50,
+      away: 14.50,
+      over25: 1.42,
+      over35: 1.95,
+      handicap1: 1.48,
+      btts: 1.70,
+    },
+    history: {
+      homeLast5NoZeroZero: true,
+      awayLast5NoZeroZero: true,
+      homeOver25Streak: 6,
+      awayOver25Streak: 4,
+      predictedIpt: 3.25,
+      h2hOver15Pct: 90,
+    },
+  },
+  {
+    id: 'm-13',
+    country: 'Germany',
+    countryCode: '🇩🇪',
+    league: 'Bundesliga',
+    homeTeam: 'Bayer Leverkusen',
+    awayTeam: 'Stuttgart',
+    score: [0, 0],
+    minute: 0,
+    status: 'PREMATCH',
+    startTime: '18:30',
+    startsInMinutes: 60, // Ровно 1 час до начала матча
+    source: 'Flashscore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [0, 0],
+      attacks: [0, 0],
+      shotsOnTarget: [0, 0],
+      shotsOffTarget: [0, 0],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [0, 0],
+    },
+    momentum: [0, 0, 0, 0],
+    lastEvent: "До матча: 60 мин (18:30). Линия 1.50–1.67, сигнал за час до старта",
+    odds: {
+      home: 1.88,
+      draw: 3.85,
+      away: 3.90,
+      over25: 1.58,
+      btts: 1.56,
+    },
+    history: {
+      homeLast5NoZeroZero: true,
+      awayLast5NoZeroZero: true,
+      homeOver25Streak: 5,
+      awayOver25Streak: 5,
+      predictedIpt: 2.95,
+      bothScoredLast5Count: 5,
+      h2hOver15Pct: 95,
+    },
+  },
+  {
+    id: 'm-14',
+    country: 'Italy',
+    countryCode: '🇮🇹',
+    league: 'Serie A',
+    homeTeam: 'Milan',
+    awayTeam: 'Roma',
+    score: [0, 0],
+    minute: 0,
+    status: 'PREMATCH',
+    startTime: '22:45',
+    startsInMinutes: 180, // 3 часа до начала матча (будет ждать окна 1 часа)
+    source: 'Flashscore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [0, 0],
+      attacks: [0, 0],
+      shotsOnTarget: [0, 0],
+      shotsOffTarget: [0, 0],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [0, 0],
+    },
+    momentum: [0, 0, 0, 0],
+    lastEvent: "До матча: 3 часа (22:45). Анализ запустится строго за 1 час (60 мин) до начала",
+    odds: {
+      home: 2.10,
+      draw: 3.40,
+      away: 3.50,
+      over25: 1.90,
+      btts: 1.75,
+    },
+    history: {
+      homeLast5NoZeroZero: true,
+      awayLast5NoZeroZero: true,
+      predictedIpt: 2.40,
+      h2hOver15Pct: 75,
     },
   },
 ];
@@ -702,7 +912,33 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Sanitize any dummy mock tokens so they do not block real Telegram delivery
+          return parsed.map((u: UserProfile) => ({
+            ...u,
+            telegramBots: (u.telegramBots || []).map((b) => ({
+              ...b,
+              botToken:
+                b.botToken &&
+                (b.botToken.startsWith('7123456789') ||
+                  b.botToken.startsWith('7987654321') ||
+                  b.botToken.startsWith('7456123789') ||
+                  b.botToken.startsWith('7654321987') ||
+                  b.botToken.startsWith('7332211445'))
+                  ? ''
+                  : b.botToken,
+              channelId:
+                b.channelId &&
+                (b.channelId.startsWith('-1001928374') ||
+                  b.channelId.startsWith('-1001999888') ||
+                  b.channelId.startsWith('-1001888777') ||
+                  b.channelId.startsWith('-1002000111') ||
+                  b.channelId.startsWith('-1002111333'))
+                  ? ''
+                  : b.channelId,
+            })),
+          }));
+        }
       } catch (e) {}
     }
     return DEFAULT_USERS;
@@ -713,6 +949,42 @@ export default function App() {
     if (saved) return saved;
     return DEFAULT_USERS[0].id;
   });
+
+  // Dark / Light Theme switching state
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const saved = localStorage.getItem('footbalmonitor_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+      if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        return 'light';
+      }
+    } catch {
+      // ignore
+    }
+    return 'dark';
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.add('light');
+      root.classList.remove('dark');
+      root.setAttribute('data-theme', 'light');
+    } else {
+      root.classList.remove('light');
+      root.classList.add('dark');
+      root.setAttribute('data-theme', 'dark');
+    }
+    try {
+      localStorage.setItem('footbalmonitor_theme', theme);
+    } catch {
+      // ignore
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   const currentUser = useMemo(() => {
     return allUsers.find((u) => u.id === currentUserId) || allUsers[0] || DEFAULT_USERS[0];
@@ -760,16 +1032,70 @@ export default function App() {
       try {
         const parsed = JSON.parse(userSaved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          // Update strat-guest-two-quick to 75' rule if present
+          const migratedSaved = parsed.map((p: FilterRule) => {
+            if (p.id === 'strat-guest-two-quick') {
+              return {
+                ...p,
+                name: '⚡ Два быстрых гола в 1-м тайме (Сигнал на 75\' без голов)',
+                description: 'В 1-м тайме забито 2 быстрых гола подряд (разница ≤ 15 мин). Если до 75-й минуты голов больше не было — сигнал на ТБ матча (поздний гол).',
+                minMinute: 75,
+                maxMinute: 77,
+                requireGuestTwoQuickGoals1H: true,
+                requireNoGoalsSinceQuickGoals: true,
+                targetMarket: 'ТБ матча (+1 гол после 75\')',
+              };
+            }
+            if (p.id === 'strat-7') {
+              return {
+                ...p,
+                name: '📐 Стратегия 7: Алгоритм на ТБ 2.5 (Сигнал на 70\' при непробитом ТБ 2.5)',
+                description: 'Сигнал на 70-й минуте (70-75\'), когда в матче забито не более 2 голов (ТБ 2.5 ещё не пробит) при расчетном IPT > 2.70 или доматчевом кэфе ТБ 2.5 ≤ 1.90. Ставка на ТБ 2.5 / Поздний гол.',
+                ruleType: 'LIVE' as const,
+                minMinute: 70,
+                maxMinute: 75,
+                scoreCondition: 'TOTAL_UNDER_25' as const,
+                maxTotalGoals: 2,
+                minModelIpt: 2.70,
+                maxOddsOver25: 1.90,
+                targetMarket: 'Тотал больше 2.5 / Гол после 70-й мин',
+              };
+            }
+            if (p.id === 'strat-smart-money-drop') {
+              return {
+                ...p,
+                name: '📉 Прогруз линии / Smart Money: Падение кэфа ≥ 12% (Деньги ≥ 65%)',
+                description: 'Отслеживание аномального прогруза денег крупными игроками (Steam Move): резкое падение коэффициента на исход от 12% при доле ставок от 65% всего пула рынка на бирже Betfair / Pinnacle.',
+                minOddsDropPercent: 12,
+                minMoneyVolumePercent: 65,
+              };
+            }
+            return p;
+          });
+
+          // Merge in any newly added system preset strategies (e.g. strat-xg-deficit-75)
+          const existingIds = new Set(migratedSaved.map((p: FilterRule) => p.id));
+          const missingPresets = EXPANDED_DEFAULT_FILTERS.filter(
+            (dp) => !existingIds.has(dp.id)
+          ).map((dp) => ({
+            ...dp,
+            userId: uid,
+            enabled: false,
+            botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
+          }));
+
+          const combined = [...migratedSaved, ...missingPresets];
+
           if (!migrationFlag) {
             localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
             // If previous session had massive bulk enabled, default to only filter #1 launched
-            return parsed.map((f: FilterRule, idx: number) => ({
+            return combined.map((f: FilterRule, idx: number) => ({
               ...f,
               userId: uid,
               enabled: idx === 0,
             }));
           }
-          return parsed;
+          return combined;
         }
       } catch (e) {}
     }
@@ -871,7 +1197,34 @@ export default function App() {
       try {
         const parsed = JSON.parse(userSaved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setFilters(parsed);
+          const migrated = parsed.map((p: FilterRule) => {
+            if (p.id === 'strat-7') {
+              return {
+                ...p,
+                name: '📐 Стратегия 7: Алгоритм на ТБ 2.5 (Сигнал на 70\' при непробитом ТБ 2.5)',
+                description: 'Сигнал на 70-й минуте (70-75\'), когда в матче забито не более 2 голов (ТБ 2.5 ещё не пробит) при расчетном IPT > 2.70 или доматчевом кэфе ТБ 2.5 ≤ 1.90. Ставка на ТБ 2.5 / Поздний гол.',
+                ruleType: 'LIVE' as const,
+                minMinute: 70,
+                maxMinute: 75,
+                scoreCondition: 'TOTAL_UNDER_25' as const,
+                maxTotalGoals: 2,
+                minModelIpt: 2.70,
+                maxOddsOver25: 1.90,
+                targetMarket: 'Тотал больше 2.5 / Гол после 70-й мин',
+              };
+            }
+            if (p.id === 'strat-smart-money-drop') {
+              return {
+                ...p,
+                name: '📉 Прогруз линии / Smart Money: Падение кэфа ≥ 12% (Деньги ≥ 65%)',
+                description: 'Отслеживание аномального прогруза денег крупными игроками (Steam Move): резкое падение коэффициента на исход от 12% при доле ставок от 65% всего пула рынка на бирже Betfair / Pinnacle.',
+                minOddsDropPercent: 12,
+                minMoneyVolumePercent: 65,
+              };
+            }
+            return p;
+          });
+          setFilters(migrated);
           return;
         }
       } catch (e) {}
@@ -1036,7 +1389,12 @@ export default function App() {
       const res = await fetch(`/api/datasources/live${query}`);
       const data = await res.json();
       if (res.ok && data.ok && Array.isArray(data.matches) && data.matches.length > 0) {
-        setMatches(data.matches);
+        setMatches((prev) =>
+          data.matches.map((newM: Match) => {
+            const prevM = prev.find((m) => m.id === newM.id);
+            return enrichMatchWithOddsTracker(newM, prevM);
+          })
+        );
         if (!data.matches.some((m: Match) => m.id === selectedMatchId)) {
           setSelectedMatchId(data.matches[0].id);
         }
@@ -1330,9 +1688,17 @@ export default function App() {
     const totalShots = match.stats.shotsOnTarget[0] + match.stats.shotsOnTarget[1] + match.stats.shotsOffTarget[0] + match.stats.shotsOffTarget[1];
     const totalCorners = match.stats.corners[0] + match.stats.corners[1];
 
+    const dropInfo = match.oddsDrop
+      ? `📉 <b>Прогруз линии (Smart Money):</b> ${match.oddsDrop.marketName}\n` +
+        `   • Падение кэфа: <b>-${match.oddsDrop.dropPercent}%</b> (${match.oddsDrop.initialOdds} ➔ ${match.oddsDrop.currentOdds})\n` +
+        `   • Доля денег: <b>${match.oddsDrop.moneyVolumePercent}% пула</b>${match.oddsDrop.moneyVolumeAmountEur ? ` (≈ €${match.oddsDrop.moneyVolumeAmountEur.toLocaleString('ru-RU')})` : ''}\n` +
+        `   • Биржа/Букмекер: <i>${match.oddsDrop.bookmaker || 'Betfair Exchange / Pinnacle'}</i>\n\n`
+      : '';
+
     return `⚽ <b>СИГНАЛ ФИЛЬТРА: ${ruleName}</b>\n` +
       `🏆 <b>${match.countryCode} ${match.country} | ${match.league}</b>\n\n` +
       `⚔️ <b>${match.homeTeam} ${match.score[0]} : ${match.score[1]} ${match.awayTeam}</b> (<b>${match.minute}'</b>)\n\n` +
+      dropInfo +
       `🔥 <b>Опасные атаки:</b> ${match.stats.dangerousAttacks[0]} - ${match.stats.dangerousAttacks[1]} [${dangSign}]\n` +
       `🎯 <b>Удары в створ:</b> ${match.stats.shotsOnTarget[0]} - ${match.stats.shotsOnTarget[1]} (Всего: ${totalShots})\n` +
       `🚩 <b>Угловые:</b> ${match.stats.corners[0]} - ${match.stats.corners[1]} (Всего: ${totalCorners})\n` +
@@ -1365,6 +1731,28 @@ export default function App() {
           ...prev,
           lastPing: new Date().toLocaleTimeString('ru-RU'),
         }));
+        // Synchronize default bot in allUsers
+        setAllUsers((prevUsers) =>
+          prevUsers.map((u) =>
+            u.id === currentUserId
+              ? {
+                  ...u,
+                  telegramBots: (u.telegramBots || []).map((b) =>
+                    b.isDefault
+                      ? {
+                          ...b,
+                          botToken: token.trim(),
+                          channelId: chat.trim(),
+                          botUsername: data.bot.username ? `@${data.bot.username}` : b.botUsername,
+                          status: 'verified' as const,
+                          lastPing: new Date().toLocaleTimeString('ru-RU'),
+                        }
+                      : b
+                  ),
+                }
+              : u
+          )
+        );
       } else {
         setTelegramStatus('error');
         setTelegramError(data.error || 'Не удалось авторизовать бота. Проверьте правильность токена.');
@@ -1593,7 +1981,7 @@ export default function App() {
             m.score[1] + (awayScores ? 1 : 0),
           ];
 
-          return {
+          const updatedMatch: Match = {
             ...m,
             minute: nextMinute,
             status: nextMinute >= 90 ? 'FT' : m.status,
@@ -1618,6 +2006,7 @@ export default function App() {
               ],
             },
           };
+          return enrichMatchWithOddsTracker(updatedMatch, m);
         })
       );
     }, 4000);
@@ -1764,7 +2153,8 @@ export default function App() {
         persistSentSignalsTracker();
 
         // Check if alert already recorded in current state list
-        const alertId = `${match.id}-${rule.id}-${match.minute}`;
+        const isPrematch = getBetTypeForSignal(rule, match.minute, match) === 'PREMATCH' || match.status === 'PREMATCH';
+        const alertId = isPrematch ? `${match.id}-${rule.id}-prematch-60` : `${match.id}-${rule.id}-${match.minute}`;
         const estimatedOdds = getEstimatedOdds(rule.targetMarket, match.minute);
 
         // Determine destination bot for this rule
@@ -1773,28 +2163,40 @@ export default function App() {
         let targetBotName = 'Основной бот';
 
         if (rule.customBotToken && rule.customChatId) {
-          targetBotToken = rule.customBotToken;
-          targetChatId = rule.customChatId;
+          targetBotToken = rule.customBotToken.trim();
+          targetChatId = rule.customChatId.trim();
           targetBotName = 'Кастомный бот';
         } else if (rule.botId) {
           const foundBot = currentUser?.telegramBots?.find((b) => b.id === rule.botId);
-          if (foundBot && foundBot.botToken && foundBot.channelId) {
-            targetBotToken = foundBot.botToken;
-            targetChatId = foundBot.channelId;
+          if (foundBot && foundBot.botToken?.trim() && foundBot.channelId?.trim()) {
+            targetBotToken = foundBot.botToken.trim();
+            targetChatId = foundBot.channelId.trim();
             targetBotName = foundBot.name;
           }
         }
 
         if (!targetBotToken || !targetChatId) {
           const defaultBot = currentUser?.telegramBots?.find((b) => b.isDefault) || currentUser?.telegramBots?.[0];
-          targetBotToken = defaultBot?.botToken || telegramConfig.botToken;
-          targetChatId = defaultBot?.channelId || telegramConfig.channelId;
+          targetBotToken = (telegramConfig.botToken || defaultBot?.botToken || '').trim();
+          targetChatId = (telegramConfig.channelId || defaultBot?.channelId || '').trim();
           targetBotName = defaultBot?.name || 'Основной бот';
         }
 
         const shouldSendTg = rule.telegramEnabled && telegramConfig.autoSend && !!targetBotToken && !!targetChatId;
 
-        const periodStr = match.minute <= 45 ? '1-й тайм' : (match.status === 'HT' ? 'Перерыв' : '2-й тайм');
+        const periodStr = isPrematch
+          ? 'Прематч (за 1 час до матча)'
+          : (match.minute <= 45 ? '1-й тайм' : (match.status === 'HT' ? 'Перерыв' : '2-й тайм'));
+
+        const signalMessage = isPrematch
+          ? `📋 [ПРЕДМАТЧЕВЫЙ СИГНАЛ ЗА 1 ЧАС] ${match.countryCode} ${match.country} | ${match.league}\n` +
+            `⚔️ ${match.homeTeam} vs ${match.awayTeam} (⏳ Старт через ${match.startsInMinutes ?? 60} мин${match.startTime ? `, ${match.startTime}` : ''})\n` +
+            (rule.targetMarket ? `🎯 Рекомендуемый исход: ${rule.targetMarket}\n` : '') +
+            `⏱ Анализ проведён строго за 1 час (60 мин) до свистка | Стратегия: ${rule.name}`
+          : `⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
+            (rule.targetMarket ? `🎯 Исход: ${rule.targetMarket}\n` : '') +
+            `🔥 Давление: ${analysis.pressureIndex}/100 | Оп. атаки ${match.stats.dangerousAttacks[0]}-${match.stats.dangerousAttacks[1]} | Удары в створ ${match.stats.shotsOnTarget[0]}-${match.stats.shotsOnTarget[1]} | Углы ${match.stats.corners[0]}-${match.stats.corners[1]}`;
+
         const newAlert: SignalAlert = {
           id: alertId,
           timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -1804,6 +2206,7 @@ export default function App() {
           country: match.country,
           minute: match.minute,
           period: periodStr,
+          betType: isPrematch ? 'PREMATCH' : 'LIVE',
           score: currentScoreStr,
           initialScore: currentScoreStr,
           ruleId: rule.id,
@@ -1829,9 +2232,7 @@ export default function App() {
             redCards: [match.stats.redCards[0], match.stats.redCards[1]],
             possession: [match.stats.possession[0], match.stats.possession[1]],
           },
-          message: `⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
-            (rule.targetMarket ? `🎯 Исход: ${rule.targetMarket}\n` : '') +
-            `🔥 Давление: ${analysis.pressureIndex}/100 | Оп. атаки ${match.stats.dangerousAttacks[0]}-${match.stats.dangerousAttacks[1]} | Удары в створ ${match.stats.shotsOnTarget[0]}-${match.stats.shotsOnTarget[1]} | Углы ${match.stats.corners[0]}-${match.stats.corners[1]}`,
+          message: signalMessage,
           sentToTelegram: shouldSendTg,
           telegramStatusText: shouldSendTg ? `Отправка в TG (${targetBotName})...` : 'Локальный сигнал',
         };
@@ -1855,6 +2256,11 @@ export default function App() {
             }
           ).then((res) => {
             inFlightSendingRef.current.delete(matchTrackerKey);
+            if (!res.ok) {
+              sentSignalsTrackerRef.current.delete(matchTrackerKey);
+              sentSignalsTrackerRef.current.delete(ruleTrackerKey);
+              persistSentSignalsTracker();
+            }
             setSignals((curr) =>
               curr.map((item) =>
                 item.id === alertId
@@ -1873,6 +2279,9 @@ export default function App() {
             );
           }).catch(() => {
             inFlightSendingRef.current.delete(matchTrackerKey);
+            sentSignalsTrackerRef.current.delete(matchTrackerKey);
+            sentSignalsTrackerRef.current.delete(ruleTrackerKey);
+            persistSentSignalsTracker();
           });
         }
       });
@@ -1894,15 +2303,62 @@ export default function App() {
     return matches.find((m) => m.id === selectedMatchId) || matches[0];
   }, [matches, selectedMatchId]);
 
+  // Counts how many filters (active or preset) triggered on this match
+  const getMatchTriggeredCount = useCallback(
+    (match: Match) => {
+      const activeFilters = filters.filter((f) => f.enabled && (!f.userId || f.userId === currentUser?.id));
+      if (activeFilters.length > 0) {
+        return activeFilters.filter((f) => evaluateFilterRule(match, f).matches).length;
+      }
+      return filters.filter((f) => (!f.userId || f.userId === currentUser?.id) && evaluateFilterRule(match, f).matches).length;
+    },
+    [filters, currentUser?.id]
+  );
+
   const filteredMatches = useMemo(() => {
-    return matches.filter(
+    const queried = matches.filter(
       (m) =>
         m.homeTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.awayTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.league.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.country.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [matches, searchQuery]);
+
+    // CRITICAL USER DIRECTIVE:
+    // "Матчи в которых сработали фильтры должны находиться в верхнем списке всех матчей."
+    return [...queried].sort((a, b) => {
+      const aCount = getMatchTriggeredCount(a);
+      const bCount = getMatchTriggeredCount(b);
+      const aHasSignal = signals.some((s) => s.matchId === a.id);
+      const bHasSignal = signals.some((s) => s.matchId === b.id);
+
+      const aTriggered = aCount > 0 || aHasSignal;
+      const bTriggered = bCount > 0 || bHasSignal;
+
+      // 1. Matches where filters triggered MUST ALWAYS BE AT THE TOP!
+      if (aTriggered && !bTriggered) return -1;
+      if (!aTriggered && bTriggered) return 1;
+
+      // 2. If both triggered, sort by number of triggered filters descending
+      if (aTriggered && bTriggered) {
+        if (aCount !== bCount) return bCount - aCount;
+      }
+
+      // 3. Status grouping: LIVE first, then PREMATCH, then FT
+      const statusOrder: Record<string, number> = { LIVE: 0, HT: 1, PREMATCH: 2, FT: 3 };
+      const aOrder = statusOrder[a.status] ?? 2;
+      const bOrder = statusOrder[b.status] ?? 2;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+
+      // 4. For PREMATCH matches: sort by startsInMinutes ascending (e.g. 60 min before 180 min)
+      if (a.status === 'PREMATCH' && b.status === 'PREMATCH') {
+        return (a.startsInMinutes ?? 999) - (b.startsInMinutes ?? 999);
+      }
+
+      // 5. For LIVE matches: sort by minute descending
+      return (b.minute || 0) - (a.minute || 0);
+    });
+  }, [matches, searchQuery, getMatchTriggeredCount, signals]);
 
   // Screen resize watcher for desktop 2-column layout
   useEffect(() => {
@@ -2411,6 +2867,28 @@ export default function App() {
                 {currentUser.displayName.split(' ')[0]}
               </span>
             </button>
+
+            {/* Quick Theme Switcher Button */}
+            <button
+              id="theme-quick-toggle-btn"
+              type="button"
+              onClick={toggleTheme}
+              className="px-2.5 py-1 rounded-md border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-300 hover:text-amber-400 transition flex items-center gap-1.5 text-xs font-semibold ml-1 shadow-sm active:scale-95"
+              title={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+              aria-label="Переключение темы оформления"
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <span className="hidden xl:inline text-[11px] text-slate-300">Светлая</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                  <span className="hidden xl:inline text-[11px] text-slate-600">Тёмная</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </header>
@@ -2644,6 +3122,28 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Priority indicator banner: matches with triggered filters */}
+              {(() => {
+                const triggeredCount = filteredMatches.filter((m) => getMatchTriggeredCount(m) > 0).length;
+                if (triggeredCount === 0) return null;
+                return (
+                  <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg px-3 py-2 flex items-center justify-between text-xs text-emerald-300">
+                    <div className="flex items-center gap-2 font-medium">
+                      <span className="flex h-2 w-2 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span>
+                        <strong>{triggeredCount} {triggeredCount === 1 ? 'матч' : triggeredCount < 5 ? 'матча' : 'матчей'}</strong> со сработавшими фильтрами подняты <strong>в верхний список</strong>
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40">
+                      Вверху списка ⬆
+                    </span>
+                  </div>
+                );
+              })()}
+
               <div className="space-y-2">
                 {filteredMatches.map((match) => {
                   const isSelected = match.id === selectedMatchId;
@@ -2662,9 +3162,47 @@ export default function App() {
                       className={`cursor-pointer rounded-xl border p-4 transition-all relative ${
                         isSelected
                           ? 'bg-slate-900 border-emerald-500 shadow-xl shadow-emerald-950/40 ring-1 ring-emerald-500/50'
+                          : matchingRules.length > 0
+                          ? 'bg-slate-900/80 border-emerald-500/40 hover:border-emerald-500/70 shadow-lg shadow-emerald-950/20'
                           : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
                       }`}
                     >
+                      {/* Highlight badge for matches with triggered filters (at the top of list) */}
+                      {matchingRules.length > 0 && (
+                        <div className="mb-2.5 -mt-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between text-[11px] text-emerald-300">
+                          <span className="flex items-center gap-1.5 font-bold truncate pr-2">
+                            <Zap className="h-3.5 w-3.5 text-emerald-400 fill-emerald-400 shrink-0 animate-pulse" />
+                            <span className="shrink-0">{matchingRules.length === 1 ? 'Сработал фильтр:' : `Сработало фильтров (${matchingRules.length}):`}</span>
+                            <span className="text-emerald-100 font-semibold truncate">
+                              {matchingRules[0].name.split('(')[0].trim()}
+                              {matchingRules.length > 1 ? ` +ещё ${matchingRules.length - 1}` : ''}
+                            </span>
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-950/90 px-1.5 py-0.5 rounded border border-emerald-500/40 shrink-0">
+                            Вверху списка ⬆
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Prematch status banner (1-hour window indicator) */}
+                      {match.status === 'PREMATCH' && (
+                        <div className="mb-2 -mt-1 px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/25 flex items-center justify-between text-[11px] text-sky-300">
+                          <span className="flex items-center gap-1.5 font-semibold">
+                            <Clock className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                            <span>
+                              {match.startsInMinutes !== undefined && match.startsInMinutes <= 60
+                                ? `Анализ за 1 час до матча (${match.startsInMinutes} мин до старта)`
+                                : `До начала ${match.startsInMinutes ?? 60} мин (Анализ за 1 час / 60 мин)`}
+                            </span>
+                          </span>
+                          {match.startTime && (
+                            <span className="text-[10px] font-mono text-sky-300 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-500/20 shrink-0">
+                              Старт {match.startTime}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
                         <span className="flex items-center gap-1.5 font-medium">
                           <span>{match.countryCode}</span>
@@ -2695,9 +3233,16 @@ export default function App() {
                             <Sliders className="h-2.5 w-2.5 text-emerald-400" />
                             Фильтр
                           </button>
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold text-[11px] border border-emerald-500/20">
-                            {match.minute}'
-                          </span>
+                          {match.status === 'PREMATCH' ? (
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-mono font-bold text-[11px] border border-sky-500/30 flex items-center gap-1" title="Предматчевый статус: анализ за 1 час до начала">
+                              <Clock className="h-2.5 w-2.5 text-sky-400" />
+                              {match.startsInMinutes !== undefined ? `${match.startsInMinutes}м` : '60м'}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold text-[11px] border border-emerald-500/20">
+                              {match.status === 'FT' ? 'FT' : match.status === 'HT' ? 'HT' : `${match.minute}'`}
+                            </span>
+                          )}
                           <span className="text-[10px] text-slate-500 font-mono">{match.source}</span>
                         </div>
                       </div>
@@ -2706,11 +3251,15 @@ export default function App() {
                         <div className="flex-1 space-y-1">
                           <div className="font-semibold text-sm text-white flex items-center justify-between pr-4">
                             <span>{match.homeTeam}</span>
-                            <span className="text-lg font-bold font-mono">{match.score[0]}</span>
+                            <span className="text-lg font-bold font-mono">
+                              {match.status === 'PREMATCH' ? '-' : match.score[0]}
+                            </span>
                           </div>
                           <div className="font-semibold text-sm text-white flex items-center justify-between pr-4">
                             <span>{match.awayTeam}</span>
-                            <span className="text-lg font-bold font-mono">{match.score[1]}</span>
+                            <span className="text-lg font-bold font-mono">
+                              {match.status === 'PREMATCH' ? '-' : match.score[1]}
+                            </span>
                           </div>
                         </div>
 
@@ -2718,18 +3267,31 @@ export default function App() {
                         <div className="pl-3 border-l border-slate-800 flex flex-col items-center justify-center min-w-[65px]">
                           <span
                             className={`p-1.5 rounded-lg border text-xs font-bold font-mono flex items-center gap-1 ${
-                              analysis.pressureIndex >= 75
+                              match.status === 'PREMATCH'
+                                ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                                : analysis.pressureIndex >= 75
                                 ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 animate-pulse'
                                 : analysis.pressureIndex >= 50
                                 ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                                 : 'bg-slate-800 text-slate-400 border-slate-700'
                             }`}
                           >
-                            <Flame className="h-3.5 w-3.5" />
-                            {analysis.pressureIndex}%
+                            {match.status === 'PREMATCH' ? (
+                              <>
+                                <Clock className="h-3.5 w-3.5 text-sky-400" />
+                                IPT {calculateMatchIPT(match).toFixed(1)}
+                              </>
+                            ) : (
+                              <>
+                                <Flame className="h-3.5 w-3.5" />
+                                {analysis.pressureIndex}%
+                              </>
+                            )}
                           </span>
                           <span className="text-[9px] text-slate-400 mt-1 font-medium text-center">
-                            {analysis.goalProbability === 'EXTREME'
+                            {match.status === 'PREMATCH'
+                              ? 'Прематч (1 ч)'
+                              : analysis.goalProbability === 'EXTREME'
                               ? 'Гол назревает'
                               : analysis.goalProbability === 'HIGH'
                               ? 'Высокое давл.'
@@ -2741,17 +3303,31 @@ export default function App() {
                       </div>
 
                       {/* Quick stat bar */}
-                      <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                        <span className="flex items-center gap-1">
-                          Оп. атаки: <strong className="text-slate-200">{match.stats.dangerousAttacks[0]} - {match.stats.dangerousAttacks[1]}</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          Удары: <strong className="text-slate-200">{match.stats.shotsOnTarget[0] + match.stats.shotsOffTarget[0]} - {match.stats.shotsOnTarget[1] + match.stats.shotsOffTarget[1]}</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          Углы: <strong className="text-slate-200">{match.stats.corners[0]} - {match.stats.corners[1]}</strong>
-                        </span>
-                      </div>
+                      {match.status === 'PREMATCH' ? (
+                        <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                          <span className="flex items-center gap-1">
+                            П1: <strong className="text-slate-200">@{match.odds.home.toFixed(2)}</strong> | П2: <strong className="text-slate-200">@{match.odds.away.toFixed(2)}</strong>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            ТБ 2.5: <strong className="text-emerald-400 font-mono">@{match.odds.over25.toFixed(2)}</strong>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            IPT: <strong className="text-sky-300 font-mono">{calculateMatchIPT(match).toFixed(2)}</strong>
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                          <span className="flex items-center gap-1">
+                            Оп. атаки: <strong className="text-slate-200">{match.stats.dangerousAttacks[0]} - {match.stats.dangerousAttacks[1]}</strong>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            Удары: <strong className="text-slate-200">{match.stats.shotsOnTarget[0] + match.stats.shotsOffTarget[0]} - {match.stats.shotsOnTarget[1] + match.stats.shotsOffTarget[1]}</strong>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            Углы: <strong className="text-slate-200">{match.stats.corners[0]} - {match.stats.corners[1]}</strong>
+                          </span>
+                        </div>
+                      )}
 
                       {/* Matching Filters badges on card */}
                       {matchingRules.length > 0 && (
@@ -2770,6 +3346,24 @@ export default function App() {
                               {rule.targetMarket && <span className="text-emerald-400/80 font-mono font-normal">[{rule.targetMarket}]</span>}
                             </span>
                           ))}
+                        </div>
+                      )}
+
+                      {/* Dropping Odds / Smart Money Steam Move Badge on Card */}
+                      {match.oddsDrop && (
+                        <div className="mt-2 pt-2 border-t border-amber-500/25 flex items-center justify-between text-[11px] bg-amber-500/5 -mx-4 -mb-4 px-4 py-2 rounded-b-2xl">
+                          <span className="flex items-center gap-1 text-amber-400 font-semibold truncate">
+                            <TrendingDown className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                            <span className="truncate">Прогруз: {match.oddsDrop.marketName}</span>
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px]">
+                            <span className="text-rose-400 font-bold bg-rose-500/10 px-1 py-0.5 rounded border border-rose-500/20">
+                              -{match.oddsDrop.dropPercent}%
+                            </span>
+                            <span className="text-amber-300 font-bold bg-amber-500/15 px-1 py-0.5 rounded border border-amber-500/30">
+                              {match.oddsDrop.moneyVolumePercent}% €
+                            </span>
+                          </div>
                         </div>
                       )}
 
@@ -3270,6 +3864,78 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Dropping Odds & Money Flow (Smart Money Steam Moves) */}
+                    {selectedMatch.oddsDrop && (
+                      <div className="mt-3.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider">
+                            <TrendingDown className="h-4 w-4 text-amber-400" />
+                            Прогруз линии / Smart Money (Steam Move)
+                          </div>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            {selectedMatch.oddsDrop.bookmaker || 'Биржа Betfair / Pinnacle'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                          <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                            <div className="text-[10px] text-slate-400">Исход с прогрузом</div>
+                            <div className="text-xs font-bold text-white mt-0.5 truncate">{selectedMatch.oddsDrop.marketName}</div>
+                          </div>
+                          <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                            <div className="text-[10px] text-slate-400">Падение кэфа</div>
+                            <div className="text-xs font-bold text-rose-400 font-mono mt-0.5">
+                              -{selectedMatch.oddsDrop.dropPercent}% ({selectedMatch.oddsDrop.initialOdds} → {selectedMatch.oddsDrop.currentOdds})
+                            </div>
+                          </div>
+                          <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                            <div className="text-[10px] text-slate-400">Доля денег в рынке</div>
+                            <div className="text-xs font-bold text-amber-400 font-mono mt-0.5">
+                              {selectedMatch.oddsDrop.moneyVolumePercent}% пула
+                            </div>
+                          </div>
+                          <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                            <div className="text-[10px] text-slate-400">Объем ставок</div>
+                            <div className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
+                              {selectedMatch.oddsDrop.moneyVolumeAmountEur
+                                ? `€${selectedMatch.oddsDrop.moneyVolumeAmountEur.toLocaleString('ru-RU')}`
+                                : 'Крупный пул'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                          <span>Обнаружено на {selectedMatch.oddsDrop.detectedAtMinute || selectedMatch.minute}' мин</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingFilter({
+                                id: `custom-steam-${Date.now()}`,
+                                name: `📉 Прогруз на ${selectedMatch.oddsDrop?.marketName}`,
+                                description: `Отслеживание падения кэфа от ${selectedMatch.oddsDrop?.dropPercent}% при прогрузе денег от ${selectedMatch.oddsDrop?.moneyVolumePercent}%`,
+                                category: 'odds_drop',
+                                ruleType: 'LIVE',
+                                enabled: true,
+                                minMinute: 1,
+                                maxMinute: 90,
+                                scoreCondition: 'ANY',
+                                minOddsDropPercent: selectedMatch.oddsDrop?.dropPercent,
+                                minMoneyVolumePercent: selectedMatch.oddsDrop?.moneyVolumePercent,
+                                oddsDropMarket: selectedMatch.oddsDrop?.market,
+                                targetMarket: selectedMatch.oddsDrop?.marketName,
+                                telegramEnabled: true,
+                                color: 'amber',
+                              });
+                              setIsFilterModalOpen(true);
+                            }}
+                            className="text-amber-400 hover:text-amber-300 font-semibold underline flex items-center gap-1"
+                          >
+                            Создать фильтр под этот прогруз →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Quick Simulation & Live Match Testing Controls */}
                     <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
                       <div className="flex items-center justify-between text-[11px]">
@@ -3278,11 +3944,85 @@ export default function App() {
                           Тестирование сигналов и исходов (Live):
                         </span>
                         <span className="font-mono text-slate-500">
-                          {selectedMatch.status === 'FT' ? 'Матч завершен (FT)' : `${selectedMatch.minute}' мин`}
+                          {selectedMatch.status === 'PREMATCH'
+                            ? `Прематч: ${selectedMatch.startsInMinutes ?? 60} мин до старта`
+                            : selectedMatch.status === 'FT'
+                            ? 'Матч завершен (FT)'
+                            : `${selectedMatch.minute}' мин`}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatches((prev) =>
+                              prev.map((m) =>
+                                m.id === selectedMatch.id
+                                  ? {
+                                      ...m,
+                                      status: 'PREMATCH',
+                                      minute: 0,
+                                      startsInMinutes: 60,
+                                      startTime: '21:00',
+                                      lastEvent: 'До матча: 1 час (21:00). Запущен предматчевый отбор за 60 мин',
+                                    }
+                                  : m
+                              )
+                            );
+                          }}
+                          className="px-2 py-1.5 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 flex items-center justify-center gap-1 font-medium transition"
+                          title="Установить ровно 1 час до матча для проверки предматчевого триггера и поднятия в верх списка"
+                        >
+                          ⏱️ За 1 час (60м)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatches((prev) =>
+                              prev.map((m) =>
+                                m.id === selectedMatch.id
+                                  ? {
+                                      ...m,
+                                      status: 'PREMATCH',
+                                      minute: 0,
+                                      startsInMinutes: 180,
+                                      startTime: '23:00',
+                                      lastEvent: 'До матча: 3 часа. Ожидает окна за 1 час до начала',
+                                    }
+                                  : m
+                              )
+                            );
+                          }}
+                          className="px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 flex items-center justify-center gap-1 font-medium transition"
+                          title="Установить за 3 часа (вне 1-часового окна)"
+                        >
+                          ⏳ За 3 часа (180м)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatches((prev) =>
+                              prev.map((m) =>
+                                m.id === selectedMatch.id
+                                  ? {
+                                      ...m,
+                                      status: 'LIVE',
+                                      minute: 75,
+                                      lastEvent: "75' Live мониторинг второго тайма",
+                                    }
+                                  : m
+                              )
+                            );
+                          }}
+                          className="px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-300 border border-slate-700 flex items-center justify-center gap-1 font-medium transition"
+                          title="Вернуть в Live 75' (проверка паттерна быстрых голов)"
+                        >
+                          🔄 В лайв (75')
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => {
@@ -3338,17 +4078,91 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             setMatches((prev) =>
-                              prev.map((m) =>
-                                m.id === selectedMatch.id
-                                  ? { ...m, status: 'LIVE', minute: 75 }
-                                  : m
-                              )
+                              prev.map((m) => {
+                                if (m.id !== selectedMatch.id) return m;
+                                return {
+                                  ...m,
+                                  status: 'LIVE',
+                                  minute: 70,
+                                  score: [1, 0] as [number, number],
+                                  odds: {
+                                    ...m.odds,
+                                    over25: 1.85,
+                                  },
+                                  history: {
+                                    ...(m.history || {}),
+                                    predictedIpt: 2.85,
+                                  },
+                                  lastEvent: "70' Моделирование Стратегии 7: 70 мин, счет 1:0 (тотал ≤ 2), IPT 2.85",
+                                };
+                              })
                             );
                           }}
-                          className="px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 flex items-center justify-center gap-1 font-medium transition"
-                          title="Вернуть в Live 75'"
+                          className="px-2 py-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center justify-center gap-1 font-medium transition"
+                          title="Установить параметры для срабатывания Стратегии 7 (70', тотал ≤ 2, IPT > 2.70)"
                         >
-                          🔄 В лайв (75')
+                          📐 Тест Стратегии 7 (70')
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatches((prev) =>
+                              prev.map((m) => {
+                                if (m.id !== selectedMatch.id) return m;
+                                const initO = m.initialOdds || {
+                                  home: 2.10,
+                                  draw: 3.40,
+                                  away: 4.80,
+                                  over25: 1.95,
+                                  under25: 1.85,
+                                  btts: 1.75,
+                                };
+                                const currO = {
+                                  ...m.odds,
+                                  home: 1.62,
+                                  over25: 1.58,
+                                };
+                                const oddsDrop: OddsDropData = {
+                                  market: 'HOME',
+                                  marketName: `П1 (${m.homeTeam})`,
+                                  initialOdds: 2.10,
+                                  currentOdds: 1.62,
+                                  dropPercent: 22.8,
+                                  moneyVolumePercent: 78,
+                                  moneyVolumeAmountEur: 185000,
+                                  bookmaker: 'Betfair Exchange / Pinnacle',
+                                  detectedAtMinute: m.minute || 45,
+                                };
+                                const marketFlows: OddsDropData[] = [
+                                  oddsDrop,
+                                  {
+                                    market: 'OVER',
+                                    marketName: 'ТБ 2.5',
+                                    initialOdds: 1.95,
+                                    currentOdds: 1.58,
+                                    dropPercent: 18.9,
+                                    moneyVolumePercent: 72,
+                                    moneyVolumeAmountEur: 120000,
+                                    bookmaker: 'Pinnacle',
+                                    detectedAtMinute: m.minute || 45,
+                                  },
+                                ];
+                                return {
+                                  ...m,
+                                  initialOdds: initO,
+                                  odds: currO,
+                                  oddsDrop,
+                                  marketFlows,
+                                  lastEvent: "📉 Зафиксирован резкий прогруз линии: кэф на П1 упал с 2.10 до 1.62 (-22.8%, 78% денег)",
+                                };
+                              })
+                            );
+                          }}
+                          className="px-2 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center justify-center gap-1 font-medium transition"
+                          title="Смоделировать прогруз линии и Smart Money (падение кэфа -22.8%, 78% пула рынка)"
+                        >
+                          📉 Тест Прогруза (-22%)
                         </button>
                       </div>
                     </div>
@@ -3584,6 +4398,23 @@ export default function App() {
                       color: 'purple',
                     },
                   },
+                  {
+                    name: '📉 Smart Money / Прогруз',
+                    desc: 'Падение кэфа ≥15%, пул ≥70%',
+                    preset: {
+                      name: '📉 Smart Money: Падение кэфа ≥15% (Деньги ≥70%)',
+                      description: 'Фиксация крупного денежного прогруза на исход: резкое падение кэфа от 15% при доле денег от 70%',
+                      category: 'odds_drop' as FilterCategory,
+                      minMinute: 1,
+                      maxMinute: 90,
+                      scoreCondition: 'ANY' as ScoreCondition,
+                      minOddsDropPercent: 15,
+                      minMoneyVolumePercent: 70,
+                      oddsDropMarket: 'ANY' as const,
+                      targetMarket: 'Исход с прогрузом (Steam Move)',
+                      color: 'amber',
+                    },
+                  },
                 ].map((item, idx) => (
                   <button
                     key={idx}
@@ -3679,6 +4510,7 @@ export default function App() {
                     { id: 'comeback', label: 'Камбэк', icon: '🎯' },
                     { id: 'halftime', label: '1-й тайм', icon: '⏱️' },
                     { id: 'pressure', label: 'Давление', icon: '🔥' },
+                    { id: 'odds_drop', label: 'Прогрузы & Дроп', icon: '📉' },
                     { id: 'cards', label: 'Карточки', icon: '🟥' },
                     { id: 'custom', label: 'Мои фильтры', icon: '🛠️' },
                   ] as Array<{ id: FilterCategory; label: string; icon: string }>
@@ -3888,6 +4720,10 @@ export default function App() {
                           {/* Conditions Grid */}
                           <div className="pt-2 space-y-1.5 text-xs text-slate-300 font-mono bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
                             <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                              <span className="text-slate-500 font-sans">Минуты:</span>
+                              <span className="font-bold text-sky-300">{filter.minMinute}' – {filter.maxMinute}'</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-800/60 pb-1">
                               <span className="text-slate-500 font-sans">Счёт:</span>
                               <span className="font-bold text-slate-200">
                                 {filter.scoreCondition === '0-0'
@@ -3900,8 +4736,10 @@ export default function App() {
                                   ? 'Гости ведут'
                                   : filter.scoreCondition === 'ONE_GOAL_DIFF'
                                   ? 'Разница в 1 гол'
+                                  : filter.scoreCondition === 'TOTAL_UNDER_25'
+                                  ? 'ТБ 2.5 не пробит (≤ 2)'
                                   : filter.scoreCondition === 'TOTAL_UNDER_2'
-                                  ? 'ТМ 2.5'
+                                  ? 'ТМ 2.5 (≤ 2)'
                                   : filter.scoreCondition === 'TOTAL_OVER_2'
                                   ? 'ТБ 2.5'
                                   : 'Любой'}
@@ -3944,6 +4782,12 @@ export default function App() {
                                 <span>≥ {filter.minXgTotal}</span>
                               </div>
                             )}
+                            {filter.minXgOverScoreDiff && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">xG перевес над счётом:</span>
+                                <span className="text-amber-400 font-bold">≥ +{filter.minXgOverScoreDiff.toFixed(1)}</span>
+                              </div>
+                            )}
                             {filter.minAttacksDiff && (
                               <div className="flex justify-between border-b border-slate-800/60 pb-1">
                                 <span className="text-slate-500 font-sans">Разница атак:</span>
@@ -3960,6 +4804,33 @@ export default function App() {
                               <div className="flex justify-between border-b border-slate-800/60 pb-1">
                                 <span className="text-slate-500 font-sans">Кэф фаворита:</span>
                                 <span className="text-emerald-400 font-bold">≤ {filter.maxOddsFavorite.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {filter.minOddsDropPercent && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1 bg-amber-500/10 -mx-1 px-1 rounded">
+                                <span className="text-amber-400 font-sans flex items-center gap-1">
+                                  <TrendingDown className="h-3 w-3" />
+                                  Падение кэфа:
+                                </span>
+                                <span className="text-rose-400 font-bold">≥ {filter.minOddsDropPercent}%</span>
+                              </div>
+                            )}
+                            {filter.minMoneyVolumePercent && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1 bg-amber-500/10 -mx-1 px-1 rounded">
+                                <span className="text-amber-400 font-sans">Прогруз денег:</span>
+                                <span className="text-amber-300 font-bold">≥ {filter.minMoneyVolumePercent}% пула</span>
+                              </div>
+                            )}
+                            {filter.minMoneyLoadAmount && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">Сумма прогруза:</span>
+                                <span className="text-emerald-400 font-bold">≥ €{filter.minMoneyLoadAmount.toLocaleString('ru-RU')}</span>
+                              </div>
+                            )}
+                            {filter.oddsDropMarket && filter.oddsDropMarket !== 'ANY' && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">Целевой исход:</span>
+                                <span className="text-sky-300 font-bold">{filter.oddsDropMarket}</span>
                               </div>
                             )}
                             {(filter.minOddsOver25 || filter.maxOddsOver25) && (
@@ -3986,6 +4857,12 @@ export default function App() {
                                 <span className="text-amber-400 font-bold">&gt; {filter.minModelIpt}</span>
                               </div>
                             )}
+                            {filter.maxTotalGoals !== undefined && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">Макс. тотал:</span>
+                                <span className="text-amber-300 font-bold">≤ {filter.maxTotalGoals} (ТБ {filter.maxTotalGoals}.5 не пробит)</span>
+                              </div>
+                            )}
                             {filter.excludeYouthAndWomen && (
                               <div className="flex justify-between border-b border-slate-800/60 pb-1">
                                 <span className="text-slate-500 font-sans">Лиги:</span>
@@ -4008,6 +4885,18 @@ export default function App() {
                               <div className="flex justify-between border-b border-slate-800/60 pb-1">
                                 <span className="text-slate-500 font-sans">Красная карточка:</span>
                                 <span className="text-rose-400 font-bold">Обязательно (10 vs 11)</span>
+                              </div>
+                            )}
+                            {filter.requireGuestTwoQuickGoals1H && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">Паттерн:</span>
+                                <span className="text-amber-400 font-bold">2 быстрых гола в 1Т</span>
+                              </div>
+                            )}
+                            {filter.requireNoGoalsSinceQuickGoals && (
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">Сигнал на 75':</span>
+                                <span className="text-emerald-400 font-bold">Строго без голов после них</span>
                               </div>
                             )}
                           </div>
@@ -5297,6 +6186,9 @@ export default function App() {
             allUsers={allUsers}
             userFilters={filters}
             ads={ads}
+            currentTheme={theme}
+            onToggleTheme={toggleTheme}
+            onSetTheme={setTheme}
             onSelectUser={handleSelectUser}
             onUpdateCurrentUser={handleUpdateCurrentUser}
             onCreateUser={handleCreateUser}

@@ -19,8 +19,11 @@ export interface Match {
   awayTeam: string;
   score: [number, number];
   minute: number;
-  status: 'LIVE' | 'HT' | 'FT';
+  status: 'LIVE' | 'HT' | 'FT' | 'PREMATCH';
   source: 'Flashscore' | 'Sofascore' | 'SStats' | 'API-Football' | 'Football-Data' | 'Custom-Webhook' | 'Public-Feed';
+  startTime?: string;
+  startsInMinutes?: number;
+  prematchAnalysisConducted?: boolean;
   stats: MatchStats;
   momentum: number[];
   lastEvent: string;
@@ -42,6 +45,18 @@ export interface Match {
     itb2_25?: number;
     over15_ht?: number;
   };
+  initialOdds?: {
+    home?: number;
+    draw?: number;
+    away?: number;
+    over25?: number;
+    under25?: number;
+    btts?: number;
+    over15?: number;
+    under15?: number;
+  };
+  oddsDrop?: OddsDropData;
+  marketFlows?: OddsDropData[];
   history?: {
     homeConcededLastMatch?: number;
     awayConcededLastMatch?: number;
@@ -59,7 +74,23 @@ export interface Match {
     bothScoredLast5Count?: number;
     last4LateGoalCount?: number;
     guestScoredTwoQuickFirstHalf?: boolean;
+    twoQuickGoalsFirstHalf?: boolean;
+    goalsAtFirstHalfQuick?: number;
+    noGoalsSinceQuickGoals?: boolean;
+    twoQuickGoalsMinute?: number;
   };
+}
+
+export interface OddsDropData {
+  market: 'HOME' | 'DRAW' | 'AWAY' | 'OVER' | 'UNDER' | 'BTTS';
+  marketName: string;            // e.g. "Победа 1 (Napoli)" или "ТБ 2.5"
+  initialOdds: number;           // Начальный коэффициент (на открытии линии)
+  currentOdds: number;           // Текущий коэффициент
+  dropPercent: number;           // Процент падения коэффициента, например 20.0%
+  moneyVolumePercent: number;    // Доля прогруженных денег в процентах, например 78%
+  moneyVolumeAmountEur?: number; // Абсолютный объем прогруза в евро, например 142 000 €
+  bookmaker?: string;            // Биржа/букмекер, например "Betfair Exchange / Pinnacle"
+  detectedAtMinute?: number;     // Минута обнаружения прогруза
 }
 
 export type LiveMatch = Match;
@@ -72,7 +103,8 @@ export type ScoreCondition =
   | 'AWAY_LEAD'
   | 'ONE_GOAL_DIFF'
   | 'TOTAL_UNDER_2'
-  | 'TOTAL_OVER_2';
+  | 'TOTAL_OVER_2'
+  | 'TOTAL_UNDER_25';
 
 export type FilterCategory =
   | 'all'
@@ -84,6 +116,7 @@ export type FilterCategory =
   | 'comeback'
   | 'halftime'
   | 'cards'
+  | 'odds_drop'
   | 'custom';
 
 export type BetType = 'LIVE' | 'PREMATCH';
@@ -94,6 +127,7 @@ export interface FilterRule {
   description: string;
   category?: FilterCategory;
   ruleType?: 'LIVE' | 'PREMATCH' | 'HYBRID'; // Тип стратегии: Лайв или Предматчевый отбор
+  prematchTimingMinutes?: number; // За сколько минут до матча проводить анализ (по умолчанию 60 мин / 1 час)
   enabled: boolean;
   minMinute: number;
   maxMinute: number;
@@ -111,6 +145,7 @@ export interface FilterRule {
   minPossessionDiff?: number;
   minXgTotal?: number;
   minXgDiff?: number;
+  minXgOverScoreDiff?: number; // Дефицит xG над счётом: (xG[0] + xG[1]) - (score[0] + score[1]) >= X (например 1.60)
   minPressureIndex?: number;
   redCardCondition?: 'ANY' | 'NO_RED_CARDS' | 'HAS_RED_CARD';
 
@@ -128,11 +163,20 @@ export interface FilterRule {
   maxOddsBtts?: number;     // Кэф на Обе забьют <= X (например <= 1.67)
   minOddsBtts?: number;     // Кэф на Обе забьют >= X (например >= 1.50)
 
+  // Отслеживание прогрузов и падения коэффициентов (Smart Money & Steam Moves)
+  minOddsDropPercent?: number;       // Мин. падение коэффициента в % (например, >= 15%)
+  minMoneyVolumePercent?: number;    // Мин. процент прогруза денег на исход (например, >= 70%)
+  minMoneyLoadAmount?: number;       // Мин. сумма прогруза в EUR (например, >= 50000 €)
+  oddsDropMarket?: 'ANY' | 'HOME' | 'DRAW' | 'AWAY' | 'OVER' | 'UNDER' | 'BTTS'; // Целевой исход прогруза
+
   // Игровой сценарий и угловые
+  maxTotalGoals?: number;             // Максимальный тотал голов в матче (например, <= 2 для непробитого ТБ 2.5)
   scoreDiffExactly1?: boolean;        // Разница в счёте ровно 1 гол (1:0, 2:1, 0:1, 1:2)
   losingTeamMoreCorners?: boolean;    // Проигрывающая команда подала больше угловых (Корнер после 80')
   favoriteLosing?: boolean;           // Фаворит матча проигрывает (для угловых фаворита)
-  requireGuestTwoQuickGoals1H?: boolean; // Гости забили 2 быстрых гола подряд (разница <=15 мин) в 1Т
+  requireGuestTwoQuickGoals1H?: boolean; // 2 быстрых гола подряд (разница <=15 мин) в 1Т
+  requireTwoQuickGoals1H?: boolean;      // 2 быстрых гола в 1Т (любая команда или гости)
+  requireNoGoalsSinceQuickGoals?: boolean; // Отсутствие голов после 2 быстрых голов (счёт без изменений до 75')
 
   // Лиги и фильтры исключений (Стратегии 4, 12, 14)
   excludeYouthAndWomen?: boolean; // Исключать молодежки U19-U23, женские лиги и низшие дивизионы
@@ -302,6 +346,7 @@ export interface UserProfile {
   balanceRub: number;
   telegramBots: TelegramBotProfile[];
   notificationSound: boolean;
+  theme?: 'dark' | 'light' | 'system';
   adPreferences: {
     showBanners: boolean;
     compactAds: boolean;
@@ -361,6 +406,9 @@ export interface HistoricalSnapshot {
   minute: number;
   score: [number, number];
   stats: MatchStats;
+  odds?: { home: number; draw: number; away: number; over25: number; under25?: number; btts?: number };
+  oddsDrop?: OddsDropData;
+  marketFlows?: OddsDropData[];
 }
 
 export interface HistoricalMatch {

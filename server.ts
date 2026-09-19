@@ -86,6 +86,9 @@ async function startServer() {
   });
 
   function humanizeTelegramError(rawError: string): string {
+    if (rawError.includes("Unauthorized") || rawError.includes("invalid token")) {
+      return "Неверный токен Telegram бота. Проверьте Bot Token от @BotFather в настройках приложения.";
+    }
     if (rawError.includes("the bot can't send messages to the bot")) {
       return "В поле 'Chat ID' указан юзернейм или ID самого бота. Бот не может отправлять сообщения самому себе. Укажите ID вашего личного диалога или имя вашего канала/группы (например, @my_channel_name).";
     }
@@ -97,6 +100,9 @@ async function startServer() {
     }
     if (rawError.includes("bot is not a member") || rawError.includes("have no rights to send a message") || rawError.includes("not enough rights")) {
       return "У бота нет прав на публикацию в этом канале/чате. Добавьте бота в администраторы канала с разрешением отправки сообщений.";
+    }
+    if (rawError.includes("can't parse entities") || rawError.includes("entity")) {
+      return "Ошибка разметки HTML в Telegram-сообщении. Рекомендуется проверить специальные символы или переключить режим разметки.";
     }
     return rawError;
   }
@@ -338,6 +344,46 @@ async function startServer() {
           chat: result.result?.chat,
         });
       } else {
+        // Fallback: If Telegram rejected because of HTML entities, retry sending as plain text
+        if (parse_mode && (result.description?.includes("can't parse entities") || result.description?.includes("entity"))) {
+          try {
+            const strippedText = text.replace(/<[^>]+>/g, '');
+            const fallbackRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: targetChatId,
+                text: strippedText,
+                disable_notification,
+                disable_web_page_preview: true,
+              }),
+            });
+            const fallbackResult = (await fallbackRes.json()) as { ok: boolean; description?: string; result?: any };
+            if (fallbackResult.ok) {
+              const messageId = fallbackResult.result?.message_id;
+              for (const key of lockKeys) {
+                recentDispatchedSignals.set(key, {
+                  timestamp: Date.now(),
+                  matchId: match_id,
+                  ruleId: rule_id,
+                  fingerprint: key,
+                  inFlight: false,
+                  messageId,
+                });
+              }
+              return res.json({
+                ok: true,
+                messageId,
+                sentAt: new Date().toISOString(),
+                chat: fallbackResult.result?.chat,
+                fallbackPlain: true,
+              });
+            }
+          } catch (e) {
+            // ignore fallback error and report original
+          }
+        }
+
         for (const key of lockKeys) {
           recentDispatchedSignals.delete(key);
         }

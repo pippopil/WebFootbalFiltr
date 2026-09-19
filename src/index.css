@@ -5,3 +5,97 @@
     @apply antialiased bg-slate-950 text-slate-100;
   }
 }
+
+/* Light Theme Variables & Palette Mapping */
+html.light,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Slate scale remapping for clean, accessible light mode */
+  --color-slate-950: #f8fafc; /* canvas background: crisp slate-50 */
+  --color-slate-900: #ffffff; /* cards / panel backgrounds: pure white */
+  --color-slate-850: #f1f5f9;
+  --color-slate-800: #e2e8f0; /* borders & subtle dividers: slate-200 */
+  --color-slate-750: #cbd5e1;
+  --color-slate-700: #cbd5e1; /* secondary borders: slate-300 */
+  --color-slate-600: #94a3b8; /* slate-400 */
+  --color-slate-500: #64748b; /* muted labels: slate-500 */
+  --color-slate-400: #475569; /* secondary text: slate-600 */
+  --color-slate-300: #334155; /* primary subtitles: slate-700 */
+  --color-slate-200: #1e293b; /* headings: slate-800 */
+  --color-slate-100: #0f172a; /* high-contrast dark text: slate-900 */
+  --color-slate-50: #020617;
+}
+
+/* Light theme root body */
+.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* In light mode, general .text-white text turns deep dark (#0f172a) for readability */
+.light .text-white {
+  color: #0f172a;
+}
+
+/* Preserve crisp white text on colored / solid buttons, badges and gradients */
+.light button[class*="bg-emerald-"],
+.light button[class*="bg-blue-"],
+.light button[class*="bg-indigo-"],
+.light button[class*="bg-rose-"],
+.light button[class*="bg-amber-500"],
+.light button[class*="bg-teal-"],
+.light button[class*="bg-purple-"],
+.light button[class*="from-"],
+.light [class*="bg-emerald-600"],
+.light [class*="bg-blue-600"],
+.light [class*="bg-indigo-600"],
+.light [class*="bg-rose-600"],
+.light [class*="bg-teal-600"],
+.light [class*="from-indigo-600"],
+.light [class*="from-emerald-600"],
+.light [class*="from-blue-600"],
+.light .preserve-white,
+.light [data-theme-preserve="white"] {
+  color: #ffffff !important;
+}
+
+.light button[class*="bg-emerald-"] *,
+.light button[class*="bg-blue-"] *,
+.light button[class*="bg-indigo-"] *,
+.light button[class*="bg-rose-"] *,
+.light button[class*="from-"] *,
+.light [class*="bg-emerald-600"] *,
+.light [class*="bg-blue-600"] *,
+.light [class*="from-indigo-600"] * {
+  --color-slate-100: #ffffff;
+}
+
+.light button[class*="bg-emerald-"] .text-white,
+.light button[class*="bg-blue-"] .text-white,
+.light button[class*="bg-indigo-"] .text-white,
+.light button[class*="bg-rose-"] .text-white,
+.light [class*="bg-emerald-600"] .text-white,
+.light [class*="bg-blue-600"] .text-white,
+.light [class*="from-"] .text-white {
+  color: #ffffff !important;
+}
+
+/* Light mode card elevation & shadows */
+.light .bg-slate-900 {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Light mode inputs & selects */
+.light input,
+.light select,
+.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light input::placeholder,
+.light textarea::placeholder {
+  color: #94a3b8 !important;
+}

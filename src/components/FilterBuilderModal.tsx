@@ -22,6 +22,7 @@ import {
   DollarSign,
   Calculator,
   TrendingUp,
+  TrendingDown,
   Bot,
 } from 'lucide-react';
 import { FilterRule, Match, ScoreCondition, FilterCategory, TelegramBotProfile } from '../types';
@@ -94,18 +95,20 @@ const STRATEGY_PRESETS = [
     },
   },
   {
-    label: '📐 Модель IPT > 2.70',
+    label: '📐 Стратегия 7 (ТБ 2.5 на 70\')',
     badge: 'Стр. 7',
     data: {
-      name: '📐 Стратегия 7: Математическая модель IPT > 2.70 (ТБ 2.5)',
-      description: 'Взвешенный сезонный и формовой тотал IPT = (BP * 0.6 + FP * 0.4) > 2.70. Прогнозирование ТБ 2.5.',
+      name: '📐 Стратегия 7: Алгоритм на ТБ 2.5 (Сигнал на 70\' при непробитом ТБ 2.5)',
+      description: 'Сигнал на 70-й минуте (70-75\'), когда ТБ 2.5 ещё не пробит (счёт ≤ 2 голов) при расчетном IPT > 2.70 или кэфе ТБ 2.5 ≤ 1.90.',
       category: 'goals' as FilterCategory,
-      minMinute: 0,
-      maxMinute: 45,
-      scoreCondition: 'ANY' as ScoreCondition,
+      ruleType: 'LIVE' as const,
+      minMinute: 70,
+      maxMinute: 75,
+      scoreCondition: 'TOTAL_UNDER_25' as ScoreCondition,
+      maxTotalGoals: 2,
       minModelIpt: 2.70,
       maxOddsOver25: 1.90,
-      targetMarket: 'Тотал больше 2.5',
+      targetMarket: 'Тотал больше 2.5 / Гол после 70-й мин',
       color: 'amber',
     },
   },
@@ -326,17 +329,18 @@ const STRATEGY_PRESETS = [
     },
   },
   {
-    label: '⚡ 2 быстрых гола гостей',
-    badge: 'Гости',
+    label: '⚡ 2 быстрых гола в 1Т (на 75\')',
+    badge: '75-я мин',
     data: {
-      name: '⚡ Два быстрых гола гостей в 1-м тайме (ТБ матча)',
-      description: 'Гости забили 2 гола подряд с разницей ≤ 15 мин в 1-м тайме. В матче будет ещё минимум 1 гол.',
+      name: '⚡ Два быстрых гола в 1-м тайме (Сигнал на 75\' без голов)',
+      description: 'В 1-м тайме забито 2 быстрых гола подряд (разница ≤ 15 мин). Если до 75-й минуты голов больше не было — сигнал на ТБ матча (поздний гол).',
       category: 'comeback' as FilterCategory,
-      minMinute: 35,
-      maxMinute: 65,
+      minMinute: 75,
+      maxMinute: 77,
       scoreCondition: 'ANY' as ScoreCondition,
       requireGuestTwoQuickGoals1H: true,
-      targetMarket: 'ТБ матча (+1 гол во 2-м тайме)',
+      requireNoGoalsSinceQuickGoals: true,
+      targetMarket: 'ТБ матча (+1 гол после 75\')',
       color: 'amber',
     },
   },
@@ -369,6 +373,38 @@ const STRATEGY_PRESETS = [
       requireNoZeroZeroLast5: true,
       targetMarket: 'ТБ 1.5 (экспресс / ординар)',
       color: 'emerald',
+    },
+  },
+  {
+    label: '⚡ xG Дефицит 75\'',
+    badge: 'xG ≥ 1.6',
+    data: {
+      name: '⚡ xG Дефицит 75\': Поздний гол (xG - Счёт ≥ 1.6)',
+      description: 'Если к 75-й минуте суммарный xG команд на 1.60+ больше текущего счёта (накопленный недобор голов) — неизбежен гол в концовке.',
+      category: 'goals' as FilterCategory,
+      minMinute: 70,
+      maxMinute: 88,
+      scoreCondition: 'ANY' as ScoreCondition,
+      minXgOverScoreDiff: 1.6,
+      targetMarket: 'ТБ (Следующий гол) / Гол после 75\'',
+      color: 'emerald',
+    },
+  },
+  {
+    label: '📉 Прогруз Smart Money',
+    badge: 'Дроп ≥ 12%',
+    data: {
+      name: '📉 Прогруз линии / Smart Money: Падение кэфа ≥ 12% (Деньги ≥ 65%)',
+      description: 'Резкое падение коэффициента на исход от 12% при аномальном притоке денег (от 65% всего пула ставок на бирже Betfair / Pinnacle).',
+      category: 'odds_drop' as FilterCategory,
+      minMinute: 1,
+      maxMinute: 85,
+      scoreCondition: 'ANY' as ScoreCondition,
+      minOddsDropPercent: 12,
+      minMoneyVolumePercent: 65,
+      oddsDropMarket: 'ANY' as const,
+      targetMarket: 'Исход с прогрузом денег (П1 / X / П2 / ТБ)',
+      color: 'amber',
     },
   },
 ];
@@ -527,6 +563,19 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
       minXgTotal: formData.minXgTotal !== undefined && formData.minXgTotal !== null && String(formData.minXgTotal) !== ''
         ? Number(formData.minXgTotal)
         : undefined,
+      minXgOverScoreDiff: formData.minXgOverScoreDiff !== undefined && formData.minXgOverScoreDiff !== null && String(formData.minXgOverScoreDiff) !== ''
+        ? Number(formData.minXgOverScoreDiff)
+        : undefined,
+      minOddsDropPercent: formData.minOddsDropPercent !== undefined && formData.minOddsDropPercent !== null && String(formData.minOddsDropPercent) !== ''
+        ? Number(formData.minOddsDropPercent)
+        : undefined,
+      minMoneyVolumePercent: formData.minMoneyVolumePercent !== undefined && formData.minMoneyVolumePercent !== null && String(formData.minMoneyVolumePercent) !== ''
+        ? Number(formData.minMoneyVolumePercent)
+        : undefined,
+      minMoneyLoadAmount: formData.minMoneyLoadAmount !== undefined && formData.minMoneyLoadAmount !== null && String(formData.minMoneyLoadAmount) !== ''
+        ? Number(formData.minMoneyLoadAmount)
+        : undefined,
+      oddsDropMarket: formData.oddsDropMarket || undefined,
       minPressureIndex: formData.minPressureIndex !== undefined && formData.minPressureIndex !== null && String(formData.minPressureIndex) !== ''
         ? Number(formData.minPressureIndex)
         : undefined,
@@ -682,6 +731,59 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
             </div>
           </div>
 
+          {/* Strategy Type: Live vs Prematch */}
+          <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <Sliders className="h-4 w-4" />
+              Режим работы стратегии (Лайв или Прематч)
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, ruleType: 'LIVE' })}
+                className={`p-3 rounded-xl border text-left transition flex items-start gap-2.5 ${
+                  formData.ruleType !== 'PREMATCH'
+                    ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <span className="text-base">🔴</span>
+                <div>
+                  <div className="text-xs font-bold text-white">Лайв (во время матча)</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Анализ по ходу игры в указанном диапазоне минут</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, ruleType: 'PREMATCH', minMinute: 0, maxMinute: 15, prematchTimingMinutes: 60 })}
+                className={`p-3 rounded-xl border text-left transition flex items-start gap-2.5 ${
+                  formData.ruleType === 'PREMATCH'
+                    ? 'bg-sky-500/10 border-sky-500/50 text-sky-300'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <span className="text-base">📋</span>
+                <div>
+                  <div className="text-xs font-bold text-white">Прематч (за 1 час до матча)</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Анализ проводится ровно за 60 минут до свистка</div>
+                </div>
+              </button>
+            </div>
+
+            {formData.ruleType === 'PREMATCH' && (
+              <div className="p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-xs text-sky-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Clock className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                  <span>Анализ матчей запускается строго за 1 час (60 мин) до начала. Матчи со сработавшими фильтрами поднимаются в самый верх списка.</span>
+                </span>
+                <span className="text-[10px] font-mono font-bold bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30">
+                  60 мин
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Section 1: Timing & Score Condition */}
           <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
@@ -733,6 +835,7 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                   <option value="ONE_GOAL_DIFF">Разница ровно в 1 мяч (1:0, 0:1, 2:1...)</option>
                   <option value="AWAY_LEAD">Гости ведут в счёте</option>
                   <option value="HOME_LEAD">Хозяева ведут в счёте</option>
+                  <option value="TOTAL_UNDER_25">ТБ 2.5 не пробит (≤ 2 голов: 0:0, 1:0, 0:1, 1:1, 2:0, 0:2)</option>
                   <option value="TOTAL_UNDER_2">Низкий тотал (≤ 1 гол)</option>
                   <option value="TOTAL_OVER_2">Результативный матч (≥ 2 гола)</option>
                 </select>
@@ -949,6 +1052,26 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                     setFormData({
                       ...formData,
                       minXgTotal: e.target.value !== '' ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 flex items-center justify-between">
+                  <span>Дефицит xG над счётом (≥):</span>
+                  <span className="text-[10px] text-amber-400 font-mono">xG - Голы</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="Напр. 1.6"
+                  value={formData.minXgOverScoreDiff ?? ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      minXgOverScoreDiff: e.target.value !== '' ? Number(e.target.value) : undefined,
                     })
                   }
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
@@ -1204,6 +1327,109 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
             </div>
           </div>
 
+          {/* Section: Smart Money & Dropping Odds Steam Moves */}
+          <div className="bg-slate-950/70 border border-amber-500/30 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <TrendingDown className="h-4 w-4 text-amber-400" />
+                Отслеживание прогрузов денег и падения коэффициентов (Smart Money & Steam Moves)
+              </h3>
+              <span className="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
+                Betfair / Pinnacle
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Фиксация аномального падения коэффициента в линии под давлением крупных сумм ставок (прогруз пула денег, инсайды и аналитический штурм).
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 flex items-center justify-between">
+                  <span>Исход для прогруза:</span>
+                  <span className="text-[10px] text-amber-400 font-mono">Рынок</span>
+                </label>
+                <select
+                  value={formData.oddsDropMarket || 'ANY'}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      oddsDropMarket: e.target.value as any,
+                    })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
+                >
+                  <option value="ANY">Любой исход (П1 / X / П2 / ТБ / ТМ)</option>
+                  <option value="HOME">Победа 1 (Хозяева)</option>
+                  <option value="DRAW">Ничья (X)</option>
+                  <option value="AWAY">Победа 2 (Гости)</option>
+                  <option value="OVER">Тотал Больше (ТБ)</option>
+                  <option value="UNDER">Тотал Меньше (ТМ)</option>
+                  <option value="BTTS">Обе забьют (ОЗ)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 flex items-center justify-between">
+                  <span>Мин. падение кэфа (≥ %):</span>
+                  <span className="text-[10px] text-amber-400 font-mono">Дроп линии</span>
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  placeholder="Напр. 15 (%)"
+                  value={formData.minOddsDropPercent ?? ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      minOddsDropPercent: e.target.value !== '' ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 flex items-center justify-between">
+                  <span>Мин. доля денег (≥ %):</span>
+                  <span className="text-[10px] text-amber-400 font-mono">Объем пула</span>
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  placeholder="Напр. 70 (%)"
+                  value={formData.minMoneyVolumePercent ?? ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      minMoneyVolumePercent: e.target.value !== '' ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 flex items-center justify-between">
+                  <span>Мин. сумма прогруза (€):</span>
+                  <span className="text-[10px] text-amber-400 font-mono">Сумма ставок</span>
+                </label>
+                <input
+                  type="number"
+                  step="5000"
+                  placeholder="Напр. 50000 (€)"
+                  value={formData.minMoneyLoadAmount ?? ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      minMoneyLoadAmount: e.target.value !== '' ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Section 5: Reliability, Streaks & Special Strategy Signals */}
           <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
@@ -1294,12 +1520,20 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                 <input
                   type="checkbox"
                   checked={formData.requireGuestTwoQuickGoals1H ?? false}
-                  onChange={(e) => setFormData({ ...formData, requireGuestTwoQuickGoals1H: e.target.checked })}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setFormData({
+                      ...formData,
+                      requireGuestTwoQuickGoals1H: checked,
+                      requireNoGoalsSinceQuickGoals: checked,
+                      ...(checked ? { minMinute: 75, maxMinute: 77 } : {}),
+                    });
+                  }}
                   className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-950 border-slate-700"
                 />
                 <div className="text-[11px]">
-                  <span className="font-semibold text-emerald-300 block">⚡ Два быстрых гола гостей в 1-м тайме (≤15 мин)</span>
-                  <span className="text-slate-400 text-[10px]">Паттерн верхового матча: продолжение голов во 2-м тайме</span>
+                  <span className="font-semibold text-emerald-300 block">⚡ 2 быстрых гола в 1Т + отсутствие голов до 75'</span>
+                  <span className="text-slate-400 text-[10px]">В 1Т забито 2 быстрых гола (≤15 мин), сигнал выдаётся строго на 75-й минуте при отсутствии голов после них</span>
                 </div>
               </label>
 
