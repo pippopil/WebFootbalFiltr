@@ -62,6 +62,8 @@ import {
   ArrowUp,
   Sun,
   Moon,
+  LogOut,
+  Crown,
 } from 'lucide-react';
 
 import {
@@ -105,6 +107,9 @@ import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
 import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
 import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
+import { AppLogo } from './components/AppLogo';
+import { AuthGateModal } from './components/AuthGateModal';
+import { GodModeConsole } from './components/GodModeConsole';
 
 const INITIAL_SIGNALS: SignalAlert[] = [
   {
@@ -950,6 +955,12 @@ export default function App() {
     return DEFAULT_USERS[0].id;
   });
 
+  // Authentication Gate state: User must log in to view the platform
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    const authStatus = localStorage.getItem('footbalmonitor_authenticated');
+    return authStatus === 'true';
+  });
+
   // Dark / Light Theme switching state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
@@ -1248,6 +1259,17 @@ export default function App() {
   const handleCreateUser = (newUser: UserProfile) => {
     setAllUsers((prev) => [...prev, newUser]);
     handleSelectUser(newUser);
+  };
+
+  const handleLogin = (user: UserProfile) => {
+    handleSelectUser(user);
+    setIsAuthenticated(true);
+    localStorage.setItem('footbalmonitor_authenticated', 'true');
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('footbalmonitor_authenticated');
   };
 
   const handleSendTestBotMessage = async (bot: TelegramBotProfile) => {
@@ -2438,6 +2460,92 @@ export default function App() {
     }
   }, [inspectorAlignMode]);
 
+  // Navigate directly to match tab, select target match, and scroll smoothly into view
+  const handleNavigateToMatchFromSignal = useCallback((targetMatchId?: string, matchName?: string, signalObj?: SignalAlert) => {
+    // 1. Reset match search so the target match is 100% visible in the list
+    setSearchQuery('');
+
+    // 2. Find the match in the current live matches collection
+    let targetMatch = matches.find((m) => m.id === targetMatchId);
+    if (!targetMatch && matchName) {
+      const parts = matchName.split(' vs ');
+      const homePart = parts[0]?.trim().toLowerCase();
+      const awayPart = parts[1]?.trim().toLowerCase();
+      targetMatch = matches.find((m) => {
+        const h = m.homeTeam.toLowerCase();
+        const a = m.awayTeam.toLowerCase();
+        return (homePart && (h.includes(homePart) || homePart.includes(h))) ||
+               (awayPart && (a.includes(awayPart) || awayPart.includes(a)));
+      });
+    }
+
+    // 3. If the match wasn't in the active live collection (e.g. simulated signal or historical):
+    // Construct a live match from the signal alert so the user ALWAYS gets directed to this exact match!
+    if (!targetMatch && signalObj) {
+      const parts = signalObj.matchName.split(' vs ');
+      const home = parts[0]?.trim() || 'Хозяева';
+      const away = parts[1]?.trim() || 'Гости';
+      const scoreParts = (signalObj.score || '0:0').split(':');
+      const s0 = parseInt(scoreParts[0], 10) || 0;
+      const s1 = parseInt(scoreParts[1], 10) || 0;
+      const snap = signalObj.statsSnapshot;
+
+      targetMatch = {
+        id: signalObj.matchId || `match-${signalObj.id}`,
+        country: signalObj.country || 'Европа',
+        countryCode: '⚽',
+        league: signalObj.league || 'Live League',
+        homeTeam: home,
+        awayTeam: away,
+        score: [s0, s1],
+        minute: signalObj.minute || 65,
+        status: 'LIVE',
+        source: 'Public-Feed',
+        stats: {
+          possession: snap?.possession || [54, 46],
+          dangerousAttacks: snap?.dangerousAttacks || [42, 28],
+          attacks: snap?.attacks || [68, 49],
+          shotsOnTarget: snap?.shotsOnTarget || [5, 2],
+          shotsOffTarget: snap?.shotsOffTarget || [4, 3],
+          corners: snap?.corners || [6, 3],
+          yellowCards: snap?.yellowCards || [1, 2],
+          redCards: snap?.redCards || [0, 0],
+          xg: [1.35, 0.62],
+        },
+        momentum: [12, 18, 25, 20, 35, 45, 40, 55],
+        lastEvent: `Сигнал по фильтру «${signalObj.ruleName}» на ${signalObj.minute}' мин`,
+        odds: {
+          home: 1.85,
+          draw: 3.40,
+          away: 4.20,
+          over25: 1.72,
+          over05: 1.15,
+          over15: 1.38,
+          under25: 2.10,
+        },
+      };
+
+      setMatches((prev) => [targetMatch!, ...prev.filter((m) => m.id !== targetMatch!.id)]);
+    } else if (!targetMatch && matches.length > 0) {
+      targetMatch = matches[0];
+    }
+
+    if (!targetMatch) return;
+
+    // 4. Switch to matches tab
+    setActiveTab('matches');
+    setSelectedMatchId(targetMatch.id);
+
+    // 5. Scroll to match card & adjust inspector
+    setTimeout(() => {
+      handleSelectMatch(targetMatch!.id, true);
+      const cardElement = document.getElementById(`match-card-${targetMatch!.id}`);
+      if (cardElement) {
+        cardElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 60);
+  }, [matches, handleSelectMatch]);
+
   // Filter manager operations
   const handleSaveFilter = (savedRule: FilterRule) => {
     setFilters((prev) => {
@@ -2692,20 +2800,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Header */}
-      <header id="app-header" className="border-b border-slate-800 bg-slate-900/70 backdrop-blur-md px-6 py-4 sticky top-0 z-30 flex items-center justify-between">
+      <header id="app-header" className="border-b border-slate-800 bg-slate-900/70 backdrop-blur-md px-6 py-3.5 sticky top-0 z-30 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm">
-            <Radio className="h-5 w-5 animate-pulse text-emerald-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-white">Footbalmonitor</h1>
-              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                LIVE ENGINE v2.4
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">Платформа мониторинга Flashscore & SStats с автоматическими Telegram-сигналами</p>
-          </div>
+          <AppLogo size="md" animated={true} />
         </div>
 
         {/* Global Controls */}
@@ -2856,16 +2953,40 @@ export default function App() {
               id="cabinet-nav-btn"
               onClick={() => setActiveTab('cabinet')}
               className={`px-3 py-1 rounded-md transition flex items-center gap-1.5 ${
-                activeTab === 'cabinet'
+                currentUser.role === 'god'
+                  ? 'bg-purple-950/80 border border-purple-500/50 text-purple-200 font-bold shadow-md shadow-purple-950/50'
+                  : activeTab === 'cabinet'
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold shadow-md shadow-emerald-950/40'
-                  : 'text-emerald-300 hover:text-white hover:bg-slate-800'
+                  : 'text-emerald-400 hover:text-emerald-300 hover:bg-slate-800/80 font-medium'
               }`}
             >
-              <User className="h-3 w-3 text-emerald-400" />
-              <span>Кабинет</span>
-              <span className="px-1.5 py-0.2 rounded bg-slate-950/70 text-[9px] font-extrabold uppercase text-emerald-400 border border-emerald-500/30">
-                {currentUser.displayName.split(' ')[0]}
+              {currentUser.role === 'god' ? (
+                <Zap className="h-3 w-3 text-purple-400 animate-pulse" />
+              ) : (
+                <User className="h-3 w-3 text-emerald-400" />
+              )}
+              <span>{currentUser.role === 'god' ? 'GOD MODE' : 'Кабинет'}</span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase ${
+                  currentUser.role === 'god'
+                    ? 'bg-purple-500/30 text-purple-300 border border-purple-400/40'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                }`}
+              >
+                {currentUser.role === 'god' ? 'ROOT' : currentUser.displayName.split(' ')[0]}
               </span>
+            </button>
+
+            {/* Logout button */}
+            <button
+              id="header-logout-btn"
+              type="button"
+              onClick={handleLogout}
+              className="px-2.5 py-1 rounded-md border border-slate-700 hover:border-red-500/60 bg-slate-900/80 hover:bg-red-500/10 text-slate-300 hover:text-red-400 transition flex items-center gap-1 text-xs font-semibold shadow-sm active:scale-95"
+              title="Выйти из аккаунта (Заблокировать доступ)"
+            >
+              <LogOut className="h-3.5 w-3.5 text-red-400" />
+              <span className="hidden xl:inline text-[11px]">Выход</span>
             </button>
 
             {/* Quick Theme Switcher Button */}
@@ -2873,19 +2994,19 @@ export default function App() {
               id="theme-quick-toggle-btn"
               type="button"
               onClick={toggleTheme}
-              className="px-2.5 py-1 rounded-md border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-300 hover:text-amber-400 transition flex items-center gap-1.5 text-xs font-semibold ml-1 shadow-sm active:scale-95"
+              className="px-2.5 py-1 rounded-md border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-amber-400 transition flex items-center gap-1.5 text-xs font-semibold ml-1 shadow-sm active:scale-95"
               title={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
               aria-label="Переключение темы оформления"
             >
               {theme === 'dark' ? (
                 <>
                   <Sun className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <span className="hidden xl:inline text-[11px] text-slate-300">Светлая</span>
+                  <span className="hidden xl:inline text-[11px] text-slate-200 font-bold">Светлая</span>
                 </>
               ) : (
                 <>
                   <Moon className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-                  <span className="hidden xl:inline text-[11px] text-slate-600">Тёмная</span>
+                  <span className="hidden xl:inline text-[11px] text-slate-700 font-bold">Тёмная</span>
                 </>
               )}
             </button>
@@ -2978,6 +3099,26 @@ export default function App() {
               </div>
             </div>
           )}
+
+        {/* Developer GOD MODE Console (Visible only when Creator/God is logged in) */}
+        {currentUser.role === 'god' && (
+          <GodModeConsole
+            currentUser={currentUser}
+            allUsers={allUsers}
+            matches={matches}
+            filters={filters}
+            onSetMatches={setMatches}
+            onSetFilters={setFilters}
+            onUpdateCurrentUser={handleUpdateCurrentUser}
+            onSendTestBroadcast={async (message: string) => {
+              const res = await sendTelegramMessage(message, true, { force: true });
+              if (!res.ok) {
+                throw new Error(res.error || 'Ошибка отправки в Telegram');
+              }
+            }}
+          />
+        )}
+
         {/* Status Bar */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div
@@ -5138,8 +5279,10 @@ export default function App() {
                       handleOpenAIAnalyst(match);
                     }}
                     onSelectMatch={(match) => {
-                      setSelectedMatchId(match.id);
-                      setActiveTab('matches');
+                      handleNavigateToMatchFromSignal(match.id, `${match.homeTeam} vs ${match.awayTeam}`);
+                    }}
+                    onNavigateToMatch={(matchId, matchName, sig) => {
+                      handleNavigateToMatchFromSignal(matchId, matchName, sig);
                     }}
                     onDeleteSignal={(id) => {
                       setSignals((prev) => prev.filter((s) => s.id !== id));
@@ -5283,7 +5426,8 @@ export default function App() {
                   {filteredSignalsList.map((sig) => (
                     <div
                       key={sig.id}
-                      className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 space-y-3 transition"
+                      onClick={() => handleNavigateToMatchFromSignal(sig.matchId, sig.matchName, sig)}
+                      className="bg-slate-900 border border-slate-800 hover:border-emerald-500/60 hover:bg-slate-900/90 rounded-xl p-4 space-y-3 transition cursor-pointer group shadow-sm hover:shadow-emerald-950/20"
                     >
                       {/* Top row: match minute, country, league, timestamp, telegram */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
@@ -5291,14 +5435,14 @@ export default function App() {
                           <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold font-mono">
                             {sig.minute}'
                           </span>
-                          <span className="font-semibold text-white">
+                          <span className="font-semibold text-white group-hover:text-emerald-300 transition">
                             {sig.country} • {sig.league}
                           </span>
                           <span className="text-slate-500 font-mono text-[11px]">
                             {sig.timestamp}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => {
                               const foundMatch = matches.find((m) => m.id === sig.matchId || sig.matchName.includes(m.homeTeam)) || matches[0];
@@ -5309,6 +5453,15 @@ export default function App() {
                           >
                             <Sparkles className="h-3 w-3 text-indigo-400" />
                             AI-Разбор
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleNavigateToMatchFromSignal(sig.matchId, sig.matchName, sig)}
+                            className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1 transition"
+                            title="Перейти к лайв-матчу и статистике"
+                          >
+                            <ExternalLink className="h-3 w-3 text-emerald-400" />
+                            <span>К матчу →</span>
                           </button>
                           {sig.botName && (
                             <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 flex items-center gap-1 font-mono font-medium">
@@ -5333,7 +5486,10 @@ export default function App() {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
                         <div>
                           <div className="text-sm font-bold text-white flex items-center gap-2">
-                            <span>{sig.matchName}</span>
+                            <span className="group-hover:text-emerald-400 transition flex items-center gap-1.5">
+                              {sig.matchName}
+                              <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition" />
+                            </span>
                             <span className="font-mono text-sky-400">({sig.score})</span>
                           </div>
                           <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
@@ -5348,7 +5504,7 @@ export default function App() {
                         </div>
 
                         {/* Interactive Outcome Marker */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                           <div className="text-right">
                             <div className="text-[10px] text-slate-500">Коэффициент:</div>
                             <div className="font-mono font-bold text-amber-300 text-sm">
@@ -6135,6 +6291,28 @@ export default function App() {
                         </div>
                       </div>
 
+                      {/* PROMINENT RECOMMENDED OUTCOME IN TELEGRAM PREVIEW */}
+                      <div className="bg-gradient-to-r from-emerald-950/90 via-[#18362b] to-emerald-950/90 p-3 rounded-xl border-2 border-emerald-400 my-2.5 shadow-lg shadow-emerald-950/70">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                            <Target className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+                            🎯 РЕКОМЕНДОВАННЫЙ ИСХОД / СТАВКА:
+                          </span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-950/90 text-emerald-300 border border-emerald-500/40 font-bold">
+                            Кэф ~1.85
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-black text-sm sm:text-base tracking-wide shadow flex items-center gap-1.5">
+                            <span>🔥</span>
+                            <span>{filters.find((f) => f.enabled)?.targetMarket || 'ТБ 0.5 ВО 2-М ТАЙМЕ'}</span>
+                          </div>
+                          <span className="text-[11px] text-emerald-300 font-semibold hidden sm:inline">
+                            Точка входа: {selectedMatch?.minute || 75}'
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="space-y-1 text-slate-300 text-[11.5px]">
                         <div>
                           🔥 <strong>Опасные атаки:</strong> {selectedMatch?.stats.dangerousAttacks[0]} - {selectedMatch?.stats.dangerousAttacks[1]} <span className="text-emerald-400">(+{Math.abs((selectedMatch?.stats.dangerousAttacks[0] || 0) - (selectedMatch?.stats.dangerousAttacks[1] || 0))})</span>
@@ -6199,6 +6377,7 @@ export default function App() {
               setIsFilterModalOpen(true);
             }}
             onSendTestBotMessage={handleSendTestBotMessage}
+            onLogout={handleLogout}
           />
         )}
 
@@ -6320,6 +6499,17 @@ export default function App() {
         </aside>
       )}
     </div>
+
+    {/* Authentication Gate & Logo Splash Screen Modal */}
+    <AuthGateModal
+      isOpen={!isAuthenticated}
+      allUsers={allUsers}
+      onLogin={handleLogin}
+      onRegisterUser={(newUser) => {
+        handleCreateUser(newUser);
+        handleLogin(newUser);
+      }}
+    />
     </div>
   );
 }

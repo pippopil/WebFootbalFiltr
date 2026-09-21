@@ -66,6 +66,7 @@ const STRATEGY_PRESETS = [
       minMinute: 55,
       maxMinute: 65,
       scoreCondition: '0-0' as ScoreCondition,
+      maxTotalGoals: 0,
       minShotsDiff: 6,
       minCornersDiff: 5,
       minAttacksDiff: 10,
@@ -87,6 +88,7 @@ const STRATEGY_PRESETS = [
       minMinute: 50,
       maxMinute: 60,
       scoreCondition: '0-0' as ScoreCondition,
+      maxTotalGoals: 0,
       minCornersDiff: 5,
       minShotsDiff: 2,
       redCardCondition: 'NO_RED_CARDS' as const,
@@ -117,11 +119,12 @@ const STRATEGY_PRESETS = [
     badge: 'Стр. 8',
     data: {
       name: '⚡ Стратегия 8: Инд. тотал фаворита в 1-м тайме',
-      description: 'Фаворит ≤1.70, ТБ 2.5 ≤1.70. В первые 10-25 минут фаворит нанес ≥2 ударов и активно атакует.',
+      description: 'Фаворит ≤1.70, ТБ 2.5 ≤1.70. В первые 10-25 минут при 0:0 фаворит нанес ≥2 ударов и активно атакует.',
       category: 'halftime' as FilterCategory,
       minMinute: 10,
       maxMinute: 28,
       scoreCondition: '0-0' as ScoreCondition,
+      maxTotalGoals: 0,
       maxOddsFavorite: 1.70,
       maxOddsOver25: 1.70,
       minTotalShots: 2,
@@ -134,11 +137,12 @@ const STRATEGY_PRESETS = [
     badge: 'Стр. 16',
     data: {
       name: '🇬🇧 Стратегия 16: ТБ 2.5 от англичан (Коридор кэфов 1.50–1.67)',
-      description: 'Кэф на ТБ 2.5 строго 1.50–1.67, кэф на Обе забьют ≤1.67. Математическая закономерность верхового матча.',
+      description: 'Кэф на ТБ 2.5 строго 1.50–1.67, кэф на Обе забьют ≤1.67 (при счёте ≤ 2 голов).',
       category: 'goals' as FilterCategory,
       minMinute: 0,
       maxMinute: 50,
-      scoreCondition: 'ANY' as ScoreCondition,
+      scoreCondition: 'TOTAL_UNDER_25' as ScoreCondition,
+      maxTotalGoals: 2,
       minOddsOver25: 1.50,
       maxOddsOver25: 1.67,
       maxOddsBtts: 1.67,
@@ -151,11 +155,12 @@ const STRATEGY_PRESETS = [
     badge: 'Стр. 14',
     data: {
       name: '🎼 Стратегия 14: Система Моцарта на Обе забьют (BTTS)',
-      description: 'Котировки на Обе забьют в диапазоне 1.50–1.67 в результативных лигах.',
+      description: 'Котировки на Обе забьют в диапазоне 1.50–1.67 (пока обе команды не забили).',
       category: 'goals' as FilterCategory,
       minMinute: 0,
       maxMinute: 60,
-      scoreCondition: 'ANY' as ScoreCondition,
+      scoreCondition: 'BTTS_NO' as ScoreCondition,
+      requireBttsNotHit: true,
       minOddsBtts: 1.50,
       maxOddsBtts: 1.67,
       targetMarket: 'Обе команды забьют (BTTS: Да)',
@@ -167,11 +172,12 @@ const STRATEGY_PRESETS = [
     badge: 'Стр. 12',
     data: {
       name: '⏱️ Стратегия 12: Гол после перерыва (Серия ТБ 2.5 5/5)',
-      description: 'Команды с серией ТБ 2.5 (5/5). В 1-м тайме забито ≤ 2 голов. 46-68 минута матча.',
+      description: 'Команды с серией ТБ 2.5 (5/5). В матче забито не более 1 гола (до пробития ТБ 1.5). 46-68 минута матча.',
       category: 'goals' as FilterCategory,
       minMinute: 46,
       maxMinute: 68,
-      scoreCondition: 'TOTAL_UNDER_2' as ScoreCondition,
+      scoreCondition: 'TOTAL_UNDER_15' as ScoreCondition,
+      maxTotalGoals: 1,
       minOver25Streak: 5,
       excludeYouthAndWomen: true,
       targetMarket: 'Гол во 2-м тайме / ТБ 1.5',
@@ -836,6 +842,8 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                   <option value="AWAY_LEAD">Гости ведут в счёте</option>
                   <option value="HOME_LEAD">Хозяева ведут в счёте</option>
                   <option value="TOTAL_UNDER_25">ТБ 2.5 не пробит (≤ 2 голов: 0:0, 1:0, 0:1, 1:1, 2:0, 0:2)</option>
+                  <option value="TOTAL_UNDER_15">ТБ 1.5 не пробит (≤ 1 гол: 0:0, 1:0, 0:1)</option>
+                  <option value="BTTS_NO">Обе забьют ещё не наступило (хотя бы у одной команды 0)</option>
                   <option value="TOTAL_UNDER_2">Низкий тотал (≤ 1 гол)</option>
                   <option value="TOTAL_OVER_2">Результативный матч (≥ 2 гола)</option>
                 </select>

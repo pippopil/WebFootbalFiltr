@@ -104,7 +104,9 @@ export type ScoreCondition =
   | 'ONE_GOAL_DIFF'
   | 'TOTAL_UNDER_2'
   | 'TOTAL_OVER_2'
-  | 'TOTAL_UNDER_25';
+  | 'TOTAL_UNDER_25'
+  | 'TOTAL_UNDER_15'
+  | 'BTTS_NO';
 
 export type FilterCategory =
   | 'all'
@@ -171,6 +173,7 @@ export interface FilterRule {
 
   // Игровой сценарий и угловые
   maxTotalGoals?: number;             // Максимальный тотал голов в матче (например, <= 2 для непробитого ТБ 2.5)
+  requireBttsNotHit?: boolean;        // Обе забьют ещё не наступило (хотя бы одна команда не забила: 0:0, 1:0, 0:1, 2:0 и т.д.)
   scoreDiffExactly1?: boolean;        // Разница в счёте ровно 1 гол (1:0, 2:1, 0:1, 1:2)
   losingTeamMoreCorners?: boolean;    // Проигрывающая команда подала больше угловых (Корнер после 80')
   favoriteLosing?: boolean;           // Фаворит матча проигрывает (для угловых фаворита)
@@ -339,8 +342,8 @@ export interface UserProfile {
   displayName: string;
   email: string;
   avatarUrl?: string;
-  role: 'user' | 'pro' | 'admin' | 'vip';
-  plan: 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB';
+  role: 'user' | 'pro' | 'admin' | 'vip' | 'god';
+  plan: 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
   planExpiresAt?: string;
   registeredAt: string;
   balanceRub: number;

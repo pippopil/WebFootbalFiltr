@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   XCircle,
+  Target,
 } from 'lucide-react';
 
 export interface ScannerSignalsTableViewProps {
@@ -23,6 +24,7 @@ export interface ScannerSignalsTableViewProps {
   onClearSignals: () => void;
   onOpenAIAnalyst?: (match: Match) => void;
   onSelectMatch?: (match: Match) => void;
+  onNavigateToMatch?: (matchId: string, matchName: string, signal: SignalAlert) => void;
   onDeleteSignal?: (id: string) => void;
   onUpdateOutcome?: (signalId: string, outcome: SignalOutcome) => void;
   onExportCsv?: () => void;
@@ -36,6 +38,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
   onClearSignals,
   onOpenAIAnalyst,
   onSelectMatch,
+  onNavigateToMatch,
   onDeleteSignal,
   onUpdateOutcome,
   onExportCsv,
@@ -265,11 +268,20 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                   // Reverse sequential index (e.g. 52, 53, 54 like in Screenshot 1)
                   const signalIndex = signals.length - idx;
 
+                  const navigateToThisMatch = () => {
+                    if (onNavigateToMatch) {
+                      onNavigateToMatch(sig.matchId, sig.matchName, sig);
+                    } else if (onSelectMatch && matchObj) {
+                      onSelectMatch(matchObj);
+                    }
+                  };
+
                   return (
                     <tr
                       key={sig.id}
-                      className="hover:bg-slate-800/50 transition cursor-pointer group"
-                      onClick={() => matchObj && onSelectMatch && onSelectMatch(matchObj)}
+                      className="hover:bg-slate-800/60 transition cursor-pointer group"
+                      onClick={navigateToThisMatch}
+                      title="Нажмите на строку для мгновенного перехода к данному матчу"
                     >
                       {/* # Number */}
                       <td className="py-2.5 px-2.5 text-center font-mono text-[11px] text-slate-400 group-hover:text-white">
@@ -363,9 +375,10 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
 
                       {/* Market Suggestion */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold text-[11px]">
-                          {sig.marketSuggestion || 'ТБ 0.5'}
-                        </span>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 font-black text-xs shadow-sm">
+                          <Target className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          <span className="tracking-wide">{sig.marketSuggestion || 'ТБ 0.5'}</span>
+                        </div>
                       </td>
 
                       {/* Bet Outcome (Зашел / Минус / Возврат / В игре) */}
@@ -449,16 +462,15 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                               <Sparkles className="h-3 w-3 text-indigo-400" />
                             </button>
                           )}
-                          {onSelectMatch && matchObj && (
-                            <button
-                              type="button"
-                              onClick={() => onSelectMatch(matchObj)}
-                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-                              title="Подробнее о матче"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={navigateToThisMatch}
+                            className="px-2 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition shadow-sm"
+                            title="Перейти к данному матчу"
+                          >
+                            <ExternalLink className="h-3 w-3 text-emerald-400" />
+                            <span className="hidden sm:inline">К матчу</span>
+                          </button>
                           {onDeleteSignal && (
                             <button
                               type="button"

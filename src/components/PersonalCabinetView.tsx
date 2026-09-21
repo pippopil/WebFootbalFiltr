@@ -33,6 +33,7 @@ import {
   Scale,
   Flame,
   ArrowRight,
+  LogOut,
 } from 'lucide-react';
 import { UserProfile, TelegramBotProfile, FilterRule, AdBannerItem } from '../types';
 
@@ -51,6 +52,7 @@ interface PersonalCabinetViewProps {
   currentTheme?: 'dark' | 'light';
   onToggleTheme?: () => void;
   onSetTheme?: (theme: 'dark' | 'light') => void;
+  onLogout?: () => void;
 }
 
 export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
@@ -62,12 +64,13 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   userFilters,
   onNavigateToFilters,
   onSendTestBotMessage,
-  ads,
+  ads = [],
   onSaveFilters,
   onOpenFilterModal,
   currentTheme = 'dark',
   onToggleTheme,
   onSetTheme,
+  onLogout,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'bots' | 'plans' | 'ads' | 'users' | 'profile'>('bots');
   const [showTokens, setShowTokens] = useState<Record<string, boolean>>({});
@@ -91,12 +94,13 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPlan, setNewUserPlan] = useState<'FREE' | 'PRO_ANALYST' | 'VIP_CLUB'>('PRO_ANALYST');
 
-  // Max bots allowed based on user tier (FREE = 1 bot, PRO = 5 bots, VIP = 15 bots)
+  // Max bots allowed based on user tier (FREE = 1 bot, PRO = 5 bots, VIP = 15 bots, GOD = 999 bots)
   const maxBotsAllowed = React.useMemo(() => {
+    if (currentUser.role === 'god' || currentUser.plan === 'GOD_MODE') return 999;
     if (currentUser.plan === 'FREE') return 1;
     if (currentUser.plan === 'PRO_ANALYST') return 5;
     return 15; // VIP_CLUB
-  }, [currentUser.plan]);
+  }, [currentUser.plan, currentUser.role]);
 
   // Count filters bound to each bot
   const botFilterCounts = React.useMemo(() => {
@@ -310,19 +314,32 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 </h1>
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide uppercase flex items-center gap-1 ${
-                    currentUser.plan === 'VIP_CLUB'
+                    currentUser.role === 'god' || currentUser.plan === 'GOD_MODE'
+                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/50 shadow-sm shadow-purple-950/60'
+                      : currentUser.plan === 'VIP_CLUB'
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                       : currentUser.plan === 'PRO_ANALYST'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                       : 'bg-slate-800 text-slate-400 border border-slate-700'
                   }`}
                 >
-                  <Shield className="h-3 w-3" />
-                  {currentUser.plan === 'VIP_CLUB'
-                    ? 'VIP Syndicate'
-                    : currentUser.plan === 'PRO_ANALYST'
-                    ? 'PRO Analyst'
-                    : 'Free Tier'}
+                  {currentUser.role === 'god' ? (
+                    <>
+                      <Zap className="h-3 w-3 text-purple-400" />
+                      <span>GOD MODE (Разработчик)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="h-3 w-3" />
+                      <span>
+                        {currentUser.plan === 'VIP_CLUB'
+                          ? 'VIP Syndicate'
+                          : currentUser.plan === 'PRO_ANALYST'
+                          ? 'PRO Analyst'
+                          : 'Free Tier'}
+                      </span>
+                    </>
+                  )}
                 </span>
                 <span className="text-xs text-slate-500">@{currentUser.username}</span>
               </div>
@@ -330,7 +347,12 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
                 <span>Email: <strong className="text-slate-200">{currentUser.email}</strong></span>
                 <span>Регистрация: <strong className="text-slate-200">{currentUser.registeredAt}</strong></span>
-                <span>Демо-банк: <strong className="text-emerald-400">{currentUser.balanceRub.toLocaleString('ru-RU')} ₽</strong></span>
+                <span>
+                  {currentUser.role === 'god' ? 'Банк Создателя: ' : 'Демо-банк: '}
+                  <strong className="text-emerald-400">
+                    {currentUser.balanceRub.toLocaleString('ru-RU')} ₽
+                  </strong>
+                </span>
               </div>
             </div>
           </div>
@@ -359,6 +381,18 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               <Users className="h-3.5 w-3.5 text-cyan-400" />
               <span>Сменить профиль</span>
             </button>
+
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="px-3.5 py-2 bg-red-950/40 hover:bg-red-900/60 border border-red-500/40 text-red-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                title="Выйти из аккаунта и заблокировать интерфейс"
+              >
+                <LogOut className="h-3.5 w-3.5 text-red-400" />
+                <span>Выйти</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1272,14 +1306,16 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
 
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          user.plan === 'VIP_CLUB'
+                          user.role === 'god'
+                            ? 'bg-purple-500/30 text-purple-300 border border-purple-400/50'
+                            : user.plan === 'VIP_CLUB'
                             ? 'bg-amber-500/20 text-amber-300'
                             : user.plan === 'PRO_ANALYST'
                             ? 'bg-emerald-500/20 text-emerald-300'
                             : 'bg-slate-800 text-slate-400'
                         }`}
                       >
-                        {user.plan}
+                        {user.role === 'god' ? '⚡ GOD MODE' : user.plan}
                       </span>
                     </div>
 

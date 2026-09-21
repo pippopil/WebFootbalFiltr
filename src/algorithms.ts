@@ -248,6 +248,204 @@ export function calculatePressureAnalysis(match: Match): PressureAnalysis {
 }
 
 /**
+ * Verifies whether the rule's target market has ALREADY occurred / resolved in the match.
+ * Prevents sending signals like 'ТБ 2.5' when 3+ goals are already scored,
+ * or 'Обе забьют' when both teams have already scored, or 1st-half goals when 1st-half is over or goal was scored.
+ */
+export function checkMarketAlreadyPassed(
+  targetMarket: string | undefined,
+  match: Match,
+  rule?: FilterRule
+): { isPassed: boolean; reason?: string } {
+  const h = match.score[0];
+  const a = match.score[1];
+  const totalGoals = h + a;
+  const rawMarket = (targetMarket || rule?.targetMarket || '').toLowerCase();
+
+  // 1. Explicit max total goals check
+  if (rule?.maxTotalGoals !== undefined && totalGoals > rule.maxTotalGoals) {
+    return {
+      isPassed: true,
+      reason: `Событие уже наступило: тотал голов (${totalGoals}) превышает ${rule.maxTotalGoals} (счёт ${h}:${a}). Ставка не актуальна!`,
+    };
+  }
+
+  // 2. Score condition constraints: TOTAL_UNDER_25, TOTAL_UNDER_15, TOTAL_UNDER_2, BTTS_NO
+  if (rule?.scoreCondition === 'TOTAL_UNDER_25' && totalGoals > 2) {
+    return {
+      isPassed: true,
+      reason: `Событие уже наступило: ТБ 2.5 уже пробит (счёт ${h}:${a}, забито ${totalGoals} голов).`,
+    };
+  }
+  if ((rule?.scoreCondition === 'TOTAL_UNDER_15' || rule?.scoreCondition === 'TOTAL_UNDER_2') && totalGoals > 1) {
+    return {
+      isPassed: true,
+      reason: `Событие уже наступило: ТБ 1.5 уже пробит (счёт ${h}:${a}, забито ${totalGoals} голов).`,
+    };
+  }
+  if (rule?.scoreCondition === 'BTTS_NO' && (h > 0 && a > 0)) {
+    return {
+      isPassed: true,
+      reason: `Событие уже наступило: Обе команды уже забили (счёт ${h}:${a}). Исход «Обе забьют» уже состоялся!`,
+    };
+  }
+
+  // 3. Both Teams To Score (Обе забьют / ОЗ / BTTS)
+  const isBttsMarket =
+    Boolean(rule?.requireBttsNotHit) ||
+    rule?.oddsDropMarket === 'BTTS' ||
+    /(?:обе\s*команды\s*забьют|обе\s*забьют|оз\s*[:(]?\s*да|btts\s*[:(]?\s*yes|btts\s*[:(]?\s*да|\bоз\b|\bbtts\b)/i.test(rawMarket);
+
+  const isBttsNoMarket = /(?:обе\s*забьют\s*:\s*нет|оз\s*:\s*нет|btts\s*:\s*no)/i.test(rawMarket);
+
+  if (isBttsMarket && !isBttsNoMarket) {
+    if (h > 0 && a > 0) {
+      return {
+        isPassed: true,
+        reason: `Событие уже наступило: Обе команды уже забили (счёт ${h}:${a}). Исход «Обе забьют: Да» уже состоялся!`,
+      };
+    }
+  }
+
+  // 4. Over 2.5 Goals (ТБ 2.5 / Тотал больше 2.5)
+  const isOver25Market =
+    (rule?.oddsDropMarket === 'OVER' && !rawMarket.includes('3.5') && !rawMarket.includes('1.5') && !rawMarket.includes('0.5')) ||
+    /(?:тб\s*2\.?5|тотал\s*больше\s*2\.?5|over\s*2\.?5)/i.test(rawMarket);
+
+  if (isOver25Market) {
+    if (totalGoals >= 3) {
+      return {
+        isPassed: true,
+        reason: `Событие уже наступило: ТБ 2.5 уже пробит (забито ${totalGoals} голов, текущий счёт ${h}:${a}).`,
+      };
+    }
+  }
+
+  // 5. Over 1.5 Goals (ТБ 1.5 / Тотал больше 1.5)
+  const isOver15Market =
+    /(?:тб\s*1\.?5|тотал\s*больше\s*1\.?5|over\s*1\.?5)/i.test(rawMarket) &&
+    !rawMarket.includes('3.5');
+
+  if (isOver15Market) {
+    if (totalGoals >= 2) {
+      return {
+        isPassed: true,
+        reason: `Событие уже наступило: ТБ 1.5 уже пробит (забито ${totalGoals} голов, счёт ${h}:${a}).`,
+      };
+    }
+  }
+
+  // 6. 1st-Half Goals (ТБ 0.5 в 1-м тайме / HT Over / Гол в 1Т)
+  const isFirstHalfMarket =
+    /(?:1-?м\s*тайме|1т\b|первом\s*тайме|ht\s*over)/i.test(rawMarket);
+
+  if (isFirstHalfMarket) {
+    if (match.minute > 45 || match.status === 'HT' || match.status === 'FT') {
+      return {
+        isPassed: true,
+        reason: `1-й тайм уже завершился (минута ${match.minute}'). Ставка на 1-й тайм недоступна!`,
+      };
+    }
+    if (/(?:0\.?5|гол)/i.test(rawMarket) && !rawMarket.includes('1.5') && !rawMarket.includes('угл')) {
+      if (totalGoals >= 1) {
+        return {
+          isPassed: true,
+          reason: `Гол в 1-м тайме уже забит (счёт ${h}:${a}). ТБ 0.5 1Т уже сыграл!`,
+        };
+      }
+    }
+    if (/(?:1\.?5|1\.0)/i.test(rawMarket)) {
+      if (totalGoals >= 2) {
+        return {
+          isPassed: true,
+          reason: `В 1-м тайме уже забито ${totalGoals} голов (счёт ${h}:${a}). ТБ 1.5 1Т уже пробит!`,
+        };
+      }
+    }
+  }
+
+  // 7. Over 0.5 in match (ТБ 0.5 в матче) - when score is no longer 0:0
+  const isOver05InMatch =
+    /(?:тб\s*0\.?5\s*(в\s*матче)?|гол\s*в\s*матче|тотал\s*больше\s*0\.?5\s*(в\s*матче)?)/i.test(rawMarket) &&
+    !rawMarket.includes('2-м') &&
+    !rawMarket.includes('втором') &&
+    !rawMarket.includes('концовке');
+
+  if (isOver05InMatch) {
+    if (totalGoals >= 1) {
+      return {
+        isPassed: true,
+        reason: `В матче уже забит гол (счёт ${h}:${a}). ТБ 0.5 в матче уже сыграл!`,
+      };
+    }
+  }
+
+  // 8. Over 3.5 Goals (ТБ 3.5)
+  const isOver35Market = /(?:тб\s*3\.?5|тотал\s*больше\s*3\.?5|over\s*3\.?5)/i.test(rawMarket);
+  if (isOver35Market) {
+    if (totalGoals >= 4) {
+      return {
+        isPassed: true,
+        reason: `Событие уже наступило: ТБ 3.5 уже пробит (забито ${totalGoals} голов, счёт ${h}:${a}).`,
+      };
+    }
+  }
+
+  // 9. Over 4.5 Goals (ТБ 4.5)
+  const isOver45Market = /(?:тб\s*4\.?5|тотал\s*больше\s*4\.?5|over\s*4\.?5)/i.test(rawMarket);
+  if (isOver45Market) {
+    if (totalGoals >= 5) {
+      return {
+        isPassed: true,
+        reason: `Событие уже наступило: ТБ 4.5 уже пробит (забито ${totalGoals} голов, счёт ${h}:${a}).`,
+      };
+    }
+  }
+
+  // 10. Individual Total 1 > 0.5 / Home Goal
+  if (/(?:итб1\s*>\s*0\.?5|гол\s*хозяев)/i.test(rawMarket) && !rawMarket.includes('следующий')) {
+    if (h >= 1) {
+      return {
+        isPassed: true,
+        reason: `Хозяева уже забили гол (счёт ${h}:${a}). Исход «Гол Хозяев» уже сыграл!`,
+      };
+    }
+  }
+
+  // 11. Individual Total 2 > 0.5 / Away Goal
+  if (/(?:итб2\s*>\s*0\.?5|гол\s*гостей)/i.test(rawMarket) && !rawMarket.includes('следующий')) {
+    if (a >= 1) {
+      return {
+        isPassed: true,
+        reason: `Гости уже забили гол (счёт ${h}:${a}). Исход «Гол Гостей» уже сыграл!`,
+      };
+    }
+  }
+
+  // 12. Under 2.5 Goals (ТМ 2.5)
+  if (/(?:тм\s*2\.?5|under\s*2\.?5|тотал\s*меньше\s*2\.?5)/i.test(rawMarket)) {
+    if (totalGoals >= 3) {
+      return {
+        isPassed: true,
+        reason: `ТМ 2.5 уже проигран (забито ${totalGoals} голов, счёт ${h}:${a}). Ставка не актуальна!`,
+      };
+    }
+  }
+
+  // 13. Under 1.5 Goals (ТМ 1.5)
+  if (/(?:тм\s*1\.?5|under\s*1\.?5|тотал\s*меньше\s*1\.?5)/i.test(rawMarket)) {
+    if (totalGoals >= 2) {
+      return {
+        isPassed: true,
+        reason: `ТМ 1.5 уже проигран (забито ${totalGoals} голов, счёт ${h}:${a}). Ставка не актуальна!`,
+      };
+    }
+  }
+
+  return { isPassed: false };
+}
+
+/**
  * Checks whether a match matches a filter rule.
  * Also returns progress percentage and list of missing criteria for UI hints.
  */
@@ -333,13 +531,21 @@ export function evaluateFilterRule(
       scoreOk = totalGoals <= 2;
       if (!scoreOk) unmetCriteria.push(`ТБ 2.5 уже пробит (счёт ${h}:${a}, забито ${totalGoals} голов)`);
       break;
+    case 'TOTAL_UNDER_15':
+      scoreOk = totalGoals <= 1;
+      if (!scoreOk) unmetCriteria.push(`ТБ 1.5 уже пробит (счёт ${h}:${a}, забито ${totalGoals} голов)`);
+      break;
     case 'TOTAL_UNDER_2':
-      scoreOk = totalGoals <= 2;
-      if (!scoreOk) unmetCriteria.push(`Тотал голов > 2 (сейчас ${totalGoals})`);
+      scoreOk = totalGoals <= 1;
+      if (!scoreOk) unmetCriteria.push(`Тотал голов ≥ 2 (сейчас ${totalGoals}, счёт ${h}:${a})`);
       break;
     case 'TOTAL_OVER_2':
       scoreOk = totalGoals >= 2;
       if (!scoreOk) unmetCriteria.push(`Тотал голов < 2 (сейчас ${totalGoals})`);
+      break;
+    case 'BTTS_NO':
+      scoreOk = h === 0 || a === 0;
+      if (!scoreOk) unmetCriteria.push(`Обе команды уже забили (счёт ${h}:${a}). Исход «Обе забьют» уже состоялся!`);
       break;
     default:
       scoreOk = true;
@@ -354,6 +560,23 @@ export function evaluateFilterRule(
     } else {
       unmetCriteria.push(`Тотал голов (${totalGoals}) превышает ${rule.maxTotalGoals} (ТБ ${rule.maxTotalGoals}.5 уже пробит, счёт ${h}:${a})`);
     }
+  }
+
+  // 2c. Require BTTS not hit yet (Обе команды ещё не забили)
+  if (rule.requireBttsNotHit) {
+    totalCriteria++;
+    if (h === 0 || a === 0) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Обе команды уже забили (счёт ${h}:${a}). Исход «Обе забьют: Да» уже состоялся!`);
+    }
+  }
+
+  // 2d. Strict Event Validation: Block signals for outcomes that have already happened / resolved
+  const marketPassedCheck = checkMarketAlreadyPassed(rule.targetMarket, match, rule);
+  if (marketPassedCheck.isPassed) {
+    totalCriteria++;
+    unmetCriteria.push(marketPassedCheck.reason || 'Событие по рекомендуемому исходу уже наступило в матче');
   }
 
   // 3. Dangerous Attacks Difference
@@ -1234,16 +1457,26 @@ export function formatExtendedTelegramAlert(
     match.stats.shotsOffTarget[1];
   const totalCorners = match.stats.corners[0] + match.stats.corners[1];
 
-  const marketLine = targetMarket
-    ? `🎯 <b>Рекомендуемый исход:</b> <u>${targetMarket}</u>\n`
-    : '';
+  // High-visibility, prominent recommended outcome block
+  const rawMarket = targetMarket || rule.targetMarket || 'ТБ 0.5 (Тотал Больше)';
+  const marketDisplay = rawMarket.toUpperCase();
+  const oddsEstimate = match.odds ? (match.odds.over25 ? match.odds.over25.toFixed(2) : '1.80 - 1.95') : '1.85';
+
+  const marketLine = (
+    `\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🎯 <b>РЕКОМЕНДОВАННЫЙ ИСХОД:</b>\n` +
+    `👉 <b><u>🔥  ${escapeTelegramHtml(marketDisplay)}  🔥</u></b>\n` +
+    `💰 <b>Рынок:</b> ${escapeTelegramHtml(rawMarket)}   |   📈 <b>Кэф: ~${oddsEstimate}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`
+  );
 
   const quickGoalsPatternLine = (rule.requireGuestTwoQuickGoals1H || rule.requireNoGoalsSinceQuickGoals)
     ? `⚡ <b>Паттерн:</b> 2 быстрых гола в 1-м тайме (≤15 мин между голами) + без голов до 75'\n⏱ <b>Точка входа:</b> 75-я минута матча — ожидание гола (ТБ) по повышенному кэфу\n\n`
     : '';
 
   const strat7PatternLine = (rule.id === 'strat-7' || rule.name.includes('Стратегия 7') || rule.scoreCondition === 'TOTAL_UNDER_25')
-    ? `📐 <b>Стратегия 7 (ТБ 2.5 на 70'):</b> 70-я минута матча при непробитом ТБ 2.5 (текущий счёт: <code>${match.score[0]}:${match.score[1]}</code>, тотал ≤ 2).\n⏱ <b>Точка входа:</b> 70-я минута — ставка на ТБ 2.5 / гол в концовке по повышенному кэфу!\n\n`
+    ? `📐 <b>Стратегия 7 (ТБ 2.5 на 70'):</b> 70-я минута матча при тотале ≤ 2 (счёт: <code>${match.score[0]}:${match.score[1]}</code>)\n⏱ <b>Точка входа:</b> 70-я минута — ставка на ТБ 2.5 / гол в концовке по повышенному кэфу!\n\n`
     : '';
 
   const activeDrop = match.oddsDrop || (match.marketFlows && match.marketFlows[0]);
@@ -1258,22 +1491,22 @@ export function formatExtendedTelegramAlert(
       : '';
 
   const headerTag = isPrematch
-    ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР ЗА 1 ЧАС ДО МАТЧА]</b>\n💡 <b>Стратегия: ${ruleName}</b>\n⏱ <i>Анализ завершён за 60 минут до начала (старт через ${match.startsInMinutes ?? 60} мин${match.startTime ? `, ${escapeTelegramHtml(match.startTime)}` : ''})</i>`
-    : `🔴 <b>[ЛАЙВ СТАВКА В РЕАЛЬНОМ ВРЕМЕНИ]</b>\n⚡ <b>Сигнал: ${ruleName}</b>`;
+    ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР]</b>\n💡 <b>Стратегия: ${ruleName}</b>\n⏱ <i>До начала: ${match.startsInMinutes ?? 60} мин${match.startTime ? ` (${escapeTelegramHtml(match.startTime)})` : ''}</i>`
+    : `🔴 <b>[ЛАЙВ СИГНАЛ]</b> (Мин: <b>${match.minute}'</b> | Счёт: <b>${match.score[0]}:${match.score[1]}</b>)\n⚡ <b>Стратегия: ${ruleName}</b>`;
 
   const prematchSection = (
-    `📊 <b>Предматчевые показатели (за 1 час до свистка):</b>\n` +
+    `📊 <b>Показатели:</b>\n` +
     `💰 <b>Линия БК:</b> П1 <code>${match.odds.home.toFixed(2)}</code> | X <code>${match.odds.draw.toFixed(2)}</code> | П2 <code>${match.odds.away.toFixed(2)}</code>\n` +
     `📈 <b>Тотал 2.5:</b> <code>${match.odds.over25.toFixed(2)}</code>` +
     (match.odds.btts ? ` | <b>ОЗ:</b> <code>${match.odds.btts.toFixed(2)}</code>` : '') +
     `\n` +
-    (rule.minModelIpt || calculateMatchIPT(match) >= 2.5 ? `📐 <b>Модель IPT:</b> <code>${calculateMatchIPT(match).toFixed(2)}</code> (расчетный тотал)\n` : '') +
-    (match.history?.h2hOver15Pct ? `👥 <b>H2H Очные встречи:</b> ${match.history.h2hOver15Pct}% ТБ 1.5\n` : '') +
+    (rule.minModelIpt || calculateMatchIPT(match) >= 2.5 ? `📐 <b>Модель IPT:</b> <code>${calculateMatchIPT(match).toFixed(2)}</code>\n` : '') +
+    (match.history?.h2hOver15Pct ? `👥 <b>H2H:</b> ${match.history.h2hOver15Pct}% ТБ 1.5\n` : '') +
     (match.history?.homeOver25Streak ? `🔥 <b>Серия ТБ 2.5:</b> ${match.history.homeOver25Streak} матчей подряд\n` : '')
   );
 
   const liveSection = (
-    `🔥 <b>Индекс давления:</b> ${analysis.pressureIndex}/100 (${analysis.goalProbability} вероятность гола)\n\n` +
+    `🔥 <b>Индекс давления:</b> ${analysis.pressureIndex}/100 (${analysis.goalProbability})\n\n` +
     `📊 <b>Опасные атаки:</b> ${match.stats.dangerousAttacks[0]} - ${match.stats.dangerousAttacks[1]} [${dangSign}]\n` +
     `🎯 <b>Удары в створ:</b> ${match.stats.shotsOnTarget[0]} - ${match.stats.shotsOnTarget[1]} (Всего: ${totalShots})\n` +
     `🚩 <b>Угловые:</b> ${match.stats.corners[0]} - ${match.stats.corners[1]} (Всего: ${totalCorners})\n` +
@@ -1283,13 +1516,13 @@ export function formatExtendedTelegramAlert(
 
   const matchTimeDisplay = isPrematch
     ? `(⏳ До начала: ${match.startsInMinutes ?? 60} мин${match.startTime ? ` [${escapeTelegramHtml(match.startTime)}]` : ''})`
-    : `(<b>${match.minute}'</b>)`;
+    : `(<b>${match.minute}'</b> | <b>${match.score[0]}:${match.score[1]}</b>)`;
 
   const escapedReasons = analysis.reasons.map((r) => escapeTelegramHtml(r));
 
   return (
     `${headerTag}\n` +
-    `🏆 <b>${match.countryCode} ${country} | ${league}</b>\n\n` +
+    `🏆 <b>${match.countryCode} ${country} | ${league}</b>\n` +
     `⚔️ <b>${homeTeam} vs ${awayTeam}</b> ${matchTimeDisplay}\n` +
     `${marketLine}` +
     `${quickGoalsPatternLine}` +
@@ -1298,8 +1531,7 @@ export function formatExtendedTelegramAlert(
     (isPrematch ? prematchSection + '\n' : liveSection) +
     (!isPrematch && (rule.minOddsOver25 || rule.maxOddsFavorite || rule.minModelIpt) ? prematchSection + '\n' : '') +
     (escapedReasons.length > 0 ? `💡 <i>Факторы: ${escapedReasons.join(' • ')}</i>\n` : '') +
-    `⏱ <i>Время: ${new Date().toLocaleTimeString('ru-RU')} | Источник: ${escapeTelegramHtml(match.source)}</i>\n` +
-    `🤖 <i>Footbalmonitor Pro ${isPrematch ? 'Pre-Match Selection' : 'Live Engine'}</i>`
+    `⏱ <i>Время: ${new Date().toLocaleTimeString('ru-RU')} | Источник: ${escapeTelegramHtml(match.source)}</i>`
   );
 }
 
@@ -1349,17 +1581,21 @@ export function formatResolvedTelegramAlert(
 
   return (
     `${statusHeader}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🏷 <b>Категория:</b> ${betTypeLabel}\n` +
     `📋 <b>Стратегия:</b> ${ruleName}\n` +
     `🏆 <b>${country} | ${league}</b>\n` +
     `⚽ <b>${home} ${finalScore} ${away}</b> [Матч завершён]\n` +
-    `${scoreChangeNote}\n\n` +
-    (marketSuggestion ? `🎯 <b>Рекомендация:</b> <u>${marketSuggestion}</u>\n` : '') +
-    `📈 <b>Коэффициент:</b> <code>${signal.odds.toFixed(2)}</code>\n` +
+    `${scoreChangeNote}\n` +
+    (marketSuggestion
+      ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🎯 <b>РЕКОМЕНДАЦИЯ БЫЛА:</b>\n` +
+        `👉 <b><u>🔥  ${escapeTelegramHtml(marketSuggestion.toUpperCase())}  🔥</u></b>\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      : '') +
+    `📈 <b>Коэффициент:</b> <b>${signal.odds.toFixed(2)}</b>\n` +
     `💰 <b>Итог:</b> <b>${isWin ? '✅ ПРОШЛО' : isLoss ? '❌ НЕ ПРОШЛО' : '🔄 ВОЗВРАТ'}</b> [${profitText}]\n\n` +
-    `⏱ <i>Результат зафиксирован: ${new Date().toLocaleTimeString('ru-RU')}</i>\n` +
-    `🤖 <i>Footbalmonitor Auto-Verification Engine</i>`
+    `⏱ <i>Результат зафиксирован: ${new Date().toLocaleTimeString('ru-RU')}</i>`
   );
 }
 

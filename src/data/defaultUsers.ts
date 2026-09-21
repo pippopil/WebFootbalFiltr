@@ -2,6 +2,53 @@ import { UserProfile } from '../types';
 
 export const DEFAULT_USERS: UserProfile[] = [
   {
+    id: 'user-god-developer',
+    username: 'developer_god',
+    displayName: 'Архитектор / Разработчик (GOD MODE)',
+    email: 'creator@footbalmonitor.pro',
+    avatarUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80',
+    role: 'god',
+    plan: 'GOD_MODE',
+    planExpiresAt: '2099-12-31 (Вечный доступ)',
+    registeredAt: '01.01.2024',
+    balanceRub: 99999999,
+    notificationSound: true,
+    adPreferences: {
+      showBanners: false,
+      compactAds: true,
+    },
+    telegramBots: [
+      {
+        id: 'bot-god-master',
+        name: '⚡ God Bot (Прямой доступ ко всем серверам & Telegram)',
+        botToken: '',
+        channelId: '',
+        isDefault: true,
+        active: true,
+        botUsername: '@FootbalMonitorGodBot',
+        status: 'verified',
+        createdAt: '01.01.2024',
+      },
+      {
+        id: 'bot-root-signals',
+        name: '👑 Root Syndicate VIP (Канал 1.90+)',
+        botToken: '',
+        channelId: '',
+        isDefault: false,
+        active: true,
+        botUsername: '@RootSyndicateBot',
+        status: 'verified',
+        createdAt: '01.01.2024',
+      },
+    ],
+    stats: {
+      totalSignalsGenerated: 9999,
+      winRate: 98.4,
+      favoriteLeague: 'Все лиги мира (Root Access)',
+      signalsToday: 84,
+    },
+  },
+  {
     id: 'user-pro-1',
     username: 'alex_trader',
     displayName: 'Алексей Смирнов',
