@@ -387,6 +387,63 @@ export interface AdBannerItem {
   active: boolean;
   features?: string[];
   side?: 'left' | 'right';
+  impressions?: number;
+  clicks?: number;
+  conversions?: number;
+  spentRub?: number;
+  cpcRub?: number;
+  dailyBudgetRub?: number;
+  status?: 'ACTIVE' | 'PAUSED' | 'MODERATION';
+}
+
+export interface SiteAnalyticsData {
+  totalVisits: number;
+  uniqueVisitors: number;
+  pageViews: number;
+  todayVisits: number;
+  todayUniques: number;
+  onlineNow: number;
+  avgTimeOnSiteSec: number;
+  bounceRate: number;
+  yandexMetrikaCounterId: string;
+  isYandexMetrikaConnected: boolean;
+  historyDays: Array<{
+    date: string;
+    visits: number;
+    uniques: number;
+    pageViews: number;
+  }>;
+  sourcesBreakdown: Array<{
+    source: string;
+    percentage: number;
+    visits: number;
+  }>;
+  devicesBreakdown: {
+    mobile: number;
+    desktop: number;
+    tablet: number;
+  };
+}
+
+export interface AdvertiserCampaign {
+  id: string;
+  name: string;
+  advertiserName: string;
+  contactEmail: string;
+  telegramContact?: string;
+  adSlot: 'top_billboard' | 'skyscraper_left' | 'skyscraper_right' | 'in_feed' | 'sidebar';
+  targetUrl: string;
+  title: string;
+  promoCode?: string;
+  bonusText?: string;
+  status: 'ACTIVE' | 'PAUSED' | 'MODERATION' | 'DRAFT';
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  spentRub: number;
+  budgetRub: number;
+  startDate: string;
+  endDate?: string;
 }
 
 export interface TelegramConfig {

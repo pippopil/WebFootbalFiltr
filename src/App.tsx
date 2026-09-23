@@ -103,6 +103,7 @@ import { AIAnalystModal } from './components/AIAnalystModal';
 import { DataSourcesModal } from './components/DataSourcesModal';
 import { RealMatchTesterModal } from './components/RealMatchTesterModal';
 import { PersonalCabinetView } from './components/PersonalCabinetView';
+import { AdvertiserCabinetView } from './components/AdvertiserCabinetView';
 import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
 import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
@@ -111,6 +112,13 @@ import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
 import { GodModeConsole } from './components/GodModeConsole';
 import { fetchSofascoreFromBrowserRelay } from './services/browserRelay';
+import {
+  initYandexMetrika,
+  loadAndRegisterSiteVisit,
+  saveSiteAnalytics,
+  reachGoal,
+} from './services/analyticsService';
+import { SiteAnalyticsData } from './types';
 
 const INITIAL_SIGNALS: SignalAlert[] = [
   {
@@ -556,24 +564,56 @@ const INITIAL_MATCHES: Match[] = [
     league: 'Serie A Betano',
     homeTeam: 'Flamengo',
     awayTeam: 'Palmeiras',
-    score: [0, 0],
+    score: [2, 0],
     minute: 38,
     status: 'LIVE',
     source: 'SStats',
     stats: {
-      possession: [52, 48],
-      dangerousAttacks: [29, 32],
-      attacks: [58, 61],
-      shotsOnTarget: [2, 2],
-      shotsOffTarget: [3, 1],
-      corners: [3, 4],
+      possession: [56, 44],
+      dangerousAttacks: [36, 32],
+      attacks: [68, 61],
+      shotsOnTarget: [4, 2],
+      shotsOffTarget: [3, 2],
+      corners: [4, 4],
       yellowCards: [2, 1],
       redCards: [0, 0],
-      xg: [0.45, 0.52],
+      xg: [1.45, 0.72],
     },
-    momentum: [-5, 10, -15, 20, 10, -5, 15, -10],
-    lastEvent: "35' Опасная контратака Palmeiras",
-    odds: { home: 2.3, draw: 3.1, away: 3.2, over25: 2.05, btts: 1.95 },
+    momentum: [15, 25, 10, -5, 15, 20],
+    lastEvent: "38' Счёт 2:0 с 22-й мин. Аномальный прогруз биржи на ТБ 2.5 (-18.4%) без изменения счёта",
+    initialOdds: { home: 2.10, draw: 3.40, away: 3.50, over25: 1.95, under25: 1.85, btts: 1.80 },
+    odds: { home: 1.35, draw: 4.5, away: 9.0, over25: 1.58, under25: 2.35, btts: 1.70 },
+    oddsDrop: {
+      market: 'OVER',
+      marketName: 'ТБ 2.5 (Flamengo vs Palmeiras)',
+      initialOdds: 1.95,
+      currentOdds: 1.58,
+      dropPercent: 18.9,
+      moneyVolumePercent: 78,
+      moneyVolumeAmountEur: 195000,
+      bookmaker: 'Betfair Exchange / Pinnacle',
+      detectedAtMinute: 28,
+    },
+    marketFlows: [
+      {
+        market: 'OVER',
+        marketName: 'ТБ 2.5',
+        initialOdds: 1.95,
+        currentOdds: 1.58,
+        dropPercent: 18.9,
+        moneyVolumePercent: 78,
+        moneyVolumeAmountEur: 195000,
+        bookmaker: 'Betfair Exchange',
+        detectedAtMinute: 28,
+      },
+    ],
+    history: {
+      homeLast5NoZeroZero: true,
+      awayLast5NoZeroZero: true,
+      firstHalfScore: [2, 0],
+      scoreUnchangedSinceMinute: 22,
+      predictedIpt: 3.20,
+    },
   },
   {
     id: 'm-6',
@@ -1019,8 +1059,67 @@ export default function App() {
     return allUsers.find((u) => u.id === currentUserId) || allUsers[0] || DEFAULT_USERS[0];
   }, [allUsers, currentUserId]);
 
-  // Ads state
-  const [ads] = useState<AdBannerItem[]>(DEFAULT_ADS);
+  // Ads state with persistence
+  const [ads, setAds] = useState<AdBannerItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('footbalmonitor_ad_campaigns');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return DEFAULT_ADS;
+  });
+
+  const handleUpdateAds = (newAds: AdBannerItem[]) => {
+    setAds(newAds);
+    try {
+      localStorage.setItem('footbalmonitor_ad_campaigns', JSON.stringify(newAds));
+    } catch {}
+  };
+
+  const handleAdClick = (adId: string) => {
+    setAds((prev) => {
+      const updated = prev.map((ad) => {
+        if (ad.id === adId) {
+          const currentClicks = ad.clicks || 0;
+          const currentSpent = ad.spentRub || 0;
+          const cpc = ad.cpcRub || 20;
+          return {
+            ...ad,
+            clicks: currentClicks + 1,
+            spentRub: currentSpent + cpc,
+          };
+        }
+        return ad;
+      });
+      try {
+        localStorage.setItem('footbalmonitor_ad_campaigns', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleAdImpression = (adId: string) => {
+    setAds((prev) => {
+      const updated = prev.map((ad) => {
+        if (ad.id === adId) {
+          return {
+            ...ad,
+            impressions: (ad.impressions || 0) + 1,
+          };
+        }
+        return ad;
+      });
+      try {
+        localStorage.setItem('footbalmonitor_ad_campaigns', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   const [dismissedTopBanner, setDismissedTopBanner] = useState<boolean>(false);
   const [dismissedLeftBanner, setDismissedLeftBanner] = useState<boolean>(false);
   const [dismissedRightBanner, setDismissedRightBanner] = useState<boolean>(false);
@@ -1100,6 +1199,39 @@ export default function App() {
                 minMoneyVolumePercent: 65,
               };
             }
+            if (p.id === 'strat-12') {
+              return {
+                ...p,
+                name: '⏱️ Стратегия 12: Гол после перерыва (Серия ТБ 2.5 в 5/5 или 4/5)',
+                description: 'Серия ТБ 2.5 пробивалась в 5 из 5 последних матчей команд вообще (допускается 4 из 5 для одной из двух команд). Сигнал приходит не раньше 65-й минуты матча, если во втором тайме ещё не был забит гол.',
+                ruleType: 'LIVE' as const,
+                minMinute: 65,
+                maxMinute: 85,
+                scoreCondition: 'ANY' as const,
+                minOver25Streak: 5,
+                requireOver25StreakAllowed4Of5: true,
+                requireNoGoalsInSecondHalf: true,
+                excludeYouthAndWomen: true,
+                targetMarket: 'Гол во 2-м тайме / ТБ матча (+1 гол)',
+              };
+            }
+            if (p.id === 'strat-over-steam') {
+              return {
+                ...p,
+                name: '🔥 Аномальный прогруз ТБ 2.5 без изменения счёта',
+                description: 'Слежение за падением кэфа без изменения счёта: например, счёт в 1-м тайме 2:0 и держится без голов, а рынок активно нагружает ТБ 2.5 с падением кэфа от 10% и объемом денег ≥65% без видимой смены обстановки.',
+                ruleType: 'LIVE' as const,
+                minMinute: 20,
+                maxMinute: 85,
+                scoreCondition: 'TOTAL_UNDER_25' as const,
+                maxTotalGoals: 2,
+                minOddsDropPercent: 10,
+                minMoneyVolumePercent: 65,
+                oddsDropMarket: 'OVER' as const,
+                requireOddsDropWithoutScoreChange: true,
+                targetMarket: 'Тотал больше 2.5 (ТБ) при прогрузе',
+              };
+            }
             return p;
           });
 
@@ -1169,10 +1301,20 @@ export default function App() {
   const inspectorRef = useRef<HTMLDivElement>(null);
 
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet'>('matches');
+  const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser'>('matches');
   const [filterViewMode, setFilterViewMode] = useState<'matrix' | 'cards'>('matrix');
   const [signalsViewMode, setSignalsViewMode] = useState<'table' | 'cards'>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Site Analytics & Yandex Metrika state
+  const [analytics, setAnalytics] = useState<SiteAnalyticsData>(() => loadAndRegisterSiteVisit());
+
+  // Initialize Yandex Metrika on startup
+  useEffect(() => {
+    if (analytics.yandexMetrikaCounterId) {
+      initYandexMetrika(analytics.yandexMetrikaCounterId);
+    }
+  }, [analytics.yandexMetrikaCounterId]);
   
   // Persistent signals tracker state
   const [signals, setSignals] = useState<SignalAlert[]>(() => {
@@ -2866,6 +3008,29 @@ export default function App() {
       <header id="app-header" className="border-b border-slate-800 bg-slate-900/70 backdrop-blur-md px-6 py-3.5 sticky top-0 z-30 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <AppLogo size="md" animated={true} />
+
+          {/* Real-time Yandex Metrika & Live Traffic Counter Badge */}
+          <button
+            onClick={() => setActiveTab('advertiser')}
+            className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 transition text-left group"
+            title="Счётчик Яндекс.Метрики и уникальных посетителей. Нажмите, чтобы открыть Кабинет Рекламодателя."
+          >
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <span className="text-[11px] font-mono font-bold text-emerald-400">
+                {analytics.onlineNow}
+              </span>
+              <span className="text-[10px] text-slate-400 hidden md:inline">онлайн</span>
+            </div>
+            <div className="h-3 w-px bg-slate-800" />
+            <div className="text-[10px] text-slate-300 flex items-center gap-1 font-mono">
+              <span className="text-slate-400">Уники:</span>
+              <span className="font-bold text-amber-400">{analytics.todayUniques}</span>
+            </div>
+          </button>
         </div>
 
         {/* Global Controls */}
@@ -3041,6 +3206,24 @@ export default function App() {
               </span>
             </button>
 
+            {/* Advertiser Cabinet Navigation Tab */}
+            <button
+              id="advertiser-nav-btn"
+              onClick={() => setActiveTab('advertiser')}
+              className={`px-3 py-1 rounded-md transition flex items-center gap-1.5 ${
+                activeTab === 'advertiser'
+                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-slate-950 font-black shadow-md shadow-amber-950/50'
+                  : 'text-amber-400 hover:text-amber-300 hover:bg-slate-800/80 font-medium'
+              }`}
+              title="Кабинет рекламодателя: статистика показов, кликов, CTR, Яндекс.Метрика"
+            >
+              <Sparkles className="h-3 w-3 text-amber-400" />
+              <span>Реклама</span>
+              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-mono font-bold">
+                PRO
+              </span>
+            </button>
+
             {/* Logout button */}
             <button
               id="header-logout-btn"
@@ -3095,6 +3278,8 @@ export default function App() {
               variant="skyscraper"
               side="left"
               onDismiss={() => setDismissedLeftBanner(true)}
+              onAdClick={handleAdClick}
+              onAdImpression={handleAdImpression}
             />
           </aside>
         )}
@@ -3120,6 +3305,8 @@ export default function App() {
                 ad={topAd}
                 variant="top_billboard"
                 onDismiss={() => setDismissedTopBanner(true)}
+                onAdClick={handleAdClick}
+                onAdImpression={handleAdImpression}
               />
             </div>
           )}
@@ -6578,6 +6765,16 @@ export default function App() {
           />
         )}
 
+        {/* Tab 7: Advertiser Cabinet & Yandex Metrika Analytics */}
+        {activeTab === 'advertiser' && (
+          <AdvertiserCabinetView
+            analytics={analytics}
+            onUpdateAnalytics={(updated) => setAnalytics(updated)}
+            ads={ads}
+            onUpdateAds={handleUpdateAds}
+          />
+        )}
+
         {/* Filter Builder & Editor Modal */}
         <FilterBuilderModal
           isOpen={isFilterModalOpen}
@@ -6692,6 +6889,8 @@ export default function App() {
             variant="skyscraper"
             side="right"
             onDismiss={() => setDismissedRightBanner(true)}
+            onAdClick={handleAdClick}
+            onAdImpression={handleAdImpression}
           />
         </aside>
       )}

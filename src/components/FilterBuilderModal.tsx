@@ -1473,6 +1473,31 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                 />
               </div>
             </div>
+
+            {/* Odds Drop without Score Change Toggle */}
+            <div className="pt-2">
+              <label className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/90 border border-amber-500/30 cursor-pointer hover:border-amber-500/60 transition">
+                <input
+                  type="checkbox"
+                  checked={formData.requireOddsDropWithoutScoreChange ?? false}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      requireOddsDropWithoutScoreChange: e.target.checked,
+                    })
+                  }
+                  className="mt-0.5 w-4 h-4 rounded text-amber-500 focus:ring-amber-500 bg-slate-950 border-slate-700"
+                />
+                <div className="text-[11px]">
+                  <span className="font-semibold text-amber-300 block">
+                    📉 Отслеживать падение кэфа БЕЗ изменения счёта (напр. 2:0 в 1Т держится, а ТБ 2.5 нагружают)
+                  </span>
+                  <span className="text-slate-400 text-[10px]">
+                    Фиксирует аномальный наплыв денег на ТБ или исход при стабильном счёте (≥8 минут без голов)
+                  </span>
+                </div>
+              </label>
+            </div>
           </div>
 
           {/* Section 5: Reliability, Streaks & Special Strategy Signals */}
@@ -1626,6 +1651,32 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                   className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-xs text-white font-mono focus:border-purple-500 focus:outline-none"
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80 cursor-pointer hover:border-slate-700 transition">
+                <input
+                  type="checkbox"
+                  checked={formData.requireOver25StreakAllowed4Of5 ?? false}
+                  onChange={(e) => setFormData({ ...formData, requireOver25StreakAllowed4Of5: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-slate-950 border-slate-700"
+                />
+                <div className="text-[11px]">
+                  <span className="font-semibold text-purple-300 block">Допускается 4 из 5 матчей для одной команды</span>
+                  <span className="text-slate-400 text-[10px]">Серия 5/5 вообще (не между собой); для одной из команд разрешено 4/5</span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80 cursor-pointer hover:border-slate-700 transition">
+                <input
+                  type="checkbox"
+                  checked={formData.requireNoGoalsInSecondHalf ?? false}
+                  onChange={(e) => setFormData({ ...formData, requireNoGoalsInSecondHalf: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-slate-950 border-slate-700"
+                />
+                <div className="text-[11px]">
+                  <span className="font-semibold text-purple-300 block">Во 2-м тайме ещё не забит гол (сигнал от 65')</span>
+                  <span className="text-slate-400 text-[10px]">Сигнал только если счёт 2-го тайма 0:0 к 65+ минуте</span>
+                </div>
+              </label>
             </div>
           </div>
 

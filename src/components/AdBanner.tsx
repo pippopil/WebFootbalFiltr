@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ExternalLink,
   Copy,
@@ -17,12 +17,15 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { AdBannerItem } from '../types';
+import { reachGoal } from '../services/analyticsService';
 
 interface AdBannerProps {
   ad: AdBannerItem;
   variant?: 'top_ribbon' | 'top_billboard' | 'in_feed' | 'sidebar' | 'skyscraper';
   side?: 'left' | 'right';
   onDismiss?: () => void;
+  onAdClick?: (adId: string) => void;
+  onAdImpression?: (adId: string) => void;
 }
 
 export const AdBanner: React.FC<AdBannerProps> = ({
@@ -30,15 +33,34 @@ export const AdBanner: React.FC<AdBannerProps> = ({
   variant = 'top_ribbon',
   side = 'left',
   onDismiss,
+  onAdClick,
+  onAdImpression,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (onAdImpression) {
+      onAdImpression(ad.id);
+    }
+  }, [ad.id, onAdImpression]);
+
+  const handleCtaClick = () => {
+    reachGoal('click_ad_banner', { adId: ad.id, partner: ad.partnerName, slot: variant });
+    if (onAdClick) {
+      onAdClick(ad.id);
+    }
+  };
 
   const handleCopyCode = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!ad.promoCode) return;
     navigator.clipboard.writeText(ad.promoCode);
     setCopied(true);
+    reachGoal('copy_ad_promo', { adId: ad.id, promo: ad.promoCode });
+    if (onAdClick) {
+      onAdClick(ad.id);
+    }
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -191,6 +213,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({
                 href={ad.ctaUrl}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleCtaClick}
                 className="w-full py-2.5 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-lg shadow-amber-950/60 transition active:scale-95"
               >
                 <span>{ad.ctaText}</span>
@@ -461,6 +484,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({
             href={ad.ctaUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleCtaClick}
             className={`w-full py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition active:scale-95 ${btnBg}`}
           >
             <span>{ad.ctaText}</span>
