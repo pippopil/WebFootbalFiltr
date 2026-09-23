@@ -968,18 +968,24 @@ export function evaluateFilterRule(
     }
   }
 
-  // 30. Two Quick Goals in 1st Half + No goals since (Стратегия «2 быстрых гола в 1Т — сигнал на 75' без голов»)
+  // 30. Two Quick Goals in 1st Half + No goals since (Стратегия «2 быстрых гола в 1Т — сигнал на 72-85' без голов»)
   if (rule.requireGuestTwoQuickGoals1H || rule.requireTwoQuickGoals1H || rule.requireNoGoalsSinceQuickGoals) {
     totalCriteria++;
     const had2Quick = Boolean(
       match.history?.guestScoredTwoQuickFirstHalf ||
       match.history?.twoQuickGoalsFirstHalf ||
       (match.history?.goalsAtFirstHalfQuick && match.history.goalsAtFirstHalfQuick >= 2) ||
-      (match.history?.twoQuickGoalsMinute && match.history.twoQuickGoalsMinute <= 45)
+      (match.history?.twoQuickGoalsMinute && match.history.twoQuickGoalsMinute <= 45) ||
+      // Авто-распознавание по тексту последнего события матча
+      /(?:быстр.*гол|2 быстрых|двух быстрых|quick goals|с \d+.*мин без голов)/i.test(match.lastEvent || '') ||
+      // Авто-распознавание по счёту в лайве: гости забили 2 гола (0:2 или 1:2)
+      (rule.requireGuestTwoQuickGoals1H && a >= 2 && h <= 1 && match.minute >= 45) ||
+      // Либо любая команда забила 2 гола в 1Т
+      (!rule.requireGuestTwoQuickGoals1H && (h >= 2 || a >= 2) && match.minute >= 45)
     );
 
     // Initial total goals when the two quick goals occurred (typically 2, e.g. 0:2, 2:0, or 1:1)
-    const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? 2;
+    const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? (a >= 2 ? a : h >= 2 ? h : 2);
     const currentTotalGoals = h + a;
 
     // Condition: no goals since those 2 goals!
@@ -990,9 +996,9 @@ export function evaluateFilterRule(
     if (had2Quick && noGoalsAfter) {
       passedCount++;
     } else if (!had2Quick) {
-      unmetCriteria.push(`В 1-м тайме не зафиксировано 2 быстрых голов подряд`);
+      unmetCriteria.push(`В 1-м тайме не зафиксировано 2 быстрых голов подряд (счёт ${h}:${a})`);
     } else {
-      unmetCriteria.push(`После 2 быстрых голов в 1Т уже был забит гол (текущий счёт ${h}:${a}, всего голов: ${currentTotalGoals})`);
+      unmetCriteria.push(`После 2 быстрых голов в 1Т уже был забит гол (текущий счёт ${h}:${a}, всего голов: ${currentTotalGoals} > ${initialQuickGoals})`);
     }
   }
 

@@ -528,6 +528,7 @@ export interface DataSourceConfig {
   sofascore: {
     enabled: boolean;
     useProxy: boolean;
+    browserRelayEnabled?: boolean; // Прямой опрос Sofascore из браузера клиента (без VPN и без блокировок Cloudflare)
   };
   apiFootball: {
     enabled: boolean;
@@ -551,6 +552,29 @@ export interface DataSourceConfig {
   };
   autoRefresh: boolean;
   refreshIntervalSeconds: number;
+  autoFailover?: boolean; // Автоматическое переключение на резервный источник при отказе
+  preferredFallback?: DataSourceType;
+}
+
+export interface DataSourceHealthItem {
+  id: DataSourceType;
+  name: string;
+  status: 'online' | 'blocked' | 'error' | 'no_games' | 'requires_auth';
+  latencyMs?: number;
+  matchesCount: number;
+  message?: string;
+  error?: string;
+  isFallbackCandidate: boolean;
+}
+
+export interface DataSourceHealthReport {
+  ok: boolean;
+  timestamp: string;
+  activeSource: DataSourceType;
+  fallbackActive: boolean;
+  actualSource?: DataSourceType;
+  sources: DataSourceHealthItem[];
+  recommendedSource: DataSourceType;
 }
 
 export interface DataSourceStatus {

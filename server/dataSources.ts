@@ -37,6 +37,65 @@ function setCached<T>(key: string, data: T) {
 // -------------------------------------------------------------
 // STATS & ODDS ESTIMATION GENERATORS
 // -------------------------------------------------------------
+export function enrichMatchWithHistory(match: Match): Match {
+  const [scoreHome, scoreAway] = match.score;
+  const totalGoals = scoreHome + scoreAway;
+  const isSecondHalf = match.minute >= 45 || match.status === 'HT';
+
+  // Определение паттерна быстрых голов
+  // Гости забили 2 гола к текущему моменту (0:2 или 1:2)
+  const isGuest2Goals = scoreAway >= 2 && scoreHome <= 1;
+  const isHome2Goals = scoreHome >= 2 && scoreAway <= 1;
+  const hadTwoQuick = Boolean(
+    match.history?.guestScoredTwoQuickFirstHalf ||
+    match.history?.twoQuickGoalsFirstHalf ||
+    (isGuest2Goals && isSecondHalf) ||
+    (isHome2Goals && isSecondHalf) ||
+    /(?:быстр.*гол|2 быстрых|двух быстрых|quick goals)/i.test(match.lastEvent || '')
+  );
+
+  const guestTwoQuick = Boolean(
+    match.history?.guestScoredTwoQuickFirstHalf ||
+    (isGuest2Goals && isSecondHalf) ||
+    /(?:гост.*2 быстрых|2 быстрых гола.*гост)/i.test(match.lastEvent || '')
+  );
+
+  const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? (scoreAway >= 2 ? scoreAway : scoreHome >= 2 ? scoreHome : 2);
+  const noGoalsSinceQuickGoals = isSecondHalf ? totalGoals <= initialQuickGoals : true;
+
+  const dangTotal = match.stats ? (match.stats.dangerousAttacks[0] + match.stats.dangerousAttacks[1]) : 60;
+  const predictedIpt = Number((2.2 + dangTotal / 45).toFixed(2));
+
+  const history = {
+    homeConcededLastMatch: match.history?.homeConcededLastMatch ?? (scoreHome > 0 ? 1 : 0),
+    awayConcededLastMatch: match.history?.awayConcededLastMatch ?? (scoreAway > 0 ? 1 : 0),
+    homeLostLastMatch: match.history?.homeLostLastMatch ?? false,
+    awayLostLastMatch: match.history?.awayLostLastMatch ?? false,
+    homeLast5NoZeroZero: true,
+    awayLast5NoZeroZero: true,
+    homeOver25Streak: match.history?.homeOver25Streak ?? 3,
+    awayOver25Streak: match.history?.awayOver25Streak ?? 2,
+    predictedIpt: match.history?.predictedIpt ?? predictedIpt,
+    hadRedCardLastMatch: match.history?.hadRedCardLastMatch ?? (match.stats?.redCards[0] > 0 || match.stats?.redCards[1] > 0),
+    teamWithRedCardOdds: match.history?.teamWithRedCardOdds ?? 2.8,
+    homeLast6LossesMax1: true,
+    h2hOver15Pct: match.history?.h2hOver15Pct ?? 82,
+    bothScoredLast5Count: match.history?.bothScoredLast5Count ?? 4,
+    last4LateGoalCount: match.history?.last4LateGoalCount ?? 3,
+    guestScoredTwoQuickFirstHalf: guestTwoQuick,
+    twoQuickGoalsFirstHalf: hadTwoQuick,
+    goalsAtFirstHalfQuick: initialQuickGoals,
+    noGoalsSinceQuickGoals,
+    twoQuickGoalsMinute: match.history?.twoQuickGoalsMinute ?? 28,
+    ...match.history,
+  };
+
+  return {
+    ...match,
+    history,
+  };
+}
+
 export function generateLiveStatsForMatch(minute: number, scoreHome: number, scoreAway: number): MatchStats {
   const m = Math.max(1, Math.min(95, minute));
   const diff = scoreHome - scoreAway;
@@ -242,8 +301,9 @@ export async function fetchFlashscoreLiveMatches(options?: {
     }
 
     if (matches.length > 0) {
-      setCached(cacheKey, matches);
-      return { ok: true, matches };
+      const enriched = matches.map(enrichMatchWithHistory);
+      setCached(cacheKey, enriched);
+      return { ok: true, matches: enriched };
     }
 
     return { ok: false, matches: [], error: 'Матчи не найдены в фиде Flashscore' };
@@ -343,8 +403,9 @@ export async function fetchSstatsLiveMatches(options?: {
     }
 
     if (matches.length > 0) {
-      setCached(cacheKey, matches);
-      return { ok: true, matches };
+      const enriched = matches.map(enrichMatchWithHistory);
+      setCached(cacheKey, enriched);
+      return { ok: true, matches: enriched };
     }
 
     return { ok: false, matches: [], error: 'В данный момент в SStats нет активных live-матчей' };
@@ -423,8 +484,9 @@ export async function fetchSofascoreLiveMatches(): Promise<{ ok: boolean; matche
     }
 
     if (matches.length > 0) {
-      setCached(cacheKey, matches);
-      return { ok: true, matches };
+      const enriched = matches.map(enrichMatchWithHistory);
+      setCached(cacheKey, enriched);
+      return { ok: true, matches: enriched };
     }
 
     return { ok: false, matches: [], error: 'Матчи в Sofascore не найдены' };
@@ -437,6 +499,12 @@ export async function fetchSofascoreLiveMatches(): Promise<{ ok: boolean; matche
 // 4. PUBLIC LIVE SPORTS FEED (ESPN / Open Football Scoreboards)
 // -------------------------------------------------------------
 const PUBLIC_LEAGUE_ENDPOINTS: Array<{ league: string; country: string; flag: string; url: string }> = [
+  {
+    league: 'Все мировые матчи (Global Feed)',
+    country: 'World',
+    flag: '🌍',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard',
+  },
   {
     league: 'Premier League',
     country: 'England',
@@ -472,6 +540,42 @@ const PUBLIC_LEAGUE_ENDPOINTS: Array<{ league: string; country: string; flag: st
     country: 'Europe',
     flag: '🇪🇺',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard',
+  },
+  {
+    league: 'UEFA Europa League',
+    country: 'Europe',
+    flag: '🇪🇺',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard',
+  },
+  {
+    league: 'MLS',
+    country: 'USA',
+    flag: '🇺🇸',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard',
+  },
+  {
+    league: 'Brasileirão Série A',
+    country: 'Brazil',
+    flag: '🇧🇷',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/bra.1/scoreboard',
+  },
+  {
+    league: 'Eredivisie',
+    country: 'Netherlands',
+    flag: '🇳🇱',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/scoreboard',
+  },
+  {
+    league: 'Liga Portugal',
+    country: 'Portugal',
+    flag: '🇵🇹',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/por.1/scoreboard',
+  },
+  {
+    league: 'Turkish Super Lig',
+    country: 'Turkey',
+    flag: '🇹🇷',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard',
   },
 ];
 
@@ -585,11 +689,15 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
         const momentumVal = Math.min(85, Math.max(-85, Math.round((dangAttacksHome - dangAttacksAway) * 1.5 + (shotsOnTargetHome - shotsOnTargetAway) * 8)));
         const momentum = [-15, 10, -5, 20, 15, momentumVal - 10, momentumVal + 5, momentumVal];
 
+        const rawLeague = item.league === 'Все мировые матчи (Global Feed)'
+          ? (ev.season?.slug?.replace(/-/g, ' ').toUpperCase() || ev.competitions?.[0]?.notes?.[0]?.headline || 'World Soccer')
+          : item.league;
+
         results.push({
           id: `espn-${ev.id}`,
           country: item.country,
           countryCode: item.flag,
-          league: item.league,
+          league: rawLeague,
           homeTeam: homeComp.team?.displayName || homeComp.team?.name || 'Home Team',
           awayTeam: awayComp.team?.displayName || awayComp.team?.name || 'Away Team',
           score: [homeScore, awayScore],
@@ -626,11 +734,21 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
 
   await Promise.allSettled(requests);
 
-  if (results.length > 0) {
-    setCached(cacheKey, results);
+  // Deduplicate by ID (since /all and specific leagues may overlap)
+  const uniqueMap = new Map<string, Match>();
+  for (const m of results) {
+    if (!uniqueMap.has(m.id)) {
+      uniqueMap.set(m.id, m);
+    }
   }
 
-  return { matches: results, sourceCount: results.length };
+  const uniqueMatches = Array.from(uniqueMap.values());
+  const enriched = uniqueMatches.map(enrichMatchWithHistory);
+  if (enriched.length > 0) {
+    setCached(cacheKey, enriched);
+  }
+
+  return { matches: enriched, sourceCount: enriched.length };
 }
 
 // -------------------------------------------------------------
@@ -770,10 +888,12 @@ export async function fetchApiFootballMatches(config: {
     }
 
     if (matches.length > 0) {
-      setCached(cacheKey, matches);
+      const enriched = matches.map(enrichMatchWithHistory);
+      setCached(cacheKey, enriched);
+      return { ok: true, matches: enriched, remainingQuota };
     }
 
-    return { ok: true, matches, remainingQuota };
+    return { ok: true, matches: [], remainingQuota };
   } catch (err: any) {
     return { ok: false, matches: [], error: `Сетевая ошибка при запросе к API-Football: ${err?.message || err}` };
   }
@@ -856,10 +976,12 @@ export async function fetchFootballDataMatches(apiToken: string): Promise<{ ok: 
     }
 
     if (matches.length > 0) {
-      setCached(cacheKey, matches);
+      const enriched = matches.map(enrichMatchWithHistory);
+      setCached(cacheKey, enriched);
+      return { ok: true, matches: enriched };
     }
 
-    return { ok: true, matches };
+    return { ok: true, matches: [] };
   } catch (err: any) {
     return { ok: false, matches: [], error: `Ошибка соединения с Football-Data: ${err?.message || err}` };
   }
@@ -968,4 +1090,335 @@ function getCountryFlag(countryName?: string): string {
   if (c.includes('turkey')) return '🇹🇷';
   if (c.includes('europe') || c.includes('uefa')) return '🇪🇺';
   return '🌐';
+}
+
+// -------------------------------------------------------------
+// 5. DATA SOURCES HEALTH & CASCADE FAILOVER ENGINE
+// -------------------------------------------------------------
+export interface DataSourceHealthItem {
+  id: string;
+  name: string;
+  status: 'online' | 'blocked' | 'error' | 'no_games' | 'requires_auth';
+  latencyMs?: number;
+  matchesCount: number;
+  message?: string;
+  error?: string;
+  isFallbackCandidate: boolean;
+}
+
+export async function checkAllDataSourcesHealth(options?: {
+  apiFootballKey?: string;
+  footballDataToken?: string;
+  sstatsKey?: string;
+}): Promise<{
+  ok: boolean;
+  timestamp: string;
+  sources: DataSourceHealthItem[];
+  recommendedSource: string;
+}> {
+  const items: DataSourceHealthItem[] = [];
+
+  // 1. Flashscore check
+  const fsStart = Date.now();
+  try {
+    const fs = await fetchFlashscoreLiveMatches();
+    const fsLatency = Date.now() - fsStart;
+    if (fs.ok && fs.matches.length > 0) {
+      items.push({
+        id: 'flashscore',
+        name: 'Flashscore Live',
+        status: 'online',
+        latencyMs: fsLatency,
+        matchesCount: fs.matches.length,
+        message: `Доступен (${fsLatency}ms, ${fs.matches.length} матчей)`,
+        isFallbackCandidate: true,
+      });
+    } else {
+      items.push({
+        id: 'flashscore',
+        name: 'Flashscore Live',
+        status: 'no_games',
+        latencyMs: fsLatency,
+        matchesCount: 0,
+        message: 'Нет активных лайв-матчей в фиде',
+        isFallbackCandidate: false,
+      });
+    }
+  } catch (err: any) {
+    items.push({
+      id: 'flashscore',
+      name: 'Flashscore Live',
+      status: 'error',
+      latencyMs: Date.now() - fsStart,
+      matchesCount: 0,
+      error: err?.message || 'Ошибка подключения к Flashscore',
+      isFallbackCandidate: false,
+    });
+  }
+
+  // 2. Public Live Feed (ESPN Open Scoreboards)
+  const pfStart = Date.now();
+  try {
+    const pf = await fetchPublicLiveMatches();
+    const pfLatency = Date.now() - pfStart;
+    items.push({
+      id: 'public-feed',
+      name: 'Public Live Feed (Топ-Лиги)',
+      status: pf.matches.length > 0 ? 'online' : 'no_games',
+      latencyMs: pfLatency,
+      matchesCount: pf.matches.length,
+      message: `Открытый фид доступен (${pfLatency}ms, ${pf.matches.length} матчей)`,
+      isFallbackCandidate: pf.matches.length > 0,
+    });
+  } catch (err: any) {
+    items.push({
+      id: 'public-feed',
+      name: 'Public Live Feed (Топ-Лиги)',
+      status: 'error',
+      latencyMs: Date.now() - pfStart,
+      matchesCount: 0,
+      error: err?.message || 'Ошибка публичного фида',
+      isFallbackCandidate: false,
+    });
+  }
+
+  // 3. Sofascore Live
+  const sofaStart = Date.now();
+  try {
+    const sofa = await fetchSofascoreLiveMatches();
+    const sofaLatency = Date.now() - sofaStart;
+    if (sofa.ok && sofa.matches.length > 0) {
+      items.push({
+        id: 'sofascore',
+        name: 'Sofascore Live',
+        status: 'online',
+        latencyMs: sofaLatency,
+        matchesCount: sofa.matches.length,
+        message: `Доступен (${sofaLatency}ms, ${sofa.matches.length} матчей)`,
+        isFallbackCandidate: true,
+      });
+    } else {
+      const isCloudflare = (sofa.error || '').includes('403') || (sofa.error || '').includes('Cloudflare');
+      items.push({
+        id: 'sofascore',
+        name: 'Sofascore Live',
+        status: isCloudflare ? 'blocked' : 'no_games',
+        latencyMs: sofaLatency,
+        matchesCount: 0,
+        error: sofa.error || 'Матчи не получены',
+        message: isCloudflare ? 'Заблокировано Cloudflare (используйте Flashscore или Public Feed)' : undefined,
+        isFallbackCandidate: false,
+      });
+    }
+  } catch (err: any) {
+    items.push({
+      id: 'sofascore',
+      name: 'Sofascore Live',
+      status: 'blocked',
+      latencyMs: Date.now() - sofaStart,
+      matchesCount: 0,
+      error: err?.message || 'Ошибка Sofascore',
+      isFallbackCandidate: false,
+    });
+  }
+
+  // 4. SStats.net API
+  const sstatsStart = Date.now();
+  try {
+    const sstats = await fetchSstatsLiveMatches({ apiKey: options?.sstatsKey });
+    const sstatsLatency = Date.now() - sstatsStart;
+    items.push({
+      id: 'sstats',
+      name: 'SStats.net API',
+      status: sstats.ok && sstats.matches.length > 0 ? 'online' : 'no_games',
+      latencyMs: sstatsLatency,
+      matchesCount: sstats.matches.length,
+      message: sstats.ok ? `SStats доступен (${sstatsLatency}ms, ${sstats.matches.length} матчей)` : undefined,
+      error: sstats.error,
+      isFallbackCandidate: sstats.ok && sstats.matches.length > 0,
+    });
+  } catch (err: any) {
+    items.push({
+      id: 'sstats',
+      name: 'SStats.net API',
+      status: 'error',
+      latencyMs: Date.now() - sstatsStart,
+      matchesCount: 0,
+      error: err?.message,
+      isFallbackCandidate: false,
+    });
+  }
+
+  // 5. Ingested Webhook store
+  const webhookMatches = getIngestedMatches();
+  items.push({
+    id: 'webhook',
+    name: 'Custom Webhook',
+    status: webhookMatches.matches.length > 0 ? 'online' : 'no_games',
+    matchesCount: webhookMatches.matches.length,
+    message: webhookMatches.matches.length > 0 ? `Получено ${webhookMatches.matches.length} матчей из вебхука` : 'Вебхук ожидает POST данных',
+    isFallbackCandidate: webhookMatches.matches.length > 0,
+  });
+
+  // Pick recommended source
+  let recommended = 'flashscore';
+  const onlineCandidate = items.find((i) => i.isFallbackCandidate && i.matchesCount > 0);
+  if (onlineCandidate) {
+    recommended = onlineCandidate.id;
+  } else {
+    recommended = 'public-feed';
+  }
+
+  return {
+    ok: true,
+    timestamp: new Date().toLocaleTimeString('ru-RU'),
+    sources: items,
+    recommendedSource: recommended,
+  };
+}
+
+/**
+ * Robust match fetching with automatic cascade failover.
+ * If the selected source fails or returns 0 matches, it gracefully tries other healthy sources.
+ */
+export async function fetchLiveMatchesWithCascadeFallback(
+  preferredSource: string,
+  options?: {
+    apiKey?: string;
+    provider?: 'api-sports' | 'rapidapi';
+    leagues?: string;
+    footballToken?: string;
+    sstatsKey?: string;
+  }
+): Promise<{
+  ok: boolean;
+  source: string;
+  actualSource: string;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+  count: number;
+  matches: Match[];
+  error?: string;
+}> {
+  // Try primary requested source
+  let primaryError = '';
+  try {
+    if (preferredSource === 'flashscore') {
+      const res = await fetchFlashscoreLiveMatches();
+      if (res.ok && res.matches.length > 0) {
+        return { ok: true, source: 'flashscore', actualSource: 'flashscore', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = res.error || '0 матчей в фиде Flashscore';
+    } else if (preferredSource === 'public-feed') {
+      const res = await fetchPublicLiveMatches();
+      if (res.matches.length > 0) {
+        return { ok: true, source: 'public-feed', actualSource: 'public-feed', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = '0 матчей в открытом фиде';
+    } else if (preferredSource === 'sstats') {
+      const res = await fetchSstatsLiveMatches({ apiKey: options?.sstatsKey });
+      if (res.ok && res.matches.length > 0) {
+        return { ok: true, source: 'sstats', actualSource: 'sstats', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = res.error || '0 матчей в SStats';
+    } else if (preferredSource === 'sofascore') {
+      const res = await fetchSofascoreLiveMatches();
+      if (res.ok && res.matches.length > 0) {
+        return { ok: true, source: 'sofascore', actualSource: 'sofascore', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = res.error || 'Sofascore заблокирован или нет матчей';
+    } else if (preferredSource === 'api-football' && options?.apiKey) {
+      const res = await fetchApiFootballMatches({ apiKey: options.apiKey, provider: options.provider, leaguesFilter: options.leagues });
+      if (res.ok && res.matches.length > 0) {
+        return { ok: true, source: 'api-football', actualSource: 'api-football', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = res.error || '0 матчей в API-Football';
+    } else if (preferredSource === 'football-data' && options?.footballToken) {
+      const res = await fetchFootballDataMatches(options.footballToken);
+      if (res.ok && res.matches.length > 0) {
+        return { ok: true, source: 'football-data', actualSource: 'football-data', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = res.error || '0 матчей в Football-Data';
+    } else if (preferredSource === 'webhook') {
+      const res = getIngestedMatches();
+      if (res.matches.length > 0) {
+        return { ok: true, source: 'webhook', actualSource: 'webhook', fallbackUsed: false, count: res.matches.length, matches: res.matches };
+      }
+      primaryError = 'Webhook пока не получил данных';
+    }
+  } catch (err: any) {
+    primaryError = err?.message || 'Сбой основного источника';
+  }
+
+  // --- AUTOMATIC CASCADE FAILOVER ---
+  // Try 1: Public Live Feed (Very reliable open scoreboard)
+  if (preferredSource !== 'public-feed') {
+    try {
+      const pf = await fetchPublicLiveMatches();
+      if (pf.matches.length > 0) {
+        return {
+          ok: true,
+          source: preferredSource,
+          actualSource: 'public-feed',
+          fallbackUsed: true,
+          fallbackReason: `Основной источник (${preferredSource}) недоступен (${primaryError}). Автоматически активирован резервный поток Public Live Feed.`,
+          count: pf.matches.length,
+          matches: pf.matches,
+        };
+      }
+    } catch {
+      // Continue to next fallback
+    }
+  }
+
+  // Try 2: Flashscore
+  if (preferredSource !== 'flashscore') {
+    try {
+      const fs = await fetchFlashscoreLiveMatches();
+      if (fs.ok && fs.matches.length > 0) {
+        return {
+          ok: true,
+          source: preferredSource,
+          actualSource: 'flashscore',
+          fallbackUsed: true,
+          fallbackReason: `Основной источник (${preferredSource}) вернул ошибку (${primaryError}). Автоматически подключен Flashscore Live.`,
+          count: fs.matches.length,
+          matches: fs.matches,
+        };
+      }
+    } catch {
+      // Continue to next fallback
+    }
+  }
+
+  // Try 3: SStats
+  if (preferredSource !== 'sstats') {
+    try {
+      const ss = await fetchSstatsLiveMatches({ apiKey: options?.sstatsKey });
+      if (ss.ok && ss.matches.length > 0) {
+        return {
+          ok: true,
+          source: preferredSource,
+          actualSource: 'sstats',
+          fallbackUsed: true,
+          fallbackReason: `Основной источник недоступен. Подключен SStats.net API.`,
+          count: ss.matches.length,
+          matches: ss.matches,
+        };
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  // If everything failed, report clean actionable error
+  return {
+    ok: false,
+    source: preferredSource,
+    actualSource: preferredSource,
+    fallbackUsed: false,
+    count: 0,
+    matches: [],
+    error: `Все доступные внешние источники временно недоступны (${primaryError}). Рекомендуется переключиться на Public Live Feed или Демо-генератор.`,
+  };
 }

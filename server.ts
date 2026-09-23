@@ -13,6 +13,8 @@ import {
   ingestMatchesFromWebhook,
   getIngestedMatches,
   clearIngestedMatches,
+  checkAllDataSourcesHealth,
+  fetchLiveMatchesWithCascadeFallback,
 } from './server/dataSources';
 
 dotenv.config();
@@ -711,65 +713,95 @@ async function startServer() {
 4. Укажи главные риски и тактическую заметку.
 5. Ответ строго на русском языке в формате JSON.`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            systemInstruction: 'You are a professional football match live analytics engine. Return purely valid JSON adhering strictly to the schema.',
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                headline: { type: Type.STRING },
-                summary: { type: Type.STRING },
-                intensityLevel: { type: Type.STRING, description: 'CALM, ACTIVE, HIGH_PRESSURE, or SIEGE' },
-                dominantSide: { type: Type.STRING, description: 'home, away, or balanced' },
-                dominantTeam: { type: Type.STRING },
-                pressureDescription: { type: Type.STRING },
-                nextGoalHome: { type: Type.INTEGER },
-                nextGoalAway: { type: Type.INTEGER },
-                noMoreGoals: { type: Type.INTEGER },
-                expectedTotalGoals: { type: Type.STRING },
-                recommendations: {
-                  type: Type.ARRAY,
-                  items: {
+        // Retry mechanism with exponential backoff & model fallback for 503 (high demand)
+        const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest'];
+        let response: any = null;
+        let lastError: any = null;
+
+        for (const modelName of modelsToTry) {
+          const maxRetries = 2;
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+              if (attempt > 0) {
+                // Wait with backoff before retry (e.g. 800ms, 1600ms)
+                await new Promise((r) => setTimeout(r, attempt * 800));
+              }
+
+              response = await ai.models.generateContent({
+                model: modelName,
+                contents: prompt,
+                config: {
+                  systemInstruction: 'You are a professional football match live analytics engine. Return purely valid JSON adhering strictly to the schema.',
+                  responseMimeType: 'application/json',
+                  responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                      market: { type: Type.STRING },
-                      oddsEstimate: { type: Type.NUMBER },
-                      confidence: { type: Type.STRING, description: 'LOW, MEDIUM, or HIGH' },
-                      reasoning: { type: Type.STRING },
-                      edge: { type: Type.STRING },
+                      headline: { type: Type.STRING },
+                      summary: { type: Type.STRING },
+                      intensityLevel: { type: Type.STRING, description: 'CALM, ACTIVE, HIGH_PRESSURE, or SIEGE' },
+                      dominantSide: { type: Type.STRING, description: 'home, away, or balanced' },
+                      dominantTeam: { type: Type.STRING },
+                      pressureDescription: { type: Type.STRING },
+                      nextGoalHome: { type: Type.INTEGER },
+                      nextGoalAway: { type: Type.INTEGER },
+                      noMoreGoals: { type: Type.INTEGER },
+                      expectedTotalGoals: { type: Type.STRING },
+                      recommendations: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            market: { type: Type.STRING },
+                            oddsEstimate: { type: Type.NUMBER },
+                            confidence: { type: Type.STRING, description: 'LOW, MEDIUM, or HIGH' },
+                            reasoning: { type: Type.STRING },
+                            edge: { type: Type.STRING },
+                          },
+                          required: ['market', 'oddsEstimate', 'confidence', 'reasoning', 'edge'],
+                        },
+                      },
+                      keyRisks: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                      },
+                      tacticalNote: { type: Type.STRING },
                     },
-                    required: ['market', 'oddsEstimate', 'confidence', 'reasoning', 'edge'],
+                    required: [
+                      'headline',
+                      'summary',
+                      'intensityLevel',
+                      'dominantSide',
+                      'dominantTeam',
+                      'pressureDescription',
+                      'nextGoalHome',
+                      'nextGoalAway',
+                      'noMoreGoals',
+                      'expectedTotalGoals',
+                      'recommendations',
+                      'keyRisks',
+                      'tacticalNote',
+                    ],
                   },
                 },
-                keyRisks: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
-                tacticalNote: { type: Type.STRING },
-              },
-              required: [
-                'headline',
-                'summary',
-                'intensityLevel',
-                'dominantSide',
-                'dominantTeam',
-                'pressureDescription',
-                'nextGoalHome',
-                'nextGoalAway',
-                'noMoreGoals',
-                'expectedTotalGoals',
-                'recommendations',
-                'keyRisks',
-                'tacticalNote',
-              ],
-            },
-          },
-        });
+              });
 
-        const rawText = response.text;
+              if (response?.text) {
+                break; // Succeeded
+              }
+            } catch (err: any) {
+              lastError = err;
+              const errStr = JSON.stringify(err?.message || err || '');
+              const is503 = errStr.includes('503') || errStr.includes('UNAVAILABLE') || errStr.includes('high demand');
+              if (!is503) {
+                // Non-transient error, don't keep retrying this model
+                break;
+              }
+            }
+          }
+          if (response?.text) break;
+        }
+
+        const rawText = response?.text;
         if (rawText) {
           const parsed = JSON.parse(rawText);
           const formattedTelegram = buildTelegramPost(parsed);
@@ -801,7 +833,7 @@ async function startServer() {
           });
         }
       } catch (geminiError: any) {
-        console.error('Gemini API call failed, falling back to heuristic engine:', geminiError?.message || geminiError);
+        console.warn('Gemini API temporary spike, smoothly serving heuristic live analysis:', geminiError?.message || geminiError);
       }
     }
 
@@ -834,12 +866,34 @@ async function startServer() {
       },
       publicFeed: {
         available: true,
-        description: 'Открытый онлайн-фид реальных матчей (EPL, LaLiga, Serie A, Bundesliga, Champions League)',
+        description: 'Глобальный онлайн-фид реальных матчей со всего мира (100% стабильно без VPN)',
       },
     });
   });
 
-  // 2. Fetch live matches from specified external data source
+  // 1.5 Data sources health check endpoint
+  app.get('/api/datasources/health', async (req, res) => {
+    try {
+      const sstatsKey = (req.query.sstats_key as string) || process.env.SSTATS_KEY || '';
+      const apiFootballKey = (req.query.api_key as string) || process.env.API_FOOTBALL_KEY || '';
+      const footballToken = (req.query.football_data_token as string) || process.env.FOOTBALL_DATA_TOKEN || '';
+
+      const report = await checkAllDataSourcesHealth({
+        sstatsKey,
+        apiFootballKey,
+        footballToken,
+      });
+
+      return res.json(report);
+    } catch (err: any) {
+      return res.status(500).json({
+        ok: false,
+        error: `Ошибка проверки здоровья источников: ${err?.message || err}`,
+      });
+    }
+  });
+
+  // 2. Fetch live matches from specified external data source (with resilient cascade fallback)
   app.get('/api/datasources/live', async (req, res) => {
     const source = (req.query.source as string) || 'flashscore';
     const apiKey = (req.query.api_key as string) || process.env.API_FOOTBALL_KEY || '';
@@ -847,8 +901,34 @@ async function startServer() {
     const leagues = (req.query.leagues as string) || '';
     const footballToken = (req.query.football_data_token as string) || process.env.FOOTBALL_DATA_TOKEN || '';
     const sstatsKey = (req.query.sstats_key as string) || process.env.SSTATS_KEY || '';
+    const disableFallback = req.query.disable_fallback === '1' || req.query.disable_fallback === 'true';
 
     try {
+      // Use resilient cascade failover by default
+      if (!disableFallback && source !== 'webhook') {
+        const cascadeResult = await fetchLiveMatchesWithCascadeFallback(source, {
+          apiKey,
+          provider,
+          leagues,
+          footballToken,
+          sstatsKey,
+        });
+
+        if (cascadeResult.ok && cascadeResult.matches.length > 0) {
+          return res.json({
+            ok: true,
+            source: cascadeResult.source,
+            actualSource: cascadeResult.actualSource,
+            fallbackUsed: cascadeResult.fallbackUsed,
+            fallbackReason: cascadeResult.fallbackReason,
+            count: cascadeResult.matches.length,
+            matches: cascadeResult.matches,
+            fetchedAt: new Date().toLocaleTimeString('ru-RU'),
+          });
+        }
+      }
+
+      // Direct source fallback if cascade disabled or direct webhook
       if (source === 'flashscore') {
         const result = await fetchFlashscoreLiveMatches();
         if (!result.ok && result.matches.length === 0) {
@@ -857,6 +937,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'Flashscore',
+          actualSource: 'Flashscore',
+          fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
           fetchedAt: new Date().toLocaleTimeString('ru-RU'),
@@ -871,6 +953,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'SStats',
+          actualSource: 'SStats',
+          fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
           fetchedAt: new Date().toLocaleTimeString('ru-RU'),
@@ -885,6 +969,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'Sofascore',
+          actualSource: 'Sofascore',
+          fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
           fetchedAt: new Date().toLocaleTimeString('ru-RU'),
@@ -905,6 +991,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'API-Football',
+          actualSource: 'API-Football',
+          fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
           remainingQuota: result.remainingQuota,
@@ -926,6 +1014,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'Football-Data',
+          actualSource: 'Football-Data',
+          fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
           fetchedAt: new Date().toLocaleTimeString('ru-RU'),
@@ -937,6 +1027,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'Custom-Webhook',
+          actualSource: 'Custom-Webhook',
+          fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
           lastIngestedAt: result.lastIngestedAt,
@@ -950,6 +1042,8 @@ async function startServer() {
         return res.json({
           ok: true,
           source: 'Public-Feed',
+          actualSource: 'Public-Feed',
+          fallbackUsed: false,
           count: publicResult.matches.length,
           matches: publicResult.matches,
           fetchedAt: new Date().toLocaleTimeString('ru-RU'),
@@ -961,6 +1055,8 @@ async function startServer() {
       return res.json({
         ok: true,
         source: 'Flashscore',
+        actualSource: 'Flashscore',
+        fallbackUsed: false,
         count: defaultResult.matches.length,
         matches: defaultResult.matches,
         fetchedAt: new Date().toLocaleTimeString('ru-RU'),

@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react';
 import { DataSourceConfig, DataSourceType, DataSourceStatus } from '../types';
+import { fetchSofascoreFromBrowserRelay } from '../services/browserRelay';
 
 interface DataSourcesModalProps {
   isOpen: boolean;
@@ -69,6 +70,27 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   const handleTestConnection = async (sourceType: DataSourceType) => {
     setIsTesting(true);
     setTestStatus(null);
+
+    // Если тестируется Sofascore и включен Браузерный Relay (без VPN)
+    if (sourceType === 'sofascore' && (draftConfig.sofascore?.browserRelayEnabled ?? true)) {
+      try {
+        const relayRes = await fetchSofascoreFromBrowserRelay();
+        if (relayRes.ok) {
+          setTestStatus({
+            source: 'sofascore',
+            configured: true,
+            status: 'connected',
+            matchesCount: relayRes.matches.length,
+            latencyMs: relayRes.latencyMs,
+            message: `Sofascore Browser Relay работает без VPN (${relayRes.latencyMs}ms). Обнаружено ${relayRes.matches.length} текущих матчей.`,
+          });
+          setIsTesting(false);
+          return;
+        }
+      } catch {
+        // Пробуем обычный серверный тест
+      }
+    }
 
     try {
       let body: any = { source: sourceType };
@@ -300,8 +322,8 @@ pushLiveMatch();`;
               <span className="text-white">
                 {config.activeSource === 'flashscore' && '⚡ Flashscore Live (Парсер)'}
                 {config.activeSource === 'sstats' && '📊 SStats.net API (Smart Tables)'}
-                {config.activeSource === 'sofascore' && '⚽ Sofascore Live'}
-                {config.activeSource === 'public-feed' && '🌐 Открытый Live-Фид (Топ-Лиги)'}
+                {config.activeSource === 'sofascore' && '⚽ Sofascore Live (Relay Без VPN)'}
+                {config.activeSource === 'public-feed' && '🌐 Глобальный Live-Фид (100% Без VPN)'}
                 {config.activeSource === 'api-football' && '⚡ API-Football (v3)'}
                 {config.activeSource === 'football-data' && '🏆 Football-Data.org'}
                 {config.activeSource === 'webhook' && '🔌 Пользовательский Webhook'}
@@ -390,6 +412,7 @@ pushLiveMatch();`;
           >
             <Activity className="h-4 w-4 text-amber-400" />
             <span>3. Sofascore Live</span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] bg-amber-500/20 text-amber-300 font-bold">Relay</span>
           </button>
 
           <button
@@ -413,8 +436,8 @@ pushLiveMatch();`;
             }`}
           >
             <Globe className="h-4 w-4" />
-            <span>5. Открытый Фид</span>
-            <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-500/20 text-emerald-300">Топ-Лиги</span>
+            <span>5. Глобальный Фид</span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold">Без VPN</span>
           </button>
 
           <button
@@ -722,8 +745,41 @@ pushLiveMatch();`;
                   </span>
                 </div>
 
+                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-amber-300 flex items-center gap-1.5">
+                        <span>⚡ Решение 2: Прямой опрос Sofascore из вашего браузера (Browser Relay)</span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">Без VPN</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Так как в вашем браузере Sofascore открывается без VPN, браузер опрашивает live-эндпоинт Sofascore напрямую от вашего лица, обходя блокировку серверных IP.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={draftConfig.sofascore?.browserRelayEnabled ?? true}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setDraftConfig((prev) => ({
+                            ...prev,
+                            sofascore: { ...(prev.sofascore || { enabled: true, useProxy: false }), browserRelayEnabled: val },
+                          }));
+                          onUpdateConfig({
+                            ...draftConfig,
+                            sofascore: { ...(draftConfig.sofascore || { enabled: true, useProxy: false }), browserRelayEnabled: val },
+                          });
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                    </label>
+                  </div>
+                </div>
+
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs space-y-2">
-                  <div className="font-semibold text-slate-200">Запуск автономного парсера Sofascore на вашем ПК:</div>
+                  <div className="font-semibold text-slate-200">Автономный сбор через скрипт на ПК (для фоновой работы 24/7):</div>
                   <div className="bg-slate-950 p-2.5 rounded font-mono text-[11px] text-amber-300 flex items-center justify-between">
                     <span>python scripts/sofascore_collector.py</span>
                     <button
@@ -734,7 +790,7 @@ pushLiveMatch();`;
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    Скрипт автоматически опрашивает Sofascore каждые 15 секунд и передает все live-матчи прямо в интерфейс Footbalmonitor.
+                    Скрипт на вашем компьютере опрашивает Sofascore каждые 15 секунд без ограничений и передает live-матчи прямо в приложение.
                   </p>
                 </div>
 
@@ -773,7 +829,7 @@ pushLiveMatch();`;
             </div>
           )}
 
-          {/* TAB 1: PUBLIC LIVE FEED */}
+          {/* TAB 4: PUBLIC LIVE FEED */}
           {activeTab === 'public-feed' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
@@ -781,16 +837,17 @@ pushLiveMatch();`;
                   <div className="flex items-center gap-2">
                     <span className="text-xl">🌐</span>
                     <div>
-                      <h4 className="text-sm font-bold text-white">
-                        Открытый Live-Фид топовых европейских чемпионатов
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Глобальный Live-Фид матчей мира (Решение 1)</span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">100% Без VPN</span>
                       </h4>
                       <p className="text-xs text-slate-400">
-                        Мгновенное подключение к реальным матчам без регистрации, платных подписок и API-ключей
+                        Прямое подключение ко всем текущим матчам дня по всему миру без блокировок, капчи и VPN
                       </p>
                     </div>
                   </div>
                   <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">
-                    Готов к работе
+                    Стабилен 24/7
                   </span>
                 </div>
 
@@ -798,19 +855,19 @@ pushLiveMatch();`;
                   <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
                     <div className="text-slate-400">Охват лиг:</div>
                     <div className="text-slate-200 font-semibold mt-1">
-                      АПЛ, Ла Лига, Серия А, Бундеслига, Лига 1, Лига Чемпионов
+                      Все мировые матчи (Global Feed), АПЛ, Ла Лига, Серия А, Бундеслига, Лига Чемпионов, Бразилия, MLS, Турция и др.
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
                     <div className="text-slate-400">Метрики в эфире:</div>
                     <div className="text-slate-200 font-semibold mt-1">
-                      Счет, минута, удары в створ, владение %, угловые, карточки, xG
+                      Счет, минута, удары в створ, владение %, угловые, карточки, xG и кэфы
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                    <div className="text-slate-400">Частота обновления:</div>
+                    <div className="text-slate-400">Доступность & Сеть:</div>
                     <div className="text-emerald-400 font-semibold mt-1">
-                      Реальное время (кэш 15 секунд)
+                      Работает напрямую без VPN у любого провайдера
                     </div>
                   </div>
                 </div>

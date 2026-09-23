@@ -110,6 +110,7 @@ import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
 import { GodModeConsole } from './components/GodModeConsole';
+import { fetchSofascoreFromBrowserRelay } from './services/browserRelay';
 
 const INITIAL_SIGNALS: SignalAlert[] = [
   {
@@ -1048,10 +1049,11 @@ export default function App() {
             if (p.id === 'strat-guest-two-quick') {
               return {
                 ...p,
-                name: '⚡ Два быстрых гола в 1-м тайме (Сигнал на 75\' без голов)',
-                description: 'В 1-м тайме забито 2 быстрых гола подряд (разница ≤ 15 мин). Если до 75-й минуты голов больше не было — сигнал на ТБ матча (поздний гол).',
-                minMinute: 75,
-                maxMinute: 77,
+                name: '⚡ Два быстрых гола в 1-м тайме (Сигнал 72-85\' без голов)',
+                description: 'В 1-м тайме забито 2 быстрых гола подряд (разница ≤ 15 мин). Начиная с 72-75\' и до 85\' при отсутствии голов — сигнал на ТБ матча (поздний гол).',
+                minMinute: 72,
+                maxMinute: 85,
+                maxTotalGoals: 2,
                 requireGuestTwoQuickGoals1H: true,
                 requireNoGoalsSinceQuickGoals: true,
                 targetMarket: 'ТБ матча (+1 гол после 75\')',
@@ -1295,6 +1297,12 @@ export default function App() {
   const [isRefreshingMatches, setIsRefreshingMatches] = useState<boolean>(false);
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [dataSourceError, setDataSourceError] = useState<string | null>(null);
+  const [dataSourceFallbackInfo, setDataSourceFallbackInfo] = useState<{
+    fallbackUsed: boolean;
+    requestedSource: string;
+    actualSource: string;
+    reason?: string;
+  } | null>(null);
 
   const [dataSourceConfig, setDataSourceConfig] = useState<DataSourceConfig>(() => {
     const saved = localStorage.getItem('footbalmonitor_datasource_config');
@@ -1398,6 +1406,30 @@ export default function App() {
     setIsRefreshingMatches(true);
     setDataSourceError(null);
 
+    // Решение 2: Если выбран Sofascore и включен Браузерный Relay (без VPN и без блокировок Cloudflare)
+    if (src === 'sofascore' && dataSourceConfig.sofascore?.browserRelayEnabled) {
+      try {
+        const relayResult = await fetchSofascoreFromBrowserRelay();
+        if (relayResult.ok && relayResult.matches.length > 0) {
+          setMatches((prev) =>
+            relayResult.matches.map((newM: Match) => {
+              const prevM = prev.find((m) => m.id === newM.id);
+              return enrichMatchWithOddsTracker(newM, prevM);
+            })
+          );
+          if (!relayResult.matches.some((m: Match) => m.id === selectedMatchId)) {
+            setSelectedMatchId(relayResult.matches[0].id);
+          }
+          setLastFetchedAt(new Date().toLocaleTimeString('ru-RU'));
+          setDataSourceFallbackInfo(null);
+          setIsRefreshingMatches(false);
+          return;
+        }
+      } catch {
+        // При неудаче браузерного relay продолжаем серверный опрос с автоматическим каскадным фоллбеком
+      }
+    }
+
     try {
       let query = `?source=${src}&nocache=1`;
       if (src === 'sstats' && dataSourceConfig.sstats?.apiKey) {
@@ -1421,10 +1453,23 @@ export default function App() {
           setSelectedMatchId(data.matches[0].id);
         }
         setLastFetchedAt(data.fetchedAt || new Date().toLocaleTimeString('ru-RU'));
+
+        if (data.fallbackUsed) {
+          setDataSourceFallbackInfo({
+            fallbackUsed: true,
+            requestedSource: src,
+            actualSource: data.actualSource || 'Резервный источник',
+            reason: data.fallbackReason,
+          });
+        } else {
+          setDataSourceFallbackInfo(null);
+        }
       } else if (data.matches && data.matches.length === 0) {
         setDataSourceError('В выбранном источнике сейчас нет активных Live-матчей. Попробуйте Flashscore или Public Feed.');
+        setDataSourceFallbackInfo(null);
       } else {
         setDataSourceError(data.error || 'Ошибка при получении матчей из источника');
+        setDataSourceFallbackInfo(null);
       }
     } catch (err: any) {
       setDataSourceError(`Сетевая ошибка: ${err?.message || err}`);
@@ -2135,12 +2180,13 @@ export default function App() {
           const existingMatchTrack = sentSignalsTrackerRef.current.get(matchTrackerKey);
           const existingRuleTrack = sentSignalsTrackerRef.current.get(ruleTrackerKey);
 
+          // Deduplicate per strategy rule to ensure multiple strategies can alert for the same match
           if (telegramConfig.deduplicationMode === 'once-per-match') {
-            if (existingMatchTrack) {
+            if (existingRuleTrack) {
               isDuplicateSuppressed = true;
             }
           } else if (telegramConfig.deduplicationMode === 'cooldown') {
-            const trackToCheck = existingMatchTrack || existingRuleTrack;
+            const trackToCheck = existingRuleTrack || existingMatchTrack;
             if (trackToCheck) {
               const minutesPassed = Math.abs(match.minute - trackToCheck.lastMinute);
               const msPassed = Date.now() - trackToCheck.lastSentAt;
@@ -2150,7 +2196,7 @@ export default function App() {
               }
             }
           } else if (telegramConfig.deduplicationMode === 'score-change') {
-            const trackToCheck = existingMatchTrack || existingRuleTrack;
+            const trackToCheck = existingRuleTrack || existingMatchTrack;
             if (trackToCheck && currentScoreStr === trackToCheck.lastScore) {
               isDuplicateSuppressed = true;
             }
@@ -2809,31 +2855,32 @@ export default function App() {
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Data Sources / Real Matches Trigger */}
           <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+            <select
+              value={dataSourceConfig.activeSource}
+              onChange={(e) => {
+                const newSource = e.target.value as DataSourceType;
+                setDataSourceConfig((prev) => ({ ...prev, activeSource: newSource }));
+                fetchLiveMatchesFromSource(newSource);
+              }}
+              className="bg-transparent text-xs text-slate-200 font-medium px-2 py-1.5 border-none focus:ring-0 cursor-pointer hover:text-white"
+              title="Быстрое переключение активного источника live-данных"
+            >
+              <option value="public-feed" className="bg-slate-900 text-emerald-400">🌐 Глобальный Фид (100% Без VPN)</option>
+              <option value="sofascore" className="bg-slate-900 text-amber-300">⚽ Sofascore (Relay Без VPN)</option>
+              <option value="flashscore" className="bg-slate-900 text-rose-400">⚡ Flashscore Live</option>
+              <option value="sstats" className="bg-slate-900 text-blue-400">📊 SStats.net API</option>
+              <option value="api-football" className="bg-slate-900 text-indigo-400">⚡ API-Football (v3)</option>
+              <option value="football-data" className="bg-slate-900 text-cyan-400">🏆 Football-Data.org</option>
+              <option value="webhook" className="bg-slate-900 text-purple-400">🔌 Webhook / Скрипты</option>
+              <option value="simulated" className="bg-slate-900 text-slate-400">🎮 Демо-генератор</option>
+            </select>
             <button
               id="open-datasources-btn"
               onClick={() => setIsDataSourcesModalOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 transition"
-              title="Открыть настройку источников данных (Public Live Feed, API-Football, Webhook)"
+              className="p-1.5 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition"
+              title="Открыть подробную панель настройки и диагностики источников"
             >
-              <Globe className="h-3.5 w-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">
-                {dataSourceConfig.activeSource === 'flashscore'
-                  ? '⚡ Flashscore Live'
-                  : dataSourceConfig.activeSource === 'sstats'
-                  ? '📊 SStats.net'
-                  : dataSourceConfig.activeSource === 'sofascore'
-                  ? '⚽ Sofascore'
-                  : dataSourceConfig.activeSource === 'public-feed'
-                  ? 'Public Live Feed'
-                  : dataSourceConfig.activeSource === 'api-football'
-                  ? 'API-Football'
-                  : dataSourceConfig.activeSource === 'football-data'
-                  ? 'Football-Data'
-                  : dataSourceConfig.activeSource === 'webhook'
-                  ? 'Webhook Feed'
-                  : 'Демо-симулятор'}
-              </span>
-              <span className="sm:hidden">Фид</span>
+              <Globe className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => fetchLiveMatchesFromSource()}
@@ -2994,19 +3041,23 @@ export default function App() {
               id="theme-quick-toggle-btn"
               type="button"
               onClick={toggleTheme}
-              className="px-2.5 py-1 rounded-md border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-amber-400 transition flex items-center gap-1.5 text-xs font-semibold ml-1 shadow-sm active:scale-95"
+              className={`px-2.5 py-1 rounded-md transition flex items-center gap-1.5 text-xs font-bold ml-1 shadow-sm active:scale-95 ${
+                theme === 'dark'
+                  ? 'border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-100'
+                  : 'border border-slate-300 bg-white hover:bg-slate-100 text-slate-900 shadow'
+              }`}
               title={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
               aria-label="Переключение темы оформления"
             >
               {theme === 'dark' ? (
                 <>
                   <Sun className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <span className="hidden xl:inline text-[11px] text-slate-200 font-bold">Светлая</span>
+                  <span className="hidden sm:inline text-[11px] text-slate-100 font-bold">Светлая</span>
                 </>
               ) : (
                 <>
-                  <Moon className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-                  <span className="hidden xl:inline text-[11px] text-slate-700 font-bold">Тёмная</span>
+                  <Moon className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                  <span className="hidden sm:inline text-[11px] text-slate-900 font-bold">Тёмная</span>
                 </>
               )}
             </button>
@@ -3186,19 +3237,100 @@ export default function App() {
           </div>
         </div>
 
-        {/* Data Source Error Banner */}
-        {dataSourceError && (
-          <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 flex items-center justify-between text-xs text-rose-300">
+        {/* Data Source Resiliency & Fallback Banner */}
+        {dataSourceFallbackInfo && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
-              <span>{dataSourceError}</span>
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping shrink-0" />
+              <div>
+                <span className="font-bold text-amber-300">Авто-отказоустойчивость: </span>
+                <span>{dataSourceFallbackInfo.reason || `Основной источник недоступен. Автоматически подключен ${dataSourceFallbackInfo.actualSource}.`}</span>
+              </div>
             </div>
-            <button
-              onClick={() => setDataSourceError(null)}
-              className="text-slate-400 hover:text-white text-xs px-2"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const newSource = (dataSourceFallbackInfo.actualSource.toLowerCase().includes('public') ? 'public-feed' : 'flashscore') as DataSourceType;
+                  setDataSourceConfig((prev) => ({ ...prev, activeSource: newSource }));
+                  setDataSourceFallbackInfo(null);
+                }}
+                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 rounded-lg font-semibold text-[11px] transition"
+              >
+                Закрепить этот источник
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDataSourcesModalOpen(true)}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] transition"
+              >
+                ⚙️ Диагностика
+              </button>
+            </div>
+          </div>
+        )}
+
+        {dataSourceError && (
+          <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3.5 space-y-2.5 text-xs text-rose-300">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-rose-200">Проблема с получением данных из внешнего источника</div>
+                  <div className="mt-0.5 text-slate-300">{dataSourceError}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setDataSourceError(null)}
+                className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-rose-500/20 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="pt-1 flex items-center gap-2 flex-wrap border-t border-rose-500/20">
+              <span className="text-[11px] text-slate-400 font-semibold">Быстрое переключение на рабочий источник:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setDataSourceConfig((prev) => ({ ...prev, activeSource: 'flashscore' }));
+                  fetchLiveMatchesFromSource('flashscore');
+                  setDataSourceError(null);
+                }}
+                className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[11px] transition"
+              >
+                ⚡ Flashscore Live
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDataSourceConfig((prev) => ({ ...prev, activeSource: 'public-feed' }));
+                  fetchLiveMatchesFromSource('public-feed');
+                  setDataSourceError(null);
+                }}
+                className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-lg font-bold text-[11px] transition"
+              >
+                🌐 Public Feed (Топ-Лиги)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDataSourceConfig((prev) => ({ ...prev, activeSource: 'simulated' }));
+                  fetchLiveMatchesFromSource('simulated');
+                  setDataSourceError(null);
+                }}
+                className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 rounded-lg font-bold text-[11px] transition"
+              >
+                🎮 Демо-генератор
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDataSourcesModalOpen(true)}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg font-medium text-[11px] transition"
+              >
+                ⚙️ Все источники
+              </button>
+            </div>
           </div>
         )}
 
@@ -4224,6 +4356,44 @@ export default function App() {
                                 return {
                                   ...m,
                                   status: 'LIVE',
+                                  minute: 75,
+                                  score: [0, 2] as [number, number],
+                                  odds: {
+                                    ...m.odds,
+                                    over25: 1.95,
+                                  },
+                                  history: {
+                                    ...(m.history || {}),
+                                    guestScoredTwoQuickFirstHalf: true,
+                                    twoQuickGoalsFirstHalf: true,
+                                    goalsAtFirstHalfQuick: 2,
+                                    noGoalsSinceQuickGoals: true,
+                                    twoQuickGoalsMinute: 22,
+                                  },
+                                  lastEvent: "75' Паттерн: 2 быстрых гола гостей в 1Т (12', 22'). Счёт 0:2, с 22' без голов до 75'",
+                                };
+                              })
+                            );
+                            // Enable the strategy if disabled so user sees immediate signal
+                            setFilters((prev) =>
+                              prev.map((f) => (f.id === 'strat-guest-two-quick' ? { ...f, enabled: true } : f))
+                            );
+                          }}
+                          className="px-2 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center justify-center gap-1 font-medium transition"
+                          title="Смоделировать '2 быстрых гола в 1Т' (75 мин, 0:2, без голов с 22 мин)"
+                        >
+                          ⚡ Тест 2 быстрых гола (75')
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatches((prev) =>
+                              prev.map((m) => {
+                                if (m.id !== selectedMatch.id) return m;
+                                return {
+                                  ...m,
+                                  status: 'LIVE',
                                   minute: 70,
                                   score: [1, 0] as [number, number],
                                   odds: {
@@ -4750,9 +4920,7 @@ export default function App() {
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredList.map((filter) => {
-                    const matchingLiveMatches = filter.enabled
-                      ? matches.filter((m) => evaluateFilterRule(m, filter).matches)
-                      : [];
+                    const matchingLiveMatches = matches.filter((m) => evaluateFilterRule(m, filter).matches);
                     const hasLiveMatches = matchingLiveMatches.length > 0;
 
                     return (
@@ -4763,6 +4931,8 @@ export default function App() {
                             ? hasLiveMatches
                               ? 'border-emerald-500/70 shadow-lg shadow-emerald-950/30'
                               : 'border-slate-800 hover:border-slate-700'
+                            : hasLiveMatches
+                            ? 'border-amber-500/40 bg-slate-900/90'
                             : 'border-slate-800/60 opacity-60'
                         }`}
                       >
@@ -4835,25 +5005,35 @@ export default function App() {
                                 <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 font-semibold flex items-center justify-between">
                                   <span className="flex items-center gap-1.5">
                                     <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                                    Совпадает прямо сейчас ({matchingLiveMatches.length}):
+                                    Сигнал прямо сейчас ({matchingLiveMatches.length}):
                                   </span>
                                   <span className="font-mono text-white text-[10px]">
-                                    {matchingLiveMatches.map((m) => m.homeTeam).join(', ')}
+                                    {matchingLiveMatches.map((m) => `${m.homeTeam} (${m.minute}')`).join(', ')}
                                   </span>
                                 </div>
                               ) : (
-                                <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-500 flex items-center gap-1.5">
-                                  <Clock className="h-3 w-3" />
-                                  В работе • Ожидание подходящей ситуации в live
+                                <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-500 flex items-center justify-between">
+                                  <span className="flex items-center gap-1.5">
+                                    <Clock className="h-3 w-3 text-slate-400" />
+                                    В работе • Ожидание критериев в live
+                                  </span>
                                 </div>
                               )
                             ) : (
-                              <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/40 border border-slate-800/60 text-[10px] text-slate-500 flex items-center justify-between">
+                              <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/40 border border-slate-800/60 text-[10px] text-slate-400 flex items-center justify-between">
                                 <span className="flex items-center gap-1.5">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
-                                  Остановлен пользователем
+                                  <span className={`h-1.5 w-1.5 rounded-full ${hasLiveMatches ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}`} />
+                                  {hasLiveMatches ? (
+                                    <span className="text-amber-300 font-bold">
+                                      ⚡ Совпадает {matchingLiveMatches.map(m => m.homeTeam).join(', ')} ({matchingLiveMatches.length})! Включите для алертов
+                                    </span>
+                                  ) : (
+                                    'Остановлен пользователем'
+                                  )}
                                 </span>
-                                <span className="text-slate-600 font-mono">Сигналы отключены</span>
+                                <span className="text-slate-500 font-mono text-[9px]">
+                                  {hasLiveMatches ? 'Готов к сигналу' : 'Сигналы отключены'}
+                                </span>
                               </div>
                             )}
                           </div>
