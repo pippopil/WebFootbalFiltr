@@ -857,14 +857,51 @@ export function evaluateFilterRule(
 
   if (rule.minOver25Streak !== undefined) {
     totalCriteria++;
-    const streak = Math.max(
-      match.history?.homeOver25Streak ?? (match.odds.over25 <= 1.6 ? 5 : 3),
-      match.history?.awayOver25Streak ?? (match.odds.over25 <= 1.6 ? 5 : 3)
-    );
-    if (streak >= rule.minOver25Streak) {
+    // Проверка серий ТБ 2.5: в 5 из 5 последних матчей вообще (не между собой).
+    // Допускается 4 из 5 для одной команды из двух (например 5 из 5 у первой и 4 из 5 у второй).
+    const homeStreak = match.history?.homeOver25CountLast5 ?? match.history?.homeOver25Streak ?? (match.odds.over25 <= 1.6 ? 5 : 3);
+    const awayStreak = match.history?.awayOver25CountLast5 ?? match.history?.awayOver25Streak ?? (match.odds.over25 <= 1.6 ? 5 : 3);
+
+    let streakOk = false;
+    if (rule.requireOver25StreakAllowed4Of5) {
+      // Требуется: либо обе 5 из 5, либо у одной 5 из 5, а у второй минимум 4 из 5
+      const maxS = Math.max(homeStreak, awayStreak);
+      const minS = Math.min(homeStreak, awayStreak);
+      streakOk = (maxS >= 5 && minS >= 4);
+    } else {
+      streakOk = Math.max(homeStreak, awayStreak) >= rule.minOver25Streak;
+    }
+
+    if (streakOk) {
       passedCount++;
     } else {
-      unmetCriteria.push(`Серия ТБ 2.5 (${streak} игр) < ${rule.minOver25Streak}`);
+      if (rule.requireOver25StreakAllowed4Of5) {
+        unmetCriteria.push(
+          `Серии ТБ 2.5 в 5 матчах: ${match.homeTeam} (${homeStreak}/5), ${match.awayTeam} (${awayStreak}/5). Требуется 5/5 у обоих или 5/5 и 4/5`
+        );
+      } else {
+        unmetCriteria.push(`Серия ТБ 2.5 (${Math.max(homeStreak, awayStreak)} игр) < ${rule.minOver25Streak}`);
+      }
+    }
+  }
+
+  // 22b. Require No Goals in 2nd Half (Гол во 2-м тайме ещё не был забит)
+  if (rule.requireNoGoalsInSecondHalf) {
+    totalCriteria++;
+    const htHome = match.history?.firstHalfScore?.[0] ?? (match.minute >= 45 ? match.score[0] : 0);
+    const htAway = match.history?.firstHalfScore?.[1] ?? (match.minute >= 45 ? match.score[1] : 0);
+    const htTotal = htHome + htAway;
+    const currentTotal = match.score[0] + match.score[1];
+    
+    // Если явно флаг noGoalsInSecondHalf выставлен или текущий тотал равен счёту 1Т
+    const noGoals2H = match.history?.noGoalsInSecondHalf !== undefined
+      ? match.history.noGoalsInSecondHalf
+      : (match.minute >= 45 && currentTotal <= htTotal);
+
+    if (noGoals2H) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Во 2-м тайме уже был забит гол (счёт 1Т: ${htHome}:${htAway}, текущий счёт: ${match.score[0]}:${match.score[1]})`);
     }
   }
 
@@ -1144,6 +1181,48 @@ export function evaluateFilterRule(
           `Прогруз (${bestFlow.marketName}): ${failReasons.join(', ')}`
         );
       }
+    }
+  }
+
+  // 34c. Odds Drop Without Visible Score Change (Падение кэфа при неизменном счёте, например при 2:0 грузят ТБ 2.5)
+  if (rule.requireOddsDropWithoutScoreChange) {
+    totalCriteria++;
+    const unchangedSince = match.history?.scoreUnchangedSinceMinute ?? (match.minute >= 45 ? 45 : 0);
+    const minutesWithoutChange = match.minute - unchangedSince;
+    // Счёт не менялся хотя бы 10 минут, но при этом произошел ощутимый прогруз
+    const hasFlow = (match.marketFlows && match.marketFlows.length > 0) || match.oddsDrop;
+    const bestDrop = match.oddsDrop || match.marketFlows?.[0];
+    const dropSufficient = (bestDrop?.dropPercent ?? 0) >= (rule.minOddsDropPercent ?? 8);
+
+    if (minutesWithoutChange >= 8 && dropSufficient) {
+      passedCount++;
+    } else if (minutesWithoutChange < 8) {
+      unmetCriteria.push(
+        `Счёт недавно изменился (${match.score[0]}:${match.score[1]}). Требуется стабильный счёт без голов ≥8 мин при падении кэфа`
+      );
+    } else {
+      unmetCriteria.push(
+        `Падение кэфа без изменения счёта не достигло порога (${bestDrop?.dropPercent.toFixed(1) ?? 0}% < ${rule.minOddsDropPercent ?? 8}%)`
+      );
+    }
+  }
+
+  // 34d. Prematch Suspicious Odds Drop / Insider Info (Подозрительный предматчевый прогруз / инсайд)
+  if (rule.requirePrematchSuspiciousDrop) {
+    totalCriteria++;
+    // Проверка падения кэфа перед началом матча (или на первых минутах 0')
+    const flows = match.marketFlows || (match.oddsDrop ? [match.oddsDrop] : []);
+    const qualifyingPrematch = flows.find(
+      (f) => f.dropPercent >= (rule.minOddsDropPercent ?? 12) && (f.moneyVolumePercent ?? 50) >= (rule.minMoneyVolumePercent ?? 65)
+    );
+    const hasPreReason = Boolean(match.history?.prematchInsiderDropReason);
+
+    if (qualifyingPrematch || hasPreReason) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(
+        `Нет аномального предматчевого падения котировок (требуется снижение ≥${rule.minOddsDropPercent ?? 12}% при пуле денег ≥${rule.minMoneyVolumePercent ?? 65}%)`
+      );
     }
   }
 

@@ -66,6 +66,12 @@ export interface Match {
     awayLast5NoZeroZero?: boolean;
     homeOver25Streak?: number;
     awayOver25Streak?: number;
+    homeOver25CountLast5?: number; // Количество матчей на ТБ 2.5 из 5 последних (например 5 или 4)
+    awayOver25CountLast5?: number; // Количество матчей на ТБ 2.5 из 5 последних (например 5 или 4)
+    firstHalfScore?: [number, number]; // Счёт по итогам 1-го тайма (например [2, 0])
+    noGoalsInSecondHalf?: boolean; // Были ли забиты голы во втором тайме
+    scoreUnchangedSinceMinute?: number; // Минута, с которой счёт не менялся (например с 45-й минуты)
+    prematchInsiderDropReason?: string; // Причина подозрительного предматчевого прогруза (инсайд / новости / травмы)
     predictedIpt?: number;
     hadRedCardLastMatch?: boolean;
     teamWithRedCardOdds?: number;
@@ -189,11 +195,15 @@ export interface FilterRule {
   requireLastMatchConceded2Plus?: boolean; // Обе команды проиграли и пропустили >=2 в прошлом матче
   requireNoZeroZeroLast5?: boolean;        // В последних 5 матчах команд не было 0:0
   minOver25Streak?: number;                // Серия матчей на ТБ 2.5 у команд (например >= 5)
+  requireOver25StreakAllowed4Of5?: boolean; // Допускается 4 из 5 матчей для одной команды (минимум 5/5 у одной и 4/5 у другой, либо 5/5 у обоих)
+  requireNoGoalsInSecondHalf?: boolean;    // Во 2-м тайме ещё не было забито ни одного гола
   minModelIpt?: number;                    // Взвешенный математический тотал IPT > X (Стратегия 7, порог 2.70)
   requireRedCardLastMatch?: boolean;       // Команда получила КК в крайнем матче (кэф на неё <= 3.20)
   requireLateGoalsLastMatches?: boolean;   // В 3 из 4 последних матчей был гол на 65-90'
   requireH2hOver15High?: boolean;          // В личных встречах >= 80% матчей на ТБ 1.5
   isDeadlyCombination?: boolean;           // «Смертельная комбинация» коэффициентов на ТБ 3.5 / 4.5
+  requireOddsDropWithoutScoreChange?: boolean; // Падение кэфа без изменения счёта (например счёт 2:0 и все грузят ТБ 2.5 при неизменном счёте)
+  requirePrematchSuspiciousDrop?: boolean; // Подозрительный предматчевый прогруз / инсайд (резкое падение кэфа до начала матча)
 
   targetMarket?: string;
   telegramEnabled: boolean;
