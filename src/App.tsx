@@ -107,11 +107,12 @@ import { AdvertiserCabinetView } from './components/AdvertiserCabinetView';
 import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
 import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
-import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
+// import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
 import { GodModeConsole } from './components/GodModeConsole';
 import { fetchSofascoreFromBrowserRelay } from './services/browserRelay';
+import { AppFooter } from './components/AppFooter';
 import {
   initYandexMetrika,
   loadAndRegisterSiteVisit,
@@ -120,242 +121,8 @@ import {
 } from './services/analyticsService';
 import { SiteAnalyticsData } from './types';
 
-const INITIAL_SIGNALS: SignalAlert[] = [
-  {
-    id: 'sig-seed-1',
-    timestamp: '15:42:10',
-    matchId: 'm-den-1',
-    matchName: 'Hvidovre vs Koge',
-    league: '1st Division',
-    country: '🇩🇰 Дания',
-    minute: 79,
-    period: '2-й тайм',
-    score: '1:1',
-    finalScore: '2:1',
-    ruleName: 'NoName',
-    marketSuggestion: 'ТБ 0.5 во 2-м тайме',
-    message: '⚽ [СИГНАЛ] Дания | 1st Division\nHvidovre 1:1 Koge (79\')\n🎯 Исход: ТБ 0.5 во 2-м тайме',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    botName: 'Основной Бот',
-    outcome: 'WIN',
-    odds: 1.82,
-    stake: 1000,
-    profit: 820,
-    statsSnapshot: {
-      homeScore: 1,
-      awayScore: 1,
-      attacks: [52, 38],
-      dangerousAttacks: [41, 24],
-      shotsOnTarget: [6, 3],
-      shotsOffTarget: [5, 2],
-      corners: [5, 3],
-      yellowCards: [2, 1],
-      redCards: [0, 0],
-    },
-    resolvedAt: '16:05:00',
-  },
-  {
-    id: 'sig-seed-2',
-    timestamp: '15:20:05',
-    matchId: 'm-fin-1',
-    matchName: 'Ilves vs KuPS',
-    league: 'Veikkausliiga',
-    country: '🇫🇮 Финляндия',
-    minute: 32,
-    period: '1-й тайм',
-    score: '0:0',
-    ruleName: 'ТБ 1.5 Фаворит',
-    marketSuggestion: 'ТБ 0.5 в 1-м тайме',
-    message: '⚽ [СИГНАЛ] Финляндия | Veikkausliiga\nIlves 0:0 KuPS (32\')\n🎯 Исход: ТБ 0.5 в 1-м тайме',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    botName: 'Основной Бот',
-    outcome: 'WIN',
-    odds: 1.95,
-    stake: 1000,
-    profit: 950,
-    finalScore: '1:1',
-    statsSnapshot: {
-      homeScore: 0,
-      awayScore: 0,
-      attacks: [34, 21],
-      dangerousAttacks: [25, 12],
-      shotsOnTarget: [4, 1],
-      shotsOffTarget: [3, 2],
-      corners: [4, 1],
-      yellowCards: [1, 0],
-      redCards: [0, 0],
-    },
-    resolvedAt: '15:40:00',
-  },
-  {
-    id: 'sig-seed-3',
-    timestamp: '14:48:30',
-    matchId: 'm-par-1',
-    matchName: 'Olimpia vs Libertad',
-    league: 'Primera Division',
-    country: '🇵🇾 Парагвай',
-    minute: 34,
-    period: '1-й тайм',
-    score: '0:1',
-    ruleName: 'Осада угловыми',
-    marketSuggestion: 'ТБ угловых в 1Т',
-    message: '⚽ [СИГНАЛ] Парагвай | Primera Division\nOlimpia 0:1 Libertad (34\')\n🎯 Исход: ТБ угловых',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    botName: 'VIP Бот',
-    outcome: 'WIN',
-    odds: 1.90,
-    stake: 1000,
-    profit: 900,
-    finalScore: '1:2',
-    statsSnapshot: {
-      homeScore: 0,
-      awayScore: 1,
-      attacks: [39, 25],
-      dangerousAttacks: [29, 16],
-      shotsOnTarget: [4, 3],
-      shotsOffTarget: [4, 1],
-      corners: [6, 2],
-      yellowCards: [1, 2],
-      redCards: [0, 0],
-    },
-    resolvedAt: '15:35:00',
-  },
-  {
-    id: 'sig-seed-4',
-    timestamp: '14:35:12',
-    matchId: 'm-idn-1',
-    matchName: 'Persija vs Bali United',
-    league: 'Liga 1',
-    country: '🇮🇩 Индонезия',
-    minute: 35,
-    period: '1-й тайм',
-    score: '1:0',
-    ruleName: 'Штурм аутсайдера',
-    marketSuggestion: '1X (двойной шанс)',
-    message: '⚽ [СИГНАЛ] Индонезия | Liga 1\nPersija 1:0 Bali United (35\')\n🎯 Исход: 1X',
-    sentToTelegram: false,
-    telegramStatusText: 'Локальный сигнал',
-    outcome: 'WIN',
-    odds: 1.75,
-    stake: 1000,
-    profit: 750,
-    finalScore: '2:1',
-    statsSnapshot: {
-      homeScore: 1,
-      awayScore: 0,
-      attacks: [36, 28],
-      dangerousAttacks: [24, 18],
-      shotsOnTarget: [5, 2],
-      shotsOffTarget: [3, 2],
-      corners: [4, 3],
-      yellowCards: [1, 1],
-      redCards: [0, 0],
-    },
-    resolvedAt: '15:15:00',
-  },
-  {
-    id: 'sig-seed-5',
-    timestamp: '13:54:00',
-    matchId: 'm-uru-1',
-    matchName: 'Nacional vs Penarol',
-    league: 'Primera Division',
-    country: '🇺🇾 Уругвай',
-    minute: 54,
-    period: '2-й тайм',
-    score: '1:1',
-    ruleName: 'Прессинг в большинстве',
-    marketSuggestion: 'Победа 1 (П1)',
-    message: '⚽ [СИГНАЛ] Уругвай | Primera Division\nNacional 1:1 Penarol (54\')\n🎯 Исход: П1',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    botName: 'Основной Бот',
-    outcome: 'WIN',
-    odds: 2.15,
-    stake: 1000,
-    profit: 1150,
-    finalScore: '2:1',
-    statsSnapshot: {
-      homeScore: 1,
-      awayScore: 1,
-      attacks: [58, 32],
-      dangerousAttacks: [46, 19],
-      shotsOnTarget: [8, 3],
-      shotsOffTarget: [6, 2],
-      corners: [7, 2],
-      yellowCards: [3, 4],
-      redCards: [0, 1],
-    },
-    resolvedAt: '14:45:00',
-  },
-  {
-    id: 'sig-seed-6',
-    timestamp: '13:20:18',
-    matchId: 'm-pol-1',
-    matchName: 'Legia vs Lech Poznan',
-    league: 'Ekstraklasa',
-    country: '🇵🇱 Польша',
-    minute: 68,
-    period: '2-й тайм',
-    score: '0:0',
-    ruleName: 'Сухое доминирование при 0:0',
-    marketSuggestion: 'ТБ 0.5 в матче',
-    message: '⚽ [СИГНАЛ] Польша | Ekstraklasa\nLegia 0:0 Lech Poznan (68\')\n🎯 Исход: ТБ 0.5 в матче',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    botName: 'Основной Бот',
-    outcome: 'PENDING',
-    odds: 1.88,
-    stake: 1000,
-    statsSnapshot: {
-      homeScore: 0,
-      awayScore: 0,
-      attacks: [62, 38],
-      dangerousAttacks: [53, 22],
-      shotsOnTarget: [7, 2],
-      shotsOffTarget: [5, 3],
-      corners: [8, 3],
-      yellowCards: [1, 2],
-      redCards: [0, 0],
-    },
-  },
-  {
-    id: 'sig-seed-7',
-    timestamp: '12:45:00',
-    matchId: 'm-nor-1',
-    matchName: 'Bodo/Glimt vs Molde',
-    league: 'Eliteserien',
-    country: '🇳🇴 Норвегия',
-    minute: 71,
-    period: '2-й тайм',
-    score: '2:1',
-    ruleName: 'Тотал Больше 2.5',
-    marketSuggestion: 'ТБ 3.5 в матче',
-    message: '⚽ [СИГНАЛ] Норвегия | Eliteserien\nBodo/Glimt 2:1 Molde (71\')\n🎯 Исход: ТБ 3.5 в матче',
-    sentToTelegram: true,
-    telegramStatusText: 'Доставлено в TG',
-    botName: 'Основной Бот',
-    outcome: 'WIN',
-    odds: 1.85,
-    stake: 1000,
-    profit: 850,
-    finalScore: '3:1',
-    statsSnapshot: {
-      homeScore: 2,
-      awayScore: 1,
-      attacks: [65, 48],
-      dangerousAttacks: [54, 35],
-      shotsOnTarget: [9, 5],
-      shotsOffTarget: [7, 4],
-      corners: [9, 5],
-      yellowCards: [2, 2],
-      redCards: [0, 0],
-    },
-    resolvedAt: '13:30:00',
-  },
-];
+// Real signals start clean - no synthetic dummy seed alerts
+const INITIAL_SIGNALS: SignalAlert[] = [];
 
 const INITIAL_MATCHES: Match[] = [
   {
@@ -967,7 +734,18 @@ const INITIAL_MATCHES: Match[] = [
 ];
 
 export default function App() {
-  const [matches, setMatches] = useState<Match[]>(INITIAL_MATCHES);
+  const [matches, setMatches] = useState<Match[]>(() => {
+    try {
+      const savedConfig = localStorage.getItem('footbalmonitor_datasource_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.activeSource === 'simulated') {
+          return INITIAL_MATCHES;
+        }
+      }
+    } catch {}
+    return [];
+  });
 
   // Multi-user state management
   const [allUsers, setAllUsers] = useState<UserProfile[]>(() => {
@@ -1080,8 +858,10 @@ export default function App() {
     } catch {}
   };
 
-  const handleAdClick = (adId: string) => {
+  const handleAdClick = useCallback((adId: string) => {
     setAds((prev) => {
+      const target = prev.find((a) => a.id === adId);
+      if (!target) return prev;
       const updated = prev.map((ad) => {
         if (ad.id === adId) {
           const currentClicks = ad.clicks || 0;
@@ -1100,10 +880,12 @@ export default function App() {
       } catch {}
       return updated;
     });
-  };
+  }, []);
 
-  const handleAdImpression = (adId: string) => {
+  const handleAdImpression = useCallback((adId: string) => {
     setAds((prev) => {
+      const target = prev.find((a) => a.id === adId);
+      if (!target) return prev;
       const updated = prev.map((ad) => {
         if (ad.id === adId) {
           return {
@@ -1118,7 +900,7 @@ export default function App() {
       } catch {}
       return updated;
     });
-  };
+  }, []);
 
   const [dismissedTopBanner, setDismissedTopBanner] = useState<boolean>(false);
   const [dismissedLeftBanner, setDismissedLeftBanner] = useState<boolean>(false);
@@ -1169,6 +951,8 @@ export default function App() {
                 description: 'В 1-м тайме забито 2 быстрых гола подряд (разница ≤ 15 мин). Начиная с 72-75\' и до 85\' при отсутствии голов — сигнал на ТБ матча (поздний гол).',
                 minMinute: 72,
                 maxMinute: 85,
+                scoreCondition: 'AWAY_LEAD' as const,
+                minTotalGoals: 2,
                 maxTotalGoals: 2,
                 requireGuestTwoQuickGoals1H: true,
                 requireNoGoalsSinceQuickGoals: true,
@@ -1293,7 +1077,28 @@ export default function App() {
     }
   }, [filters, currentUser?.id]);
 
-  const [selectedMatchId, setSelectedMatchId] = useState<string>(INITIAL_MATCHES[0].id);
+  const [selectedMatchId, setSelectedMatchId] = useState<string>(() => {
+    try {
+      const savedConfig = localStorage.getItem('footbalmonitor_datasource_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.activeSource === 'simulated' && INITIAL_MATCHES.length > 0) {
+          return INITIAL_MATCHES[0].id;
+        }
+      }
+    } catch {}
+    return '';
+  });
+
+  // Ensure selectedMatchId stays valid when matches array changes
+  useEffect(() => {
+    if (matches.length > 0) {
+      if (!selectedMatchId || !matches.some((m) => m.id === selectedMatchId)) {
+        setSelectedMatchId(matches[0].id);
+      }
+    }
+  }, [matches, selectedMatchId]);
+
   const [inspectorOffset, setInspectorOffset] = useState<number>(0);
   const [inspectorAlignMode, setInspectorAlignMode] = useState<'opposite' | 'sticky' | 'top'>('opposite');
   const [isLargeScreen, setIsLargeScreen] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
@@ -1316,14 +1121,15 @@ export default function App() {
     }
   }, [analytics.yandexMetrikaCounterId]);
   
-  // Persistent signals tracker state
+  // Persistent signals tracker state (Strictly genuine live signals, zero fake seeds)
   const [signals, setSignals] = useState<SignalAlert[]>(() => {
     const saved = localStorage.getItem('footbalmonitor_signals');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          // Remove any legacy synthetic seed alerts (e.g. sig-seed-*)
+          return parsed.filter((s: SignalAlert) => !s.id.startsWith('sig-seed-'));
         }
       } catch (e) {
         // fallback
@@ -2318,6 +2124,17 @@ export default function App() {
     if (activeLaunchedFilters.length === 0) return;
 
     matches.forEach((match) => {
+      // 🛡️ CRITICAL GUARD: Never trigger alerts on demo/mock matches when in real live mode!
+      const isMockMatch = match.id.startsWith('m-') || (match as any).isMock;
+      if (isMockMatch && dataSourceConfig.activeSource !== 'simulated') {
+        return;
+      }
+
+      // If in simulated demo mode, NEVER send automated messages to real Telegram bots
+      // to avoid spamming the user's real channel with non-existent simulated games
+      const isSimulatedMode = dataSourceConfig.activeSource === 'simulated';
+      const allowTgInSim = Boolean((dataSourceConfig as any).allowTelegramInSimulation);
+
       const analysis = calculatePressureAnalysis(match);
 
       activeLaunchedFilters.forEach((rule) => {
@@ -2409,18 +2226,24 @@ export default function App() {
           targetBotName = defaultBot?.name || 'Основной бот';
         }
 
-        const shouldSendTg = rule.telegramEnabled && telegramConfig.autoSend && !!targetBotToken && !!targetChatId;
+        const shouldSendTg =
+          rule.telegramEnabled &&
+          telegramConfig.autoSend &&
+          !!targetBotToken &&
+          !!targetChatId &&
+          (!isSimulatedMode || allowTgInSim);
 
         const periodStr = isPrematch
           ? 'Прематч (за 1 час до матча)'
           : (match.minute <= 45 ? '1-й тайм' : (match.status === 'HT' ? 'Перерыв' : '2-й тайм'));
 
+        const simPrefix = isSimulatedMode ? '🎮 [ДЕМО-СИМУЛЯЦИЯ]\n' : '';
         const signalMessage = isPrematch
-          ? `📋 [ПРЕДМАТЧЕВЫЙ СИГНАЛ ЗА 1 ЧАС] ${match.countryCode} ${match.country} | ${match.league}\n` +
+          ? `${simPrefix}📋 [ПРЕДМАТЧЕВЫЙ СИГНАЛ ЗА 1 ЧАС] ${match.countryCode} ${match.country} | ${match.league}\n` +
             `⚔️ ${match.homeTeam} vs ${match.awayTeam} (⏳ Старт через ${match.startsInMinutes ?? 60} мин${match.startTime ? `, ${match.startTime}` : ''})\n` +
             (rule.targetMarket ? `🎯 Рекомендуемый исход: ${rule.targetMarket}\n` : '') +
             `⏱ Анализ проведён строго за 1 час (60 мин) до свистка | Стратегия: ${rule.name}`
-          : `⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
+          : `${simPrefix}⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
             (rule.targetMarket ? `🎯 Исход: ${rule.targetMarket}\n` : '') +
             `🔥 Давление: ${analysis.pressureIndex}/100 | Оп. атаки ${match.stats.dangerousAttacks[0]}-${match.stats.dangerousAttacks[1]} | Удары в створ ${match.stats.shotsOnTarget[0]}-${match.stats.shotsOnTarget[1]} | Углы ${match.stats.corners[0]}-${match.stats.corners[1]}`;
 
@@ -2599,12 +2422,12 @@ export default function App() {
   // Calculate and align inspector column opposite the selected match card
   const updateInspectorPosition = useCallback((targetId?: string) => {
     if (typeof window === 'undefined' || window.innerWidth < 1024) {
-      setInspectorOffset(0);
+      setInspectorOffset((prev) => (prev === 0 ? prev : 0));
       return;
     }
 
     if (inspectorAlignMode === 'top') {
-      setInspectorOffset(0);
+      setInspectorOffset((prev) => (prev === 0 ? prev : 0));
       return;
     }
 
@@ -2619,7 +2442,8 @@ export default function App() {
       const cardRect = cardElement.getBoundingClientRect();
       // Calculate distance from grid container top to the selected match card top
       const relativeTop = cardRect.top - gridRect.top;
-      setInspectorOffset(Math.max(0, Math.round(relativeTop)));
+      const targetOffset = Math.max(0, Math.round(relativeTop));
+      setInspectorOffset((prev) => (prev === targetOffset ? prev : targetOffset));
     }
   }, [selectedMatchId, inspectorAlignMode]);
 
@@ -3008,29 +2832,6 @@ export default function App() {
       <header id="app-header" className="border-b border-slate-800 bg-slate-900/70 backdrop-blur-md px-6 py-3.5 sticky top-0 z-30 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <AppLogo size="md" animated={true} />
-
-          {/* Real-time Yandex Metrika & Live Traffic Counter Badge */}
-          <button
-            onClick={() => setActiveTab('advertiser')}
-            className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 transition text-left group"
-            title="Счётчик Яндекс.Метрики и уникальных посетителей. Нажмите, чтобы открыть Кабинет Рекламодателя."
-          >
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              <span className="text-[11px] font-mono font-bold text-emerald-400">
-                {analytics.onlineNow}
-              </span>
-              <span className="text-[10px] text-slate-400 hidden md:inline">онлайн</span>
-            </div>
-            <div className="h-3 w-px bg-slate-800" />
-            <div className="text-[10px] text-slate-300 flex items-center gap-1 font-mono">
-              <span className="text-slate-400">Уники:</span>
-              <span className="font-bold text-amber-400">{analytics.todayUniques}</span>
-            </div>
-          </button>
         </div>
 
         {/* Global Controls */}
@@ -3203,24 +3004,6 @@ export default function App() {
                 }`}
               >
                 {currentUser.role === 'god' ? 'ROOT' : currentUser.displayName.split(' ')[0]}
-              </span>
-            </button>
-
-            {/* Advertiser Cabinet Navigation Tab */}
-            <button
-              id="advertiser-nav-btn"
-              onClick={() => setActiveTab('advertiser')}
-              className={`px-3 py-1 rounded-md transition flex items-center gap-1.5 ${
-                activeTab === 'advertiser'
-                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-slate-950 font-black shadow-md shadow-amber-950/50'
-                  : 'text-amber-400 hover:text-amber-300 hover:bg-slate-800/80 font-medium'
-              }`}
-              title="Кабинет рекламодателя: статистика показов, кликов, CTR, Яндекс.Метрика"
-            >
-              <Sparkles className="h-3 w-3 text-amber-400" />
-              <span>Реклама</span>
-              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-mono font-bold">
-                PRO
               </span>
             </button>
 
@@ -4715,7 +4498,7 @@ export default function App() {
                     }`}
                   >
                     <SlidersHorizontal className="h-3.5 w-3.5" />
-                    <span>Матрица сканера</span>
+                    <span>Тактическая матрица</span>
                   </button>
                   <button
                     type="button"
@@ -5597,31 +5380,9 @@ export default function App() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setSignalsViewMode('table')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
-                          signalsViewMode === 'table'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <TableProperties className="h-3.5 w-3.5" />
-                        <span>Таблица сканера</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSignalsViewMode('cards')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
-                          signalsViewMode === 'cards'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <Target className="h-3.5 w-3.5" />
-                        <span>Карточки Win Rate & ROI</span>
-                      </button>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold shadow-sm">
+                      <Target className="h-3.5 w-3.5" />
+                      <span>Карточки Win Rate & ROI</span>
                     </div>
 
                     <button
@@ -5647,37 +5408,9 @@ export default function App() {
                   </div>
                 </div>
 
-                {signalsViewMode === 'table' ? (
-                  <ScannerSignalsTableView
-                    signals={signals}
-                    matches={matches}
-                    isMonitoringActive={isMonitoringActive}
-                    onToggleMonitoring={() => setIsMonitoringActive((prev) => !prev)}
-                    onClearSignals={() => {
-                      if (window.confirm('Очистить всю историю сигналов текущей сессии?')) {
-                        setSignals([]);
-                      }
-                    }}
-                    onOpenAIAnalyst={(match) => {
-                      setSelectedMatchId(match.id);
-                      handleOpenAIAnalyst(match);
-                    }}
-                    onSelectMatch={(match) => {
-                      handleNavigateToMatchFromSignal(match.id, `${match.homeTeam} vs ${match.awayTeam}`);
-                    }}
-                    onNavigateToMatch={(matchId, matchName, sig) => {
-                      handleNavigateToMatchFromSignal(matchId, matchName, sig);
-                    }}
-                    onDeleteSignal={(id) => {
-                      setSignals((prev) => prev.filter((s) => s.id !== id));
-                    }}
-                    onUpdateOutcome={updateSignalOutcome}
-                    onExportCsv={handleExportSignalsCsv}
-                  />
-                ) : (
-                  <div className="space-y-6">
-                    {/* Tracker KPI Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-6">
+                  {/* Tracker KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                     <div className="text-[11px] text-slate-400">Проходимость (Win Rate)</div>
                     <div className="text-2xl font-bold font-mono mt-1 text-white">
@@ -6037,10 +5770,9 @@ export default function App() {
                 </div>
               )}
             </div>
-          )}
-        </div>
-      );
-    })()}
+          </div>
+        );
+      })()}
 
         {/* Tab 4: Backtesting & ROI Laboratory */}
         {activeTab === 'backtest' && (
@@ -6895,6 +6627,33 @@ export default function App() {
         </aside>
       )}
     </div>
+
+    {/* Application Footer: Advertiser Cabinet & Yandex Metrika Counter */}
+    <AppFooter
+      analytics={analytics}
+      ads={ads}
+      activeTab={activeTab}
+      onSelectTab={setActiveTab}
+      dataSourceName={
+        dataSourceConfig.activeSource === 'flashscore'
+          ? 'Flashscore Live'
+          : dataSourceConfig.activeSource === 'public-feed'
+          ? 'Глобальный Фид (ESPN)'
+          : dataSourceConfig.activeSource === 'sofascore'
+          ? 'Sofascore Relay'
+          : dataSourceConfig.activeSource === 'sstats'
+          ? 'SStats API'
+          : dataSourceConfig.activeSource === 'api-football'
+          ? 'API-Football (v3)'
+          : dataSourceConfig.activeSource === 'simulated'
+          ? 'Демо-симулятор'
+          : 'Внешний Webhook'
+      }
+      isMonitoringActive={isMonitoringActive}
+      liveMatchesCount={matches.length}
+      activeFiltersCount={filters.filter((f) => f.enabled).length}
+      signalsCount={signals.length}
+    />
 
     {/* Authentication Gate & Logo Splash Screen Modal */}
     <AuthGateModal

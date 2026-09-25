@@ -27,6 +27,20 @@ __pycache__/
 .env.local
 .env.*.local
 
+# Database & Runtime Exports
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.xlsx
+
+# System & OS artifacts
+desktop.ini
+.DS_Store
+Thumbs.db
+.cache/
+coverage/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

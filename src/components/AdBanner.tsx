@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ExternalLink,
   Copy,
@@ -38,9 +38,11 @@ export const AdBanner: React.FC<AdBannerProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const recordedAdIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (onAdImpression) {
+    if (onAdImpression && recordedAdIdRef.current !== ad.id) {
+      recordedAdIdRef.current = ad.id;
       onAdImpression(ad.id);
     }
   }, [ad.id, onAdImpression]);

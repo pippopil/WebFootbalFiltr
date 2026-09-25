@@ -552,7 +552,16 @@ export function evaluateFilterRule(
   }
   if (scoreOk) passedCount++;
 
-  // 2b. Max Total Goals limit (e.g. maxTotalGoals: 2 means ТБ 2.5 не пробит)
+  // 2b. Min & Max Total Goals limits
+  if (rule.minTotalGoals !== undefined) {
+    totalCriteria++;
+    if (totalGoals >= rule.minTotalGoals) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Тотал голов (${totalGoals}) меньше требуемого минимума ${rule.minTotalGoals} (счёт ${h}:${a})`);
+    }
+  }
+
   if (rule.maxTotalGoals !== undefined) {
     totalCriteria++;
     if (totalGoals <= rule.maxTotalGoals) {
@@ -1008,34 +1017,52 @@ export function evaluateFilterRule(
   // 30. Two Quick Goals in 1st Half + No goals since (Стратегия «2 быстрых гола в 1Т — сигнал на 72-85' без голов»)
   if (rule.requireGuestTwoQuickGoals1H || rule.requireTwoQuickGoals1H || rule.requireNoGoalsSinceQuickGoals) {
     totalCriteria++;
-    const had2Quick = Boolean(
-      match.history?.guestScoredTwoQuickFirstHalf ||
-      match.history?.twoQuickGoalsFirstHalf ||
-      (match.history?.goalsAtFirstHalfQuick && match.history.goalsAtFirstHalfQuick >= 2) ||
-      (match.history?.twoQuickGoalsMinute && match.history.twoQuickGoalsMinute <= 45) ||
-      // Авто-распознавание по тексту последнего события матча
-      /(?:быстр.*гол|2 быстрых|двух быстрых|quick goals|с \d+.*мин без голов)/i.test(match.lastEvent || '') ||
-      // Авто-распознавание по счёту в лайве: гости забили 2 гола (0:2 или 1:2)
-      (rule.requireGuestTwoQuickGoals1H && a >= 2 && h <= 1 && match.minute >= 45) ||
-      // Либо любая команда забила 2 гола в 1Т
-      (!rule.requireGuestTwoQuickGoals1H && (h >= 2 || a >= 2) && match.minute >= 45)
-    );
 
-    // Initial total goals when the two quick goals occurred (typically 2, e.g. 0:2, 2:0, or 1:1)
-    const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? (a >= 2 ? a : h >= 2 ? h : 2);
-    const currentTotalGoals = h + a;
-
-    // Condition: no goals since those 2 goals!
-    const noGoalsAfter =
-      match.history?.noGoalsSinceQuickGoals === true ||
-      (match.history?.noGoalsSinceQuickGoals !== false && currentTotalGoals <= initialQuickGoals);
-
-    if (had2Quick && noGoalsAfter) {
-      passedCount++;
-    } else if (!had2Quick) {
-      unmetCriteria.push(`В 1-м тайме не зафиксировано 2 быстрых голов подряд (счёт ${h}:${a})`);
+    // ЖЕСТКАЯ ПРОВЕРКА: Если в матче забито менее 2 голов (0:0, 1:0, 0:1), сигнал не может сработать НИ ПРИ КАКИХ УСЛОВИЯХ!
+    if (totalGoals < 2) {
+      unmetCriteria.push(`В матче забито ${totalGoals} голов (счёт ${h}:${a}). Для стратегии быстрых голов обязательно требуется минимум 2 забитых гола в 1-м тайме`);
+    } else if (rule.requireGuestTwoQuickGoals1H && a < 2) {
+      unmetCriteria.push(`Гости забили менее 2 голов (текущий счёт ${h}:${a}, голы гостей: ${a}). Требуется минимум 2 гола гостей в 1-м тайме`);
     } else {
-      unmetCriteria.push(`После 2 быстрых голов в 1Т уже был забит гол (текущий счёт ${h}:${a}, всего голов: ${currentTotalGoals} > ${initialQuickGoals})`);
+      const had2Quick = (totalGoals >= 2) && Boolean(
+        // Прямой флаг из данных матча
+        (rule.requireGuestTwoQuickGoals1H
+          ? (match.history?.guestScoredTwoQuickFirstHalf && a >= 2)
+          : (match.history?.twoQuickGoalsFirstHalf || (match.history?.guestScoredTwoQuickFirstHalf && a >= 2))) ||
+        // Фиксация минуты 2 быстрых голов до 45'
+        (match.history?.twoQuickGoalsMinute &&
+          match.history.twoQuickGoalsMinute > 0 &&
+          match.history.twoQuickGoalsMinute <= 45 &&
+          (rule.requireGuestTwoQuickGoals1H ? a >= 2 : (h >= 2 || a >= 2))) ||
+        // Зафиксировано голов в 1Т >= 2
+        (match.history?.goalsAtFirstHalfQuick &&
+          match.history.goalsAtFirstHalfQuick >= 2 &&
+          (rule.requireGuestTwoQuickGoals1H ? a >= 2 : (h >= 2 || a >= 2))) ||
+        // Авто-распознавание по тексту последнего события матча (только если голы реально забиты)
+        (Boolean(match.lastEvent && /(?:быстр.*гол|2 быстрых|двух быстрых|quick goals)/i.test(match.lastEvent)) &&
+          (rule.requireGuestTwoQuickGoals1H ? a >= 2 : (h >= 2 || a >= 2))) ||
+        // Авто-распознавание по счёту в лайве: гости забили 2 гола в 1Т и ведут (например 0:2 или 1:2)
+        (rule.requireGuestTwoQuickGoals1H && a >= 2 && h <= 1 && match.minute >= 45) ||
+        // Любая команда забила 2 гола в 1Т к перерыву
+        (!rule.requireGuestTwoQuickGoals1H && (h >= 2 || a >= 2) && match.minute >= 45)
+      );
+
+      // Стартовое количество голов на момент 2 быстрых голов (минимум 2, например 0:2 или 1:1)
+      const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? (a >= 2 ? a : h >= 2 ? h : totalGoals);
+      const currentTotalGoals = h + a;
+
+      // Условие: после тех 2 голов счёт не менялся (отсутствие голов до 72-85')
+      const noGoalsAfter =
+        match.history?.noGoalsSinceQuickGoals === true ||
+        (match.history?.noGoalsSinceQuickGoals !== false && currentTotalGoals <= initialQuickGoals);
+
+      if (had2Quick && noGoalsAfter) {
+        passedCount++;
+      } else if (!had2Quick) {
+        unmetCriteria.push(`В 1-м тайме не зафиксировано 2 быстрых голов подряд (счёт ${h}:${a})`);
+      } else {
+        unmetCriteria.push(`После 2 быстрых голов в 1Т уже был забит гол (текущий счёт ${h}:${a}, всего голов: ${currentTotalGoals} > ${initialQuickGoals})`);
+      }
     }
   }
 

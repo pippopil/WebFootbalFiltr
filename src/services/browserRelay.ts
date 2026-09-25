@@ -145,7 +145,7 @@ function parseSofascoreBrowserEvents(events: any[]): Match[] {
       score: [homeScore, awayScore],
       minute,
       status: matchStatus,
-      source: 'Sofascore (Браузер)',
+      source: 'Sofascore',
       stats: {
         possession: [52, 48],
         dangerousAttacks: [dangAttacksHome, dangAttacksAway],

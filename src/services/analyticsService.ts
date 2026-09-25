@@ -40,7 +40,7 @@ export function initYandexMetrika(counterId: string | number = DEFAULT_YANDEX_CO
 
   try {
     // Standard Yandex.Metrika loader code
-    (function (m: any, e: any, t: any, r: any, i: any, k: any, a: any) {
+    (function (m: any, e: any, t: any, r: any, i: any, k?: any, a?: any) {
       m[i] =
         m[i] ||
         function () {

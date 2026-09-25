@@ -43,10 +43,12 @@ export function enrichMatchWithHistory(match: Match): Match {
   const isSecondHalf = match.minute >= 45 || match.status === 'HT';
 
   // Определение паттерна быстрых голов
-  // Гости забили 2 гола к текущему моменту (0:2 или 1:2)
-  const isGuest2Goals = scoreAway >= 2 && scoreHome <= 1;
-  const isHome2Goals = scoreHome >= 2 && scoreAway <= 1;
-  const hadTwoQuick = Boolean(
+  // Только если в матче реально забито не менее 2 голов!
+  const hasAtLeast2Goals = totalGoals >= 2;
+  const isGuest2Goals = hasAtLeast2Goals && scoreAway >= 2 && scoreHome <= 1;
+  const isHome2Goals = hasAtLeast2Goals && scoreHome >= 2 && scoreAway <= 1;
+
+  const hadTwoQuick = hasAtLeast2Goals && Boolean(
     match.history?.guestScoredTwoQuickFirstHalf ||
     match.history?.twoQuickGoalsFirstHalf ||
     (isGuest2Goals && isSecondHalf) ||
@@ -54,14 +56,16 @@ export function enrichMatchWithHistory(match: Match): Match {
     /(?:быстр.*гол|2 быстрых|двух быстрых|quick goals)/i.test(match.lastEvent || '')
   );
 
-  const guestTwoQuick = Boolean(
-    match.history?.guestScoredTwoQuickFirstHalf ||
+  const guestTwoQuick = hasAtLeast2Goals && Boolean(
+    (match.history?.guestScoredTwoQuickFirstHalf && scoreAway >= 2) ||
     (isGuest2Goals && isSecondHalf) ||
-    /(?:гост.*2 быстрых|2 быстрых гола.*гост)/i.test(match.lastEvent || '')
+    (/(?:гост.*2 быстрых|2 быстрых гола.*гост)/i.test(match.lastEvent || '') && scoreAway >= 2)
   );
 
-  const initialQuickGoals = match.history?.goalsAtFirstHalfQuick ?? (scoreAway >= 2 ? scoreAway : scoreHome >= 2 ? scoreHome : 2);
-  const noGoalsSinceQuickGoals = isSecondHalf ? totalGoals <= initialQuickGoals : true;
+  const initialQuickGoals = hasAtLeast2Goals
+    ? (match.history?.goalsAtFirstHalfQuick ?? (scoreAway >= 2 ? scoreAway : scoreHome >= 2 ? scoreHome : totalGoals))
+    : 0;
+  const noGoalsSinceQuickGoals = hasAtLeast2Goals && isSecondHalf ? totalGoals <= initialQuickGoals : false;
 
   const dangTotal = match.stats ? (match.stats.dangerousAttacks[0] + match.stats.dangerousAttacks[1]) : 60;
   const predictedIpt = Number((2.2 + dangTotal / 45).toFixed(2));
@@ -84,9 +88,9 @@ export function enrichMatchWithHistory(match: Match): Match {
     last4LateGoalCount: match.history?.last4LateGoalCount ?? 3,
     guestScoredTwoQuickFirstHalf: guestTwoQuick,
     twoQuickGoalsFirstHalf: hadTwoQuick,
-    goalsAtFirstHalfQuick: initialQuickGoals,
+    goalsAtFirstHalfQuick: hasAtLeast2Goals ? initialQuickGoals : undefined,
     noGoalsSinceQuickGoals,
-    twoQuickGoalsMinute: match.history?.twoQuickGoalsMinute ?? 28,
+    twoQuickGoalsMinute: hadTwoQuick ? (match.history?.twoQuickGoalsMinute ?? 28) : undefined,
     ...match.history,
   };
 

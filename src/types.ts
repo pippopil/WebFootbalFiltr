@@ -178,6 +178,7 @@ export interface FilterRule {
   oddsDropMarket?: 'ANY' | 'HOME' | 'DRAW' | 'AWAY' | 'OVER' | 'UNDER' | 'BTTS'; // Целевой исход прогруза
 
   // Игровой сценарий и угловые
+  minTotalGoals?: number;             // Минимальный тотал голов в матче (например, >= 2 для быстрых голов)
   maxTotalGoals?: number;             // Максимальный тотал голов в матче (например, <= 2 для непробитого ТБ 2.5)
   requireBttsNotHit?: boolean;        // Обе забьют ещё не наступило (хотя бы одна команда не забила: 0:0, 1:0, 0:1, 2:0 и т.д.)
   scoreDiffExactly1?: boolean;        // Разница в счёте ровно 1 гол (1:0, 2:1, 0:1, 1:2)
