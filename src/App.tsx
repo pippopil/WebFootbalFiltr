@@ -1290,6 +1290,13 @@ export default function App() {
               enabled: true,
               useProxy: false,
             },
+            theOddsApi: parsed.theOddsApi || {
+              enabled: true,
+              apiKey: '04a44aa5348608993b215482934717d6',
+              sport: 'upcoming',
+              regions: 'eu',
+              markets: 'h2h,totals',
+            },
             apiFootball: parsed.apiFootball || {
               enabled: false,
               apiKey: '',
@@ -1329,6 +1336,13 @@ export default function App() {
       sofascore: {
         enabled: true,
         useProxy: false,
+      },
+      theOddsApi: {
+        enabled: true,
+        apiKey: '04a44aa5348608993b215482934717d6',
+        sport: 'upcoming',
+        regions: 'eu',
+        markets: 'h2h,totals',
       },
       apiFootball: {
         enabled: false,
@@ -1399,6 +1413,8 @@ export default function App() {
       let query = `?source=${src}&nocache=1`;
       if (src === 'sstats' && dataSourceConfig.sstats?.apiKey) {
         query += `&sstats_key=${encodeURIComponent(dataSourceConfig.sstats.apiKey)}`;
+      } else if (src === 'the-odds-api' && dataSourceConfig.theOddsApi?.apiKey) {
+        query += `&odds_api_key=${encodeURIComponent(dataSourceConfig.theOddsApi.apiKey)}&odds_regions=${encodeURIComponent(dataSourceConfig.theOddsApi.regions || 'eu')}&odds_sport=${encodeURIComponent(dataSourceConfig.theOddsApi.sport || 'upcoming')}`;
       } else if (src === 'api-football' && dataSourceConfig.apiFootball?.apiKey) {
         query += `&api_key=${encodeURIComponent(dataSourceConfig.apiFootball.apiKey)}&provider=${dataSourceConfig.apiFootball.provider}&leagues=${encodeURIComponent(dataSourceConfig.apiFootball.leaguesFilter)}`;
       } else if (src === 'football-data' && dataSourceConfig.footballData?.apiToken) {

@@ -10,6 +10,7 @@ import {
   fetchPublicLiveMatches,
   fetchApiFootballMatches,
   fetchFootballDataMatches,
+  fetchTheOddsApiMatches,
   ingestMatchesFromWebhook,
   getIngestedMatches,
   clearIngestedMatches,
@@ -857,6 +858,10 @@ async function startServer() {
         serverConfigured: Boolean(process.env.API_FOOTBALL_KEY),
         provider: process.env.API_FOOTBALL_PROVIDER || 'api-sports',
       },
+      theOddsApi: {
+        serverConfigured: Boolean(process.env.THE_ODDS_API_KEY || '04a44aa5348608993b215482934717d6'),
+        hasKey: true,
+      },
       footballData: {
         serverConfigured: Boolean(process.env.FOOTBALL_DATA_TOKEN),
       },
@@ -1022,6 +1027,28 @@ async function startServer() {
         });
       }
 
+      if (source === 'the-odds-api') {
+        const theOddsKey = (req.query.odds_api_key as string) || (req.query.api_key as string) || process.env.THE_ODDS_API_KEY || '04a44aa5348608993b215482934717d6';
+        const sport = (req.query.sport as string) || 'upcoming';
+        const regions = (req.query.regions as string) || 'eu';
+        const markets = (req.query.markets as string) || 'h2h,totals';
+        const result = await fetchTheOddsApiMatches({ apiKey: theOddsKey, sport, regions, markets });
+        if (!result.ok && result.matches.length === 0) {
+          return res.status(400).json(result);
+        }
+        return res.json({
+          ok: true,
+          source: 'The-Odds-API',
+          actualSource: 'The-Odds-API',
+          fallbackUsed: false,
+          count: result.matches.length,
+          matches: result.matches,
+          remainingQuota: result.remainingQuota,
+          usedQuota: result.usedQuota,
+          fetchedAt: new Date().toLocaleTimeString('ru-RU'),
+        });
+      }
+
       if (source === 'webhook') {
         const result = getIngestedMatches();
         return res.json({
@@ -1154,6 +1181,23 @@ async function startServer() {
           latencyMs,
           matchesFound: result.matches.length,
           message: `Соединение успешно (${latencyMs}ms). Загружено ${result.matches.length} текущих матчей.`,
+        });
+      }
+
+      if (source === 'the-odds-api') {
+        const theOddsKey = apiKey || process.env.THE_ODDS_API_KEY || '04a44aa5348608993b215482934717d6';
+        const result = await fetchTheOddsApiMatches({ apiKey: theOddsKey });
+        const latencyMs = Date.now() - start;
+        if (!result.ok && result.matches.length === 0) {
+          return res.status(400).json({ ok: false, latencyMs, error: result.error });
+        }
+        return res.json({
+          ok: true,
+          latencyMs,
+          matchesFound: result.matches.length,
+          remainingQuota: result.remainingQuota,
+          usedQuota: result.usedQuota,
+          message: `The Odds API подключен успешно (${latencyMs}ms). Найдено ${result.matches.length} матчей с котировками ведущих БК. Остаток квоты: ${result.remainingQuota ?? '500'} запросов.`,
         });
       }
 

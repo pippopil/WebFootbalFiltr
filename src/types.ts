@@ -20,7 +20,7 @@ export interface Match {
   score: [number, number];
   minute: number;
   status: 'LIVE' | 'HT' | 'FT' | 'PREMATCH';
-  source: 'Flashscore' | 'Sofascore' | 'SStats' | 'API-Football' | 'Football-Data' | 'Custom-Webhook' | 'Public-Feed';
+  source: 'Flashscore' | 'Sofascore' | 'SStats' | 'API-Football' | 'Football-Data' | 'The-Odds-API' | 'Custom-Webhook' | 'Public-Feed';
   startTime?: string;
   startsInMinutes?: number;
   prematchAnalysisConducted?: boolean;
@@ -576,6 +576,7 @@ export type DataSourceType =
   | 'flashscore'
   | 'sstats'
   | 'sofascore'
+  | 'the-odds-api'
   | 'webhook'
   | 'public-feed'
   | 'api-football'
@@ -597,6 +598,14 @@ export interface DataSourceConfig {
     enabled: boolean;
     useProxy: boolean;
     browserRelayEnabled?: boolean; // Прямой опрос Sofascore из браузера клиента (без VPN и без блокировок Cloudflare)
+  };
+  theOddsApi: {
+    enabled: boolean;
+    apiKey: string;
+    sport: string; // 'upcoming' or specific league like 'soccer_epl'
+    regions: string; // 'eu', 'uk', 'us'
+    markets: string; // 'h2h,totals'
+    remainingRequests?: number;
   };
   apiFootball: {
     enabled: boolean;

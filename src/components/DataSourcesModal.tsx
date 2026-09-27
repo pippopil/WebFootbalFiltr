@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Shield,
   Check,
+  Flame,
 } from 'lucide-react';
 import { DataSourceConfig, DataSourceType, DataSourceStatus } from '../types';
 import { fetchSofascoreFromBrowserRelay } from '../services/browserRelay';
@@ -96,6 +97,8 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       let body: any = { source: sourceType };
       if (sourceType === 'sstats') {
         body.sstatsKey = draftConfig.sstats?.apiKey;
+      } else if (sourceType === 'the-odds-api') {
+        body.apiKey = draftConfig.theOddsApi?.apiKey || '04a44aa5348608993b215482934717d6';
       } else if (sourceType === 'api-football') {
         body.apiKey = draftConfig.apiFootball.apiKey;
         body.provider = draftConfig.apiFootball.provider;
@@ -465,6 +468,19 @@ pushLiveMatch();`;
           </button>
 
           <button
+            onClick={() => setActiveTab('the-odds-api')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap transition ${
+              activeTab === 'the-odds-api'
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Flame className="h-4 w-4 text-emerald-400" />
+            <span>8. The Odds API</span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold">Линия БК</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('simulated')}
             className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap transition ${
               activeTab === 'simulated'
@@ -473,7 +489,7 @@ pushLiveMatch();`;
             }`}
           >
             <Activity className="h-4 w-4" />
-            <span>8. Демо</span>
+            <span>9. Демо</span>
           </button>
         </div>
 
@@ -1145,6 +1161,250 @@ pushLiveMatch();`;
                       <>
                         <Zap className="h-4 w-4" />
                         <span>Сохранить и активировать Football-Data</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: THE ODDS API */}
+          {activeTab === 'the-odds-api' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                      <Flame className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>The Odds API (Букмекерские котировки и прогрузы)</span>
+                        <a
+                          href="https://the-odds-api.com/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-normal"
+                        >
+                          the-odds-api.com <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Прямые коэффициенты от 40+ мировых БК (Pinnacle, Bet365, Unibet, 888sport, Winamax). Сравнение линий и отслеживание прогрузов.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                      500 бесплатных квот / мес
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  {/* API Key */}
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1.5">
+                      Ключ доступа (API Key):
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        placeholder="04a44aa5348608993b215482934717d6"
+                        value={draftConfig.theOddsApi?.apiKey || '04a44aa5348608993b215482934717d6'}
+                        onChange={(e) =>
+                          setDraftConfig((prev) => ({
+                            ...prev,
+                            theOddsApi: {
+                              ...(prev.theOddsApi || {
+                                enabled: true,
+                                sport: 'upcoming',
+                                regions: 'eu',
+                                markets: 'h2h,totals',
+                              }),
+                              apiKey: e.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-emerald-300 font-mono placeholder-slate-500 focus:outline-none focus:border-emerald-500 pr-16"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 text-[11px] px-1.5 py-0.5 rounded bg-slate-800"
+                      >
+                        {showApiKey ? 'Скрыть' : 'Показать'}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5 text-[11px] text-slate-400">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Ваш ключ активирован и подтвержден сервером</span>
+                    </div>
+                  </div>
+
+                  {/* Sport / League selector */}
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1.5">
+                      Футбольные лиги и соревнования:
+                    </label>
+                    <select
+                      value={draftConfig.theOddsApi?.sport || 'upcoming'}
+                      onChange={(e) =>
+                        setDraftConfig((prev) => ({
+                          ...prev,
+                          theOddsApi: {
+                            ...(prev.theOddsApi || {
+                              enabled: true,
+                              apiKey: '04a44aa5348608993b215482934717d6',
+                              regions: 'eu',
+                              markets: 'h2h,totals',
+                            }),
+                            sport: e.target.value,
+                          },
+                        }))
+                      }
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+                    >
+                      <option value="upcoming">🌐 Все ближайшие и Live-матчи (Все лиги мира)</option>
+                      <option value="soccer_epl">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Англия: Premier League (АПЛ)</option>
+                      <option value="soccer_spain_la_liga">🇪🇸 Испания: La Liga</option>
+                      <option value="soccer_italy_serie_a">🇮🇹 Италия: Serie A</option>
+                      <option value="soccer_germany_bundesliga">🇩🇪 Германия: Bundesliga</option>
+                      <option value="soccer_france_ligue_one">🇫🇷 Франция: Ligue 1</option>
+                      <option value="soccer_uefa_champs_league">🇪🇺 Лига Чемпионов УЕФА</option>
+                      <option value="soccer_uefa_nations_league">🇪🇺 Лига Наций УЕФА</option>
+                      <option value="soccer_brazil_serie_b">🇧🇷 Бразилия: Série B</option>
+                      <option value="soccer_brazil_campeonato">🇧🇷 Бразилия: Série A</option>
+                      <option value="soccer_netherlands_eredivisie">🇳🇱 Нидерланды: Eredivisie</option>
+                      <option value="soccer_portugal_primeira_liga">🇵🇹 Португалия: Primeira Liga</option>
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Режим «Все матчи» захватывает все текущие и скорые игры мира за 1 запрос.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Region and Markets */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-800">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Регион букмекеров (Линии БК):
+                    </label>
+                    <select
+                      value={draftConfig.theOddsApi?.regions || 'eu'}
+                      onChange={(e) =>
+                        setDraftConfig((prev) => ({
+                          ...prev,
+                          theOddsApi: {
+                            ...(prev.theOddsApi || {
+                              enabled: true,
+                              apiKey: '04a44aa5348608993b215482934717d6',
+                              sport: 'upcoming',
+                              markets: 'h2h,totals',
+                            }),
+                            regions: e.target.value,
+                          },
+                        }))
+                      }
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="eu">🇪🇺 Европейские БК (Pinnacle, Unibet, 888sport, Betclic, Winamax)</option>
+                      <option value="uk">🇬🇧 Британские букмекеры (Bet365, William Hill, Betfair)</option>
+                      <option value="us">🇺🇸 Американские букмекеры (DraftKings, FanDuel, BetMGM)</option>
+                    </select>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
+                    <div className="font-semibold text-slate-200 flex items-center justify-between">
+                      <span>Возможности The Odds API:</span>
+                      <span className="text-emerald-400 font-mono text-[11px]">Кэш 60 сек</span>
+                    </div>
+                    <ul className="text-slate-400 list-disc list-inside space-y-0.5 text-[11px]">
+                      <li>Котировки исходов 1X2 и двойного шанса</li>
+                      <li>Тоталы матча (ТБ 0.5, 1.5, 2.5, ТМ 2.5)</li>
+                      <li>Автоматический расчет падения кэфов и прогрузов (Smart Money)</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Test status banner if checked */}
+                {testStatus && testStatus.source === 'the-odds-api' && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                      testStatus.status === 'connected'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {testStatus.status === 'connected' ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                      )}
+                      <div>
+                        <div className="font-bold">
+                          {testStatus.status === 'connected'
+                            ? `The Odds API успешно отвечает (${testStatus.latencyMs}ms)`
+                            : 'Ошибка проверки'}
+                        </div>
+                        <div className="text-[11px] opacity-90 mt-0.5">
+                          {testStatus.message || testStatus.error}
+                        </div>
+                      </div>
+                    </div>
+                    {testStatus.quotaInfo && (
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-bold shrink-0">
+                        Квота: {testStatus.quotaInfo}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800">
+                  <button
+                    onClick={() => handleTestConnection('the-odds-api')}
+                    disabled={isTesting}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold flex items-center gap-2 border border-slate-700 transition active:scale-95"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isTesting ? 'animate-spin text-emerald-400' : 'text-slate-400'}`} />
+                    <span>{isTesting ? 'Проверка The Odds API...' : 'Проверить The Odds API'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      onUpdateConfig({
+                        ...draftConfig,
+                        theOddsApi: {
+                          ...(draftConfig.theOddsApi || {
+                            enabled: true,
+                            apiKey: '04a44aa5348608993b215482934717d6',
+                            sport: 'upcoming',
+                            regions: 'eu',
+                            markets: 'h2h,totals',
+                          }),
+                          enabled: true,
+                        },
+                      });
+                      handleApplyAndActivate('the-odds-api');
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition active:scale-95 shadow-md ${
+                      config.activeSource === 'the-odds-api'
+                        ? 'bg-emerald-600 text-white cursor-default shadow-emerald-950/50'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
+                    }`}
+                  >
+                    {config.activeSource === 'the-odds-api' ? (
+                      <>
+                        <Check className="h-4 w-4" />
+                        <span>The Odds API активен как основной</span>
+                      </>
+                    ) : (
+                      <>
+                        <Flame className="h-4 w-4" />
+                        <span>Включить The Odds API как основной</span>
                       </>
                     )}
                   </button>
