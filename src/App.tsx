@@ -1157,9 +1157,13 @@ export default function App() {
     return INITIAL_SIGNALS;
   });
 
-  // Save signals to localStorage
+  // Save signals to localStorage safely
   useEffect(() => {
-    localStorage.setItem('footbalmonitor_signals', JSON.stringify(signals));
+    try {
+      localStorage.setItem('footbalmonitor_signals', JSON.stringify(signals.slice(-100)));
+    } catch (e) {
+      console.warn('Signals: local storage quota warning, preserving in memory');
+    }
   }, [signals]);
 
   // Signal tracker UI filters
