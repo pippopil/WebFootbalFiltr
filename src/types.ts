@@ -155,6 +155,10 @@ export interface FilterRule {
   minXgDiff?: number;
   minXgOverScoreDiff?: number; // Дефицит xG над счётом: (xG[0] + xG[1]) - (score[0] + score[1]) >= X (например 1.60)
   minPressureIndex?: number;
+  maxPressureIndex?: number; // Максимальный индекс давления (для сушки/ТМ <= 40%)
+  maxDangerousAttacksTotal?: number; // Максимум суммарных оп. атак (для сушки/ТМ <= 45)
+  maxShotsOnTargetTotal?: number; // Максимум ударов в створ (для сушки/ТМ <= 4)
+  maxScoreDiff?: number; // Максимальная разница в счёте (исключение разгромов, <= 2 или <= 1)
   redCardCondition?: 'ANY' | 'NO_RED_CARDS' | 'HAS_RED_CARD';
 
   // Коэффициенты и прематч (Стратегии 2, 8, 11, 14, 16 + новые)
@@ -495,6 +499,7 @@ export interface HistoricalMatch {
   finalYellowCards: [number, number];
   finalRedCards: [number, number];
   snapshots: HistoricalSnapshot[];
+  history?: Match['history'];
 }
 
 export interface BacktestSignal {
@@ -517,6 +522,19 @@ export interface BacktestSignal {
   statsAtSignal: MatchStats;
 }
 
+export interface LeagueStats {
+  league: string;
+  country: string;
+  totalSignals: number;
+  wins: number;
+  losses: number;
+  refunds: number;
+  winRate: number; // 0 - 100%
+  profit: number; // in units
+  roi: number; // in %
+  avgOdds: number;
+}
+
 export interface BacktestResult {
   ruleId: string;
   ruleName: string;
@@ -533,6 +551,7 @@ export interface BacktestResult {
   maxDrawdown: number;
   profitFactor: number;
   signals: BacktestSignal[];
+  leagueStats?: LeagueStats[];
   equityCurve: Array<{
     step: number;
     profit: number;

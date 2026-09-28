@@ -1,54 +1,38 @@
 import json
 from typing import Dict, List, Any, Optional
+from app.utils.comparison_utils import compare
+from app.utils.stats_utils import get_current_stat, get_stat_from_match
 
-def get_current_stat(stat_name: str, match: Dict, stats: Dict, odds: Dict, glicko: Dict) -> float:
-    if stat_name == 'minute':
-        return float(match.get('minute', 0))
-    if stat_name.startswith('odds_'):
-        key = stat_name.replace('odds_', '')
-        return float(odds.get(key, 0))
-    if stat_name.startswith('glicko_'):
-        key = stat_name.replace('glicko_', '')
-        return float(glicko.get(key, 0))
-    parts = stat_name.split('_')
-    if len(parts) == 2 and parts[0] in ['home', 'away', 'total']:
-        side = parts[0]
-        stat_type = parts[1]
-        if side == 'total':
-            return float(stats.get(stat_type, {}).get('total', 0))
-        else:
-            return float(stats.get(stat_type, {}).get(side, 0))
-    return 0.0
-
-def get_stat_from_match(match_details: Dict, stat_name: str) -> float:
-    stats = match_details.get('stats', {})
-    if stat_name.startswith('total_'):
-        stat_type = stat_name.replace('total_', '')
-        return float(stats.get(stat_type, {}).get('total', 0))
-    elif stat_name.startswith('home_'):
-        stat_type = stat_name.replace('home_', '')
-        return float(stats.get(stat_type, {}).get('home', 0))
-    elif stat_name.startswith('away_'):
-        stat_type = stat_name.replace('away_', '')
-        return float(stats.get(stat_type, {}).get('away', 0))
-    return 0.0
-
-def compare(val: float, comparison: str, threshold: float) -> bool:
-    if comparison == 'eq':
-        return val == threshold
-    elif comparison == 'gt':
-        return val > threshold
-    elif comparison == 'lt':
-        return val < threshold
-    elif comparison == 'gte':
-        return val >= threshold
-    elif comparison == 'lte':
-        return val <= threshold
-    return False
+# Declarative dictionary of stat extractors to eliminate duplicate range checks in check_static_conditions
+STATIC_EXTRACTORS = {
+    'match_time': lambda m, s, o, g: float(m.get('minute', 0)),
+    'total_goals': lambda m, s, o, g: float(s.get('goals', {}).get('home', 0) + s.get('goals', {}).get('away', 0)),
+    'home_goals': lambda m, s, o, g: float(s.get('goals', {}).get('home', 0)),
+    'away_goals': lambda m, s, o, g: float(s.get('goals', {}).get('away', 0)),
+    'total_corners': lambda m, s, o, g: float(s.get('corners', {}).get('home', 0) + s.get('corners', {}).get('away', 0)),
+    'home_corners': lambda m, s, o, g: float(s.get('corners', {}).get('home', 0)),
+    'away_corners': lambda m, s, o, g: float(s.get('corners', {}).get('away', 0)),
+    'total_shots': lambda m, s, o, g: float(s.get('shots', {}).get('home', 0) + s.get('shots', {}).get('away', 0)),
+    'home_shots': lambda m, s, o, g: float(s.get('shots', {}).get('home', 0)),
+    'away_shots': lambda m, s, o, g: float(s.get('shots', {}).get('away', 0)),
+    'total_sot': lambda m, s, o, g: float(s.get('shots_on_target', {}).get('home', 0) + s.get('shots_on_target', {}).get('away', 0)),
+    'home_sot': lambda m, s, o, g: float(s.get('shots_on_target', {}).get('home', 0)),
+    'away_sot': lambda m, s, o, g: float(s.get('shots_on_target', {}).get('away', 0)),
+    'total_yellow': lambda m, s, o, g: float(s.get('yellow_cards', {}).get('home', 0) + s.get('yellow_cards', {}).get('away', 0)),
+    'home_yellow': lambda m, s, o, g: float(s.get('yellow_cards', {}).get('home', 0)),
+    'away_yellow': lambda m, s, o, g: float(s.get('yellow_cards', {}).get('away', 0)),
+    'odds_p1': lambda m, s, o, g: float(o.get('p1', 0.0) if isinstance(o, dict) else 0.0),
+    'odds_p2': lambda m, s, o, g: float(o.get('p2', 0.0) if isinstance(o, dict) else 0.0),
+    'odds_draw': lambda m, s, o, g: float(o.get('draw', 0.0) if isinstance(o, dict) else 0.0),
+    'odds_total_over_2_5': lambda m, s, o, g: float(o.get('total_over_2_5', 0.0) if isinstance(o, dict) else 0.0),
+}
 
 def evaluate_rule(rule: Dict, match: Dict, stats: Dict, odds: Dict, glicko: Dict,
                   home_recent_matches: Optional[List[Dict]] = None,
                   away_recent_matches: Optional[List[Dict]] = None) -> bool:
+    """
+    Evaluates a single dynamic rule against the current match state or team historical trends.
+    """
     rule_type = rule.get('type')
     if rule_type == 'stat':
         stat_name = rule.get('stat')
@@ -63,10 +47,8 @@ def evaluate_rule(rule: Dict, match: Dict, stats: Dict, odds: Dict, glicko: Dict
         threshold = float(rule.get('threshold', 0))
         matches_count = int(rule.get('matches', 5))
         required_hits = int(rule.get('required', matches_count))
-        if team == 'home':
-            recent = home_recent_matches or []
-        else:
-            recent = away_recent_matches or []
+        recent = home_recent_matches if team == 'home' else away_recent_matches
+        recent = recent or []
         hits = 0
         for m in recent[:matches_count]:
             val = get_stat_from_match(m, stat_name)
@@ -74,111 +56,60 @@ def evaluate_rule(rule: Dict, match: Dict, stats: Dict, odds: Dict, glicko: Dict
                 hits += 1
         return hits >= required_hits
     elif rule_type == 'time_window':
-        return True
+        # Replaced dummy "return True" with real minute-window check
+        min_minute = int(rule.get('min_minute', rule.get('min', 0)))
+        max_minute = int(rule.get('max_minute', rule.get('max', 90)))
+        minute = int(match.get('minute', 0))
+        return min_minute <= minute <= max_minute
     else:
         return False
 
 def check_static_conditions(f: Dict, match: Dict, stats: Dict, odds: Dict, glicko: Dict,
                             h2h_data: Dict = None, home_recent_agg: Dict = None, away_recent_agg: Dict = None) -> bool:
-    """Проверяет все статические поля фильтра. Возвращает True, если все условия выполнены."""
-    # Убеждаемся, что odds — словарь (исправляет ошибку 'list' object has no attribute 'get')
+    """
+    Проверяет все статические поля фильтра.
+    Заменяет десятки однотипных ручных if-проверок компактным декларативным циклом.
+    """
     if not isinstance(odds, dict):
         odds = {}
+    if not isinstance(stats, dict):
+        stats = {}
+    if not isinstance(glicko, dict) and glicko is not None:
+        glicko = {}
 
-    # Время матча
-    minute = match.get('minute', 0)
-    if not (f['match_time_min'] <= minute <= f['match_time_max']):
-        return False
+    # 1. Проверка стандартных диапазонов из декларативной карты
+    for stat_key, extractor in STATIC_EXTRACTORS.items():
+        min_key = f"{stat_key}_min"
+        max_key = f"{stat_key}_max"
+        if min_key in f and max_key in f:
+            val = extractor(match, stats, odds, glicko)
+            if not (f[min_key] <= val <= f[max_key]):
+                return False
 
-    # Общая статистика
-    home_goals = stats.get('goals', {}).get('home', 0)
-    away_goals = stats.get('goals', {}).get('away', 0)
-    total_goals = home_goals + away_goals
-    if not (f['total_goals_min'] <= total_goals <= f['total_goals_max']):
-        return False
-
-    home_corners = stats.get('corners', {}).get('home', 0)
-    away_corners = stats.get('corners', {}).get('away', 0)
-    total_corners = home_corners + away_corners
-    if not (f['total_corners_min'] <= total_corners <= f['total_corners_max']):
-        return False
-
-    home_shots = stats.get('shots', {}).get('home', 0)
-    away_shots = stats.get('shots', {}).get('away', 0)
-    total_shots = home_shots + away_shots
-    if not (f['total_shots_min'] <= total_shots <= f['total_shots_max']):
-        return False
-
-    home_sot = stats.get('shots_on_target', {}).get('home', 0)
-    away_sot = stats.get('shots_on_target', {}).get('away', 0)
-    total_sot = home_sot + away_sot
-    if not (f['total_sot_min'] <= total_sot <= f['total_sot_max']):
-        return False
-
-    home_yellow = stats.get('yellow_cards', {}).get('home', 0)
-    away_yellow = stats.get('yellow_cards', {}).get('away', 0)
-    total_yellow = home_yellow + away_yellow
-    if not (f['total_yellow_min'] <= total_yellow <= f['total_yellow_max']):
-        return False
-
-    # Индивидуальные показатели
-    if not (f['home_goals_min'] <= home_goals <= f['home_goals_max']):
-        return False
-    if not (f['away_goals_min'] <= away_goals <= f['away_goals_max']):
-        return False
-    if not (f['home_corners_min'] <= home_corners <= f['home_corners_max']):
-        return False
-    if not (f['away_corners_min'] <= away_corners <= f['away_corners_max']):
-        return False
-    if not (f['home_shots_min'] <= home_shots <= f['home_shots_max']):
-        return False
-    if not (f['away_shots_min'] <= away_shots <= f['away_shots_max']):
-        return False
-    if not (f['home_sot_min'] <= home_sot <= f['home_sot_max']):
-        return False
-    if not (f['away_sot_min'] <= away_sot <= f['away_sot_max']):
-        return False
-    if not (f['home_yellow_min'] <= home_yellow <= f['home_yellow_max']):
-        return False
-    if not (f['away_yellow_min'] <= away_yellow <= f['away_yellow_max']):
-        return False
-
-    # Коэффициенты
-    p1 = odds.get('p1', 0.0)
-    p2 = odds.get('p2', 0.0)
-    draw = odds.get('draw', 0.0)
-    over25 = odds.get('total_over_2_5', 0.0)
-    if not (f['odds_p1_min'] <= p1 <= f['odds_p1_max']):
-        return False
-    if not (f['odds_p2_min'] <= p2 <= f['odds_p2_max']):
-        return False
-    if not (f['odds_draw_min'] <= draw <= f['odds_draw_max']):
-        return False
-    if not (f['odds_total_over_2_5_min'] <= over25 <= f['odds_total_over_2_5_max']):
-        return False
-
-    # Glicko
+    # 2. Glicko вероятности (если переданы)
     if glicko is not None:
-        home_prob = glicko.get('home_prob', 0)
-        draw_prob = glicko.get('draw_prob', 0)
-        away_prob = glicko.get('away_prob', 0)
-        if not (f['glicko_home_min'] <= home_prob <= f['glicko_home_max']):
-            return False
-        if not (f['glicko_away_min'] <= away_prob <= f['glicko_away_max']):
-            return False
-        if not (f['glicko_draw_min'] <= draw_prob <= f['glicko_draw_max']):
-            return False
+        glicko_checks = [
+            ('glicko_home_min', 'glicko_home_max', glicko.get('home_prob', 0)),
+            ('glicko_away_min', 'glicko_away_max', glicko.get('away_prob', 0)),
+            ('glicko_draw_min', 'glicko_draw_max', glicko.get('draw_prob', 0)),
+        ]
+        for min_k, max_k, prob in glicko_checks:
+            if min_k in f and max_k in f:
+                if not (f[min_k] <= prob <= f[max_k]):
+                    return False
 
-    # Исторические данные
-    if h2h_data is not None:
+    # 3. Исторические H2H и недавние матчи
+    if h2h_data is not None and 'h2h_avg_goals_min' in f and 'h2h_avg_goals_max' in f:
         avg_goals = h2h_data.get('avg_goals', 0)
         if not (f['h2h_avg_goals_min'] <= avg_goals <= f['h2h_avg_goals_max']):
             return False
-    if home_recent_agg is not None:
+
+    if home_recent_agg is not None and 'home_recent_goals_min' in f and 'home_recent_goals_max' in f:
         avg_home = home_recent_agg.get('avg_goals', 0)
         if not (f['home_recent_goals_min'] <= avg_home <= f['home_recent_goals_max']):
             return False
-    if away_recent_agg is not None:
+
+    if away_recent_agg is not None and 'away_recent_goals_min' in f and 'away_recent_goals_max' in f:
         avg_away = away_recent_agg.get('avg_goals', 0)
         if not (f['away_recent_goals_min'] <= avg_away <= f['away_recent_goals_max']):
             return False
@@ -196,40 +127,36 @@ def check_filters(match: Dict, stats: Dict, odds: Dict, filters: List[Dict],
     """
     triggered = []
     for f in filters:
-        # 1. Проверка статических полей
+        # 1. Проверка статических условий
         if not check_static_conditions(f, match, stats, odds, glicko, h2h_data, home_recent_agg, away_recent_agg):
             continue
 
-        # 2. Проверка комбинированных правил (если есть)
+        # 2. Проверка комбинированных динамических правил
         rules_json = f.get('rules', '[]')
         try:
-            rules = json.loads(rules_json)
-        except:
+            rules = json.loads(rules_json) if isinstance(rules_json, str) else rules_json
+        except Exception:
             rules = []
         logic = f.get('rule_logic', 'AND')
 
         if rules:
-            results = []
-            for rule in rules:
-                res = evaluate_rule(rule, match, stats, odds, glicko,
-                                   home_recent_matches, away_recent_matches)
-                results.append(res)
-            if logic == 'AND':
-                if all(results):
-                    triggered.append({
-                        'filter': f,
-                        'conditions': [str(r) for r in rules],
-                        'glicko': glicko
-                    })
-            elif logic == 'OR':
-                if any(results):
-                    triggered.append({
-                        'filter': f,
-                        'conditions': [str(r) for r in rules],
-                        'glicko': glicko
-                    })
+            results = [
+                evaluate_rule(rule, match, stats, odds, glicko, home_recent_matches, away_recent_matches)
+                for rule in rules
+            ]
+            if logic == 'AND' and all(results):
+                triggered.append({
+                    'filter': f,
+                    'conditions': [str(r) for r in rules],
+                    'glicko': glicko
+                })
+            elif logic == 'OR' and any(results):
+                triggered.append({
+                    'filter': f,
+                    'conditions': [str(r) for r in rules],
+                    'glicko': glicko
+                })
         else:
-            # Если правил нет, фильтр срабатывает только по статике
             triggered.append({
                 'filter': f,
                 'conditions': [],
@@ -238,17 +165,20 @@ def check_filters(match: Dict, stats: Dict, odds: Dict, filters: List[Dict],
 
     return triggered
 
-def check_single_filter(match: Dict, stats: Dict, odds: Dict, filter: Dict,
+def check_single_filter(match: Dict, stats: Dict, odds: Dict, filter_dict: Dict,
                         h2h_data: Dict = None, home_recent_agg: Dict = None, away_recent_agg: Dict = None,
                         glicko: Dict = None,
                         home_recent_matches: List[Dict] = None,
                         away_recent_matches: List[Dict] = None) -> bool:
     """Проверяет один фильтр, возвращает True, если все условия выполнены."""
-    result = check_filters(match, stats, odds, [filter], h2h_data, home_recent_agg, away_recent_agg,
+    result = check_filters(match, stats, odds, [filter_dict], h2h_data, home_recent_agg, away_recent_agg,
                            glicko, home_recent_matches, away_recent_matches)
     return len(result) > 0
 
 def determine_actual_outcome(match_details: Dict, expected_outcome: str) -> str:
+    """
+    Определяет реальный исход завершенного матча.
+    """
     stats = match_details.get('stats', {})
     home_goals = stats.get('goals', {}).get('home', 0)
     away_goals = stats.get('goals', {}).get('away', 0)
@@ -273,7 +203,7 @@ def determine_actual_outcome(match_details: Dict, expected_outcome: str) -> str:
         try:
             threshold = float(threshold_str)
             return 'over' if total_goals > threshold else 'under'
-        except:
+        except Exception:
             return 'unknown'
 
     if expected_outcome.startswith('corners_over_'):
@@ -281,7 +211,7 @@ def determine_actual_outcome(match_details: Dict, expected_outcome: str) -> str:
         try:
             threshold = float(threshold_str)
             return 'over' if total_corners > threshold else 'under'
-        except:
+        except Exception:
             return 'unknown'
 
     if expected_outcome.startswith('yellow_cards_over_'):
@@ -289,19 +219,16 @@ def determine_actual_outcome(match_details: Dict, expected_outcome: str) -> str:
         try:
             threshold = float(threshold_str)
             return 'over' if total_yellow > threshold else 'under'
-        except:
+        except Exception:
             return 'unknown'
-
-    if expected_outcome == 'first_half_over_0_5':
-        return 'unknown'
 
     return 'unknown'
 
 def is_outcome_success(actual: str, expected: str) -> bool:
+    """
+    Проверяет, сыграла ли ставка.
+    """
     if expected.startswith('total_') or expected.startswith('corners_') or expected.startswith('yellow_'):
-        if 'over' in expected:
-            expected_norm = 'over'
-        else:
-            expected_norm = 'under'
+        expected_norm = 'over' if 'over' in expected else 'under'
         return actual == expected_norm
     return actual == expected

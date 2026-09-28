@@ -588,6 +588,16 @@ export function evaluateFilterRule(
     unmetCriteria.push(marketPassedCheck.reason || 'Событие по рекомендуемому исходу уже наступило в матче');
   }
 
+  // 2e. Max Score Difference (разница мячей не более X, защита от разгромов)
+  if (rule.maxScoreDiff !== undefined) {
+    totalCriteria++;
+    if (diffGoals <= rule.maxScoreDiff) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Разница в счёте ${diffGoals} > ${rule.maxScoreDiff} мячей (разгром, слабая мотивация)`);
+    }
+  }
+
   // 3. Dangerous Attacks Difference
   if (rule.minDangerousAttacksDiff !== undefined) {
     totalCriteria++;
@@ -607,6 +617,17 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Сумма оп. атак ${totalDang} < ${rule.minDangerousAttacksTotal}`);
+    }
+  }
+
+  // 4b. Dangerous Attacks Total Max (Сушка / ТМ)
+  if (rule.maxDangerousAttacksTotal !== undefined) {
+    totalCriteria++;
+    const totalDang = match.stats.dangerousAttacks[0] + match.stats.dangerousAttacks[1];
+    if (totalDang <= rule.maxDangerousAttacksTotal) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Сумма оп. атак ${totalDang} > ${rule.maxDangerousAttacksTotal} (слишком высокая активность для сушки)`);
     }
   }
 
@@ -633,6 +654,17 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Ударов в створ ${sot} < ${rule.minShotsOnTargetTotal}`);
+    }
+  }
+
+  // 6b. Shots on Target Total Max (Сушка / ТМ)
+  if (rule.maxShotsOnTargetTotal !== undefined) {
+    totalCriteria++;
+    const sot = match.stats.shotsOnTarget[0] + match.stats.shotsOnTarget[1];
+    if (sot <= rule.maxShotsOnTargetTotal) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Ударов в створ ${sot} > ${rule.maxShotsOnTargetTotal} (слишком много ударов для сушки)`);
     }
   }
 
@@ -714,6 +746,17 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Индекс давления ${analysis.pressureIndex}% < ${rule.minPressureIndex}%`);
+    }
+  }
+
+  // 12b. Max Pressure Index (Сушка / ТМ)
+  if (rule.maxPressureIndex !== undefined) {
+    totalCriteria++;
+    const analysis = calculatePressureAnalysis(match);
+    if (analysis.pressureIndex <= rule.maxPressureIndex) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Индекс давления ${analysis.pressureIndex}% > ${rule.maxPressureIndex}% (слишком высокая активность для сушки)`);
     }
   }
 
@@ -1718,7 +1761,8 @@ export function formatResolvedTelegramAlert(
 export function evaluateSignalOutcome(
   signal: SignalAlert,
   currentScore: [number, number],
-  isMatchFinished: boolean
+  isMatchFinished: boolean,
+  currentCorners?: [number, number]
 ): { outcome: SignalOutcome; note?: string; shouldResolve: boolean } {
   const initialParts = signal.score.split(':').map((s: string) => parseInt(s.trim(), 10));
   const initHome = isNaN(initialParts[0]) ? 0 : initialParts[0];
@@ -1732,14 +1776,174 @@ export function evaluateSignalOutcome(
 
   const market = (signal.marketSuggestion || signal.ruleName).toLowerCase();
 
-  // 1. Goal markets (Over, Goal in match, Goal in 2nd half)
+  // 0a. Corners markets (ТБ угловых в концовке, Штурм угловых)
+  if (market.includes('угл') || market.includes('corner')) {
+    const initCornersH = signal.statsSnapshot?.corners?.[0] ?? 0;
+    const initCornersA = signal.statsSnapshot?.corners?.[1] ?? 0;
+    const initTotalCorners = initCornersH + initCornersA;
+    const curCornersTotal = currentCorners ? (currentCorners[0] + currentCorners[1]) : initTotalCorners;
+    const newCorners = curCornersTotal - initTotalCorners;
+
+    // Bet on corners: +2 new corners or match reached high corner volume (>= 10)
+    if (newCorners >= 2 || (curCornersTotal >= 10 && newCorners >= 1)) {
+      return {
+        outcome: 'WIN',
+        note: `ТБ угловых зашёл: подано +${newCorners} угловых после сигнала (итого ${curCornersTotal})`,
+        shouldResolve: true,
+      };
+    }
+    if (goalsSinceSignal > 0 && newCorners >= 1) {
+      return {
+        outcome: 'WIN',
+        note: `Давление с угловых привело к голу (${curHome}:${curAway}) и +${newCorners} угловых`,
+        shouldResolve: true,
+      };
+    }
+    if (isMatchFinished) {
+      if (newCorners >= 1) {
+        return {
+          outcome: 'WIN',
+          note: `Поданы угловые после сигнала (+${newCorners}, итого ${curCornersTotal})`,
+          shouldResolve: true,
+        };
+      }
+      return {
+        outcome: 'LOSS',
+        note: `Недостаточно угловых в концовке (всего +${newCorners} после сигнала)`,
+        shouldResolve: true,
+      };
+    }
+  }
+
+  // 0b. Comeback markets (Камбэк, Навал фаворита, 1X)
+  if (market.includes('камбэк') || market.includes('1x') || (market.includes('гол хозяев') && initHome < initAway)) {
+    const trailingHome = initHome < initAway;
+    const trailingAway = initAway < initHome;
+
+    if (trailingHome) {
+      if (curHome >= curAway || curHome > initHome) {
+        return {
+          outcome: 'WIN',
+          note: `Камбэк удался: хозяева забили (счёт ${curHome}:${curAway}, был ${initHome}:${initAway})`,
+          shouldResolve: true,
+        };
+      }
+    } else if (trailingAway) {
+      if (curAway >= curHome || curAway > initAway) {
+        return {
+          outcome: 'WIN',
+          note: `Камбэк удался: гости забили (счёт ${curHome}:${curAway}, был ${initHome}:${initAway})`,
+          shouldResolve: true,
+        };
+      }
+    }
+    if (isMatchFinished) {
+      return {
+        outcome: 'LOSS',
+        note: `Отстающая команда не смогла забить (итог ${curHome}:${curAway})`,
+        shouldResolve: true,
+      };
+    }
+  }
+
+  // 0c. Smart Money / Steam Live (П1, П2, Победа фаворита)
+  if (market.includes('п1') || market.includes('победа 1') || market.includes('победа фаворита')) {
+    if (curHome > curAway && isMatchFinished) {
+      return { outcome: 'WIN', note: `Прогруз на П1 оправдался: победа ${curHome}:${curAway}`, shouldResolve: true };
+    }
+    if (isMatchFinished) {
+      return { outcome: 'LOSS', note: `П1 не сыграла: итоговый счёт ${curHome}:${curAway}`, shouldResolve: true };
+    }
+  }
+  if (market.includes('п2') || market.includes('победа 2')) {
+    if (curAway > curHome && isMatchFinished) {
+      return { outcome: 'WIN', note: `Прогруз на П2 оправдался: победа ${curHome}:${curAway}`, shouldResolve: true };
+    }
+    if (isMatchFinished) {
+      return { outcome: 'LOSS', note: `П2 не сыграла: итоговый счёт ${curHome}:${curAway}`, shouldResolve: true };
+    }
+  }
+
+  // 0d. Combined TM 2.5 / Draw (ТМ 2.5 / Ничья (X))
+  if ((market.includes('ничья') && market.includes('тм')) || market.includes('тм 2.5 / ничья')) {
+    if (isMatchFinished) {
+      if (curHome === curAway || currentTotalGoals <= 2) {
+        return {
+          outcome: 'WIN',
+          note: `ТМ 2.5 / Ничья сыграли: итоговый счёт ${curHome}:${curAway}`,
+          shouldResolve: true,
+        };
+      }
+      return {
+        outcome: 'LOSS',
+        note: `ТМ 2.5 / Ничья не сыграли: итоговый счёт ${curHome}:${curAway}`,
+        shouldResolve: true,
+      };
+    }
+  }
+
+  // 0e. Both teams to score / BTTS / TB 1.5
+  if (market.includes('обе команды забьют') || market.includes('обе забьют') || market.includes('оз') || market.includes('btts')) {
+    if ((curHome > 0 && curAway > 0) || (market.includes('1.5') && currentTotalGoals >= 2)) {
+      return {
+        outcome: 'WIN',
+        note: `Обе команды забили / ТБ 1.5 (${curHome}:${curAway})`,
+        shouldResolve: true,
+      };
+    }
+    if (isMatchFinished) {
+      return {
+        outcome: 'LOSS',
+        note: `Матч завершён со счётом ${curHome}:${curAway}`,
+        shouldResolve: true,
+      };
+    }
+  }
+
+  // 0f. Total Under / Сушка (ТМ, Under, Тотал меньше)
+  const isUnderMarket =
+    (market.includes('тм') || market.includes('under') || market.includes('тотал меньше') || market.includes('сушка')) &&
+    !market.includes('тб') &&
+    !market.includes('over');
+
+  if (isUnderMarket) {
+    if (market.includes('2.5') || market.includes('2,5')) {
+      if (currentTotalGoals > 2) {
+        return { outcome: 'LOSS', note: `ТБ 2.5 пробит (${curHome}:${curAway}, ${currentTotalGoals} голов)`, shouldResolve: true };
+      }
+      if (isMatchFinished) {
+        return { outcome: 'WIN', note: `ТМ 2.5 сыграл: итоговый счёт ${curHome}:${curAway}`, shouldResolve: true };
+      }
+    } else {
+      // General ТМ (текущий тотал + 0.5): no more goals allowed
+      if (goalsSinceSignal > 0) {
+        return { outcome: 'LOSS', note: `Забит гол после сигнала (${curHome}:${curAway}), ТМ не сыграл`, shouldResolve: true };
+      }
+      if (isMatchFinished) {
+        return { outcome: 'WIN', note: `Счёт удержан (${curHome}:${curAway}), ТМ зашёл!`, shouldResolve: true };
+      }
+    }
+  }
+
+  // 0e. Draw / Ничья (X)
+  if (market.includes('ничья') || market.includes('исход x') || market === 'x') {
+    if (isMatchFinished) {
+      if (curHome === curAway) {
+        return { outcome: 'WIN', note: `Матч завершился вничью (${curHome}:${curAway})`, shouldResolve: true };
+      } else {
+        return { outcome: 'LOSS', note: `Матч завершился без ничьей (${curHome}:${curAway})`, shouldResolve: true };
+      }
+    }
+  }
+
+  // 1. Goal markets (Over, Goal in match, Goal in 2nd half, ТБ 0.5, ТБ 1.5, ТБ 2.5)
   if (
     market.includes('гол') ||
     market.includes('тб') ||
     market.includes('тотал больше') ||
     market.includes('over')
   ) {
-    if (market.includes('тб 1.5')) {
+    if (market.includes('тб 1.5') && !market.includes('во 2-м тайме') && !market.includes('1т')) {
       if (currentTotalGoals >= 2) {
         return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 1.5`, shouldResolve: true };
       }
@@ -1754,9 +1958,9 @@ export function evaluateSignalOutcome(
         return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 2.5`, shouldResolve: true };
       }
     } else {
-      // General goal after signal (ТБ 0.5 во 2Т / Гол в матче)
+      // General goal after signal (ТБ 0.5 во 2Т / Гол в матче / Поздний гол)
       if (goalsSinceSignal > 0) {
-        return { outcome: 'WIN', note: `Забит гол после сигнала (${goalsSinceSignal} гол)`, shouldResolve: true };
+        return { outcome: 'WIN', note: `Забит гол после сигнала (${curHome}:${curAway}, +${goalsSinceSignal} гол)`, shouldResolve: true };
       }
       if (isMatchFinished) {
         return { outcome: 'LOSS', note: 'Матч завершён без новых голов', shouldResolve: true };
@@ -1774,17 +1978,7 @@ export function evaluateSignalOutcome(
     }
   }
 
-  // 3. Corners / Attack pressure markets
-  if (market.includes('угл') || market.includes('corner')) {
-    if (goalsSinceSignal > 0) {
-      return { outcome: 'WIN', note: `Гол после давления угловых (${curHome}:${curAway})`, shouldResolve: true };
-    }
-    if (isMatchFinished) {
-      return { outcome: 'LOSS', note: `Матч завершён со счётом ${curHome}:${curAway}`, shouldResolve: true };
-    }
-  }
-
-  // 4. Default evaluation on match finish: if goals were scored after signal -> WIN, else LOSS
+  // 3. Default evaluation on match finish: if goals were scored after signal -> WIN, else LOSS
   if (isMatchFinished) {
     if (goalsSinceSignal > 0) {
       return { outcome: 'WIN', note: `Счёт изменился с ${signal.score} на ${curHome}:${curAway}`, shouldResolve: true };

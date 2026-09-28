@@ -98,6 +98,7 @@ import {
   calculateMatchOddsFlows,
 } from './algorithms';
 import { FilterBuilderModal } from './components/FilterBuilderModal';
+import { FilterBacktestModal } from './components/FilterBacktestModal';
 import { BacktestingView } from './components/BacktestingView';
 import { AIAnalystModal } from './components/AIAnalystModal';
 import { DataSourcesModal } from './components/DataSourcesModal';
@@ -106,6 +107,7 @@ import { PersonalCabinetView } from './components/PersonalCabinetView';
 import { AdvertiserCabinetView } from './components/AdvertiserCabinetView';
 import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
+import { saveMatchesToAccumulatedLiveDB } from './services/liveMatchesDatabase';
 import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
 // import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { AppLogo } from './components/AppLogo';
@@ -1019,8 +1021,23 @@ export default function App() {
             return p;
           });
 
+          // Sync updated preset parameters while preserving user state (enabled, botId, telegramEnabled)
+          const syncedSaved = migratedSaved.map((p: FilterRule) => {
+            const preset = EXPANDED_DEFAULT_FILTERS.find((dp) => dp.id === p.id);
+            if (preset && (p.isPreset || preset.isPreset)) {
+              return {
+                ...preset,
+                enabled: p.enabled,
+                telegramEnabled: p.telegramEnabled,
+                botId: p.botId,
+                userId: p.userId ?? uid,
+              };
+            }
+            return p;
+          });
+
           // Merge in any newly added system preset strategies (e.g. strat-xg-deficit-75)
-          const existingIds = new Set(migratedSaved.map((p: FilterRule) => p.id));
+          const existingIds = new Set(syncedSaved.map((p: FilterRule) => p.id));
           const missingPresets = EXPANDED_DEFAULT_FILTERS.filter(
             (dp) => !existingIds.has(dp.id)
           ).map((dp) => ({
@@ -1030,7 +1047,7 @@ export default function App() {
             botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
           }));
 
-          const combined = [...migratedSaved, ...missingPresets];
+          const combined = [...syncedSaved, ...missingPresets];
 
           if (!migrationFlag) {
             localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
@@ -1060,6 +1077,8 @@ export default function App() {
   const [filterSearchQuery, setFilterSearchQuery] = useState<string>('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [editingFilter, setEditingFilter] = useState<FilterRule | null>(null);
+  const [backtestModalFilter, setBacktestModalFilter] = useState<FilterRule | null>(null);
+  const [isBacktestModalOpen, setIsBacktestModalOpen] = useState<boolean>(false);
 
   // Save users & current user id
   useEffect(() => {
@@ -1390,12 +1409,16 @@ export default function App() {
       try {
         const relayResult = await fetchSofascoreFromBrowserRelay();
         if (relayResult.ok && relayResult.matches.length > 0) {
-          setMatches((prev) =>
-            relayResult.matches.map((newM: Match) => {
+          setMatches((prev) => {
+            const updated = relayResult.matches.map((newM: Match) => {
               const prevM = prev.find((m) => m.id === newM.id);
               return enrichMatchWithOddsTracker(newM, prevM);
-            })
-          );
+            });
+            try {
+              saveMatchesToAccumulatedLiveDB(updated);
+            } catch {}
+            return updated;
+          });
           if (!relayResult.matches.some((m: Match) => m.id === selectedMatchId)) {
             setSelectedMatchId(relayResult.matches[0].id);
           }
@@ -1424,12 +1447,17 @@ export default function App() {
       const res = await fetch(`/api/datasources/live${query}`);
       const data = await res.json();
       if (res.ok && data.ok && Array.isArray(data.matches) && data.matches.length > 0) {
-        setMatches((prev) =>
-          data.matches.map((newM: Match) => {
+        setMatches((prev) => {
+          const updated = data.matches.map((newM: Match) => {
             const prevM = prev.find((m) => m.id === newM.id);
             return enrichMatchWithOddsTracker(newM, prevM);
-          })
-        );
+          });
+          // Accumulate real live matches into database
+          try {
+            saveMatchesToAccumulatedLiveDB(updated);
+          } catch {}
+          return updated;
+        });
         if (!data.matches.some((m: Match) => m.id === selectedMatchId)) {
           setSelectedMatchId(data.matches[0].id);
         }
@@ -2072,7 +2100,7 @@ export default function App() {
       if (!match) return;
 
       const isFinished = match.status === 'FT' || match.minute >= 90;
-      const evalRes = evaluateSignalOutcome(sig, match.score, isFinished);
+      const evalRes = evaluateSignalOutcome(sig, match.score, isFinished, match.stats.corners);
 
       if (evalRes.shouldResolve) {
         const finalScoreStr = `${match.score[0]}:${match.score[1]}`;
@@ -2125,6 +2153,11 @@ export default function App() {
         } else {
           setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
         }
+
+        // Also update accumulated DB with match final score
+        try {
+          saveMatchesToAccumulatedLiveDB([match]);
+        } catch {}
       }
     });
   }, [matches, telegramConfig.autoUpdateOnFinish]);
@@ -2305,7 +2338,11 @@ export default function App() {
 
         setSignals((prev) => {
           if (prev.some((s) => s.id === alertId)) return prev;
-          return [newAlert, ...prev].slice(0, 50);
+          // Also persist this match to the accumulated live matches database (accumulated from scratch)
+          try {
+            saveMatchesToAccumulatedLiveDB([match]);
+          } catch {}
+          return [newAlert, ...prev].slice(0, 100);
         });
 
         // Dispatch Telegram alert outside of setSignals to avoid multiple dispatches during render
@@ -5285,6 +5322,18 @@ export default function App() {
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => {
+                                setBacktestModalFilter(filter);
+                                setIsBacktestModalOpen(true);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white font-medium text-xs flex items-center gap-1 border border-emerald-500/30 hover:border-emerald-500/60 transition shadow-sm"
+                              title="Индивидуальный тест стратегии на базе 1 000+ матчей"
+                            >
+                              <BarChart3 className="h-3 w-3 text-emerald-400" />
+                              <span>Тест (1 000+)</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
                                 setEditingFilter(filter);
                                 setIsFilterModalOpen(true);
                               }}
@@ -6610,6 +6659,27 @@ export default function App() {
           }}
           onAddMatchToLive={(newMatch) => {
             handleAddMatchToLive(newMatch);
+          }}
+        />
+
+        {/* Single Filter Deep Backtest Modal (1000+ Matches & Live Accumulated) */}
+        <FilterBacktestModal
+          filter={backtestModalFilter}
+          isOpen={isBacktestModalOpen}
+          liveMatchesCount={matches.length}
+          onClose={() => {
+            setIsBacktestModalOpen(false);
+            setBacktestModalFilter(null);
+          }}
+          onToggleEnableFilter={(filterId) => {
+            setFilters((prev) =>
+              prev.map((f) => (f.id === filterId ? { ...f, enabled: !f.enabled } : f))
+            );
+          }}
+          onOpenEditFilter={(filterToEdit) => {
+            setIsBacktestModalOpen(false);
+            setEditingFilter(filterToEdit);
+            setIsFilterModalOpen(true);
           }}
         />
       </div>
