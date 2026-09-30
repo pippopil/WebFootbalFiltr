@@ -112,14 +112,14 @@ export const AppLogo: React.FC<AppLogoProps> = ({
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <span className={`font-black tracking-tight text-white ${dim.text} flex items-center`}>
-              FOOTBAL<span className="text-emerald-400">MONITOR</span>
+              SPORT<span className="text-emerald-400">SIGNAL</span>
             </span>
             <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-              PRO
+              AI PRO
             </span>
           </div>
           <span className={`text-slate-400 font-medium ${dim.sub}`}>
-            {tagline || 'Flashscore & SStats Scanner | Live Smart Money'}
+            {tagline || 'Мультиспортивная аналитика & ИИ-сканер стратегий'}
           </span>
         </div>
       )}

@@ -3,8 +3,11 @@ import {
   FilterRule,
   ScannerMatrixConfig,
   ScannerStatRow,
+  HistoricalStreakConfig,
   TelegramBotProfile,
   Match,
+  SportType,
+  StatSideChoice,
 } from '../types';
 import { evaluateFilterRule } from '../algorithms';
 import {
@@ -14,19 +17,56 @@ import {
   Plus,
   Save,
   Trash2,
-  ExternalLink,
-  Bot,
-  Activity,
-  Check,
   SlidersHorizontal,
   Flame,
   Clock,
   TrendingUp,
+  TrendingDown,
+  Activity,
+  Check,
+  Zap,
+  Target,
+  ShieldAlert,
   Percent,
   Layers,
   Sparkles,
   HelpCircle,
+  BarChart3,
+  Radar,
+  ArrowRight,
+  Eye,
+  Crosshair,
+  Trophy,
+  History,
+  Timer,
+  ChevronDown,
+  ChevronUp,
+  Sliders,
+  Filter,
+  Globe,
+  Share2,
+  Bookmark,
+  Award,
+  Cpu,
+  RefreshCw,
+  Search,
+  CheckSquare,
+  Crown,
+  GraduationCap,
+  Copy,
+  Send,
+  AlertCircle,
+  X,
+  CheckCircle2,
+  Info,
+  FileText,
+  Lock,
 } from 'lucide-react';
+import {
+  createCleanBlankMatrix,
+  createDefaultStatRow,
+  createDefaultHistoryConfig,
+} from '../utils/filterDefaults';
 
 interface ScannerMatrixFilterViewProps {
   filters: FilterRule[];
@@ -37,36 +77,39 @@ interface ScannerMatrixFilterViewProps {
   userBots?: TelegramBotProfile[];
   currentUserId?: string;
   liveMatches?: Match[];
+  selectedSport?: SportType | 'all';
+  onOpenEducation?: () => void;
+  isPaidUser?: boolean;
+  onUpgradePlan?: () => void;
 }
 
-const createDefaultMatrix = (): ScannerMatrixConfig => ({
-  p1: { checked: false, min: 1.0, max: 2.0 },
-  draw: { checked: false, min: 1.0, max: 1.0 },
-  p2: { checked: false, min: 1.0, max: 1.0 },
-  dc1X: { checked: false, min: 1.0, max: 1.0 },
-  dc12: { checked: false, min: 1.0, max: 1.0 },
-  dcX2: { checked: false, min: 1.0, max: 1.0 },
+const LEAGUE_GROUPS_CATALOG = [
+  { id: 'championship', label: 'Championship / Высшие лиги', icon: '🏆' },
+  { id: 'cups', label: 'Cups / Национальные кубки', icon: '🍷' },
+  { id: 'womens', label: "Women's Football / Женский футбол", icon: '👩' },
+  { id: 'friendlies', label: 'Friendlies / Товарищеские матчи', icon: '🤝' },
+  { id: 'juniors', label: 'Juniors & U18-U23 / Молодежные турниры', icon: '👶' },
+  { id: 'europe', label: 'Europa League & Champions / Еврокубки', icon: '⭐' },
+  { id: 'nations', label: 'Nations League / Сборные страны', icon: '🌍' },
+];
 
-  period: 'ALL',
-  minuteRange: { checked: false, min: 0, max: 90 },
-
-  tb05: { checked: false, min: 1.0, max: 2.5 },
-  tb15: { checked: false, min: 1.0, max: 2.5 },
-  tb25: { checked: false, min: 1.0, max: 2.5 },
-  tm05: { checked: false, min: 1.0, max: 2.5 },
-  tm15: { checked: false, min: 1.0, max: 2.5 },
-  tm25: { checked: false, min: 1.0, max: 2.5 },
-
-  goals: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  attacks: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  dangerousAttacks: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  possession: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  shotsOnTarget: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  shotsOffTarget: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  corners: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  yellowCards: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-  redCards: { side: '12', operator: '>=', diffThreshold: undefined, ind1Min: undefined, ind1Max: undefined, ind2Min: undefined, ind2Max: undefined, totalMin: undefined, totalMax: undefined },
-});
+const LEAGUES_PRESETS_LIST = [
+  'Австралия. Виктория. Женщины. Nike Cup',
+  'Австралия. Виктория. Женщины. До 20 лет',
+  'Австралия. Виктория. Кубок Докерти',
+  'Австралия. Виктория. Национальная Премьер-лига',
+  'Австралия. Виктория. Национальная Премьер-лига-2',
+  'Австралия. Виктория. Национальная Премьер-лига-3',
+  'Австралия. До 20 лет. Новый Южный Уэльс',
+  'Австралия. До 23 лет. Виктория. Премьер-лига',
+  'Австралия. До 23 лет. Квинсленд',
+  'Англия. Премьер-лига (EPL)',
+  'Испания. Ла Лига',
+  'Германия. Бундеслига',
+  'Италия. Серия А',
+  'Франция. Лига 1',
+  'Россия. РПЛ',
+];
 
 export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = ({
   filters,
@@ -77,32 +120,93 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
   userBots = [],
   currentUserId,
   liveMatches = [],
+  selectedSport = 'football',
+  onOpenEducation,
+  isPaidUser = false,
+  onUpgradePlan,
 }) => {
-  const [selectedFilterId, setSelectedFilterId] = useState<string | null>(
-    filters.length > 0 ? filters[0].id : null
-  );
+  // Split custom filters vs ready-made presets
+  const customFilters = useMemo(() => filters.filter((f) => !f.isPreset), [filters]);
+  const presetFilters = useMemo(() => filters.filter((f) => f.isPreset), [filters]);
 
-  const [filterName, setFilterName] = useState<string>('Тактическая стратегия');
-  const [targetMarket, setTargetMarket] = useState<string>('ТБ 0.5 во 2-м тайме');
+  // Currently selected filter ID for editing:
+  // For free accounts, default to their custom filter or null (clean blank)
+  const [selectedFilterId, setSelectedFilterId] = useState<string | null>(() => {
+    if (!isPaidUser) {
+      const firstCustom = filters.find((f) => !f.isPreset);
+      return firstCustom ? firstCustom.id : null;
+    }
+    return filters.length > 0 ? filters[0].id : null;
+  });
+
+  // Filter Basic Info: pristine clean blank defaults
+  const [filterName, setFilterName] = useState<string>('');
+  const [filterDesc, setFilterDesc] = useState<string>('');
+  const [targetMarket, setTargetMarket] = useState<string>('');
   const [selectedBotId, setSelectedBotId] = useState<string>('');
   const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
-  const [matrix, setMatrix] = useState<ScannerMatrixConfig>(createDefaultMatrix());
-  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
-  const [statViewCategory, setStatViewCategory] = useState<'all' | 'attacks' | 'shots' | 'discipline'>('all');
+  const [matrixSport, setMatrixSport] = useState<SportType>(
+    selectedSport === 'all' ? 'football' : selectedSport
+  );
 
-  // When selected filter changes, load its values into matrix
+  const [activeStepTab, setActiveStepTab] = useState<'time_score' | 'stats' | 'odds' | 'history' | 'leagues' | 'telegram'>('time_score');
+
+  // Matrix configuration state: 100% clean blank matrix
+  const [matrix, setMatrix] = useState<ScannerMatrixConfig>(createCleanBlankMatrix());
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+
+  // Exact score selection: default ANY (no arbitrary restrictions)
+  const [scoreConditionChoice, setScoreConditionChoice] = useState<string>('ANY');
+  const [exactScoreInput, setExactScoreInput] = useState<string>('');
+  const [exactTotalGoals, setExactTotalGoals] = useState<number | undefined>(undefined);
+  const [exactHomeGoals, setExactHomeGoals] = useState<number | undefined>(undefined);
+  const [exactAwayGoals, setExactAwayGoals] = useState<number | undefined>(undefined);
+
+  // Filter list search query in left sidebar
+  const [filterSearchQuery, setFilterSearchQuery] = useState<string>('');
+  const [leagueSearchQuery, setLeagueSearchQuery] = useState<string>('');
+
+  // Auto-notification helper
+  const showNotice = (msg: string) => {
+    setActionSuccessMsg(msg);
+    setTimeout(() => setActionSuccessMsg(null), 3500);
+  };
+
+  // Load selected filter into form
   useEffect(() => {
-    if (!selectedFilterId) return;
+    if (!selectedFilterId) {
+      setFilterName('');
+      setFilterDesc('');
+      setTargetMarket('');
+      setSelectedBotId('');
+      setTelegramEnabled(true);
+      setScoreConditionChoice('ANY');
+      setExactScoreInput('');
+      setExactTotalGoals(undefined);
+      setExactHomeGoals(undefined);
+      setExactAwayGoals(undefined);
+      setMatrix(createCleanBlankMatrix());
+      return;
+    }
     const found = filters.find((f) => f.id === selectedFilterId);
     if (found) {
       setFilterName(found.name);
-      setTargetMarket(found.targetMarket || 'ТБ 0.5 во 2-м тайме');
+      setFilterDesc(found.description || '');
+      setTargetMarket(found.targetMarket || '');
       setSelectedBotId(found.botId || '');
       setTelegramEnabled(found.telegramEnabled ?? true);
+      if (found.sport) setMatrixSport(found.sport);
+
+      setScoreConditionChoice(found.scoreCondition || 'ANY');
+      setExactScoreInput(found.exactScore || '');
+      setExactTotalGoals(found.exactTotalGoals ?? found.maxTotalGoals);
+      setExactHomeGoals(found.exactHomeGoals);
+      setExactAwayGoals(found.exactAwayGoals);
+
       if (found.scannerMatrix) {
         setMatrix(JSON.parse(JSON.stringify(found.scannerMatrix)));
       } else {
-        const m = createDefaultMatrix();
+        const m = createCleanBlankMatrix();
         if (found.minMinute !== undefined || found.maxMinute !== undefined) {
           m.minuteRange = {
             checked: true,
@@ -111,110 +215,110 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
           };
         }
         if (found.minDangerousAttacksDiff) {
-          m.dangerousAttacks.diffThreshold = found.minDangerousAttacksDiff;
-          m.dangerousAttacks.operator = '>=';
+          m.dangerousAttacks = {
+            ...m.dangerousAttacks,
+            side: 'K1',
+            diffThreshold: found.minDangerousAttacksDiff,
+            operator: '>=',
+          };
         }
-        if (found.minDangerousAttacksTotal) {
-          m.dangerousAttacks.totalMin = found.minDangerousAttacksTotal;
-        }
-        if (found.minTotalShots) {
-          m.shotsOnTarget.totalMin = Math.round(found.minTotalShots / 2);
+        if (found.minShotsOnTargetTotal) {
+          m.shotsOnTarget = {
+            ...m.shotsOnTarget,
+            totalMin: found.minShotsOnTargetTotal,
+            operator: '>=',
+          };
         }
         if (found.minTotalCorners) {
-          m.corners.totalMin = found.minTotalCorners;
-        }
-        if (found.maxOddsFavorite) {
-          m.p1 = { checked: true, min: 1.01, max: found.maxOddsFavorite };
-        }
-        if (found.maxOddsOver25) {
-          m.tb25 = { checked: true, min: 1.01, max: found.maxOddsOver25 };
+          m.corners = {
+            ...m.corners,
+            totalMin: found.minTotalCorners,
+            operator: '>=',
+          };
         }
         setMatrix(m);
       }
     }
   }, [selectedFilterId, filters]);
 
-  const showNotice = (msg: string) => {
-    setActionSuccessMsg(msg);
-    setTimeout(() => setActionSuccessMsg(null), 3000);
-  };
+  // Build FilterRule object from current state
+  const buildCurrentRule = (id: string): FilterRule => {
+    const existing = filters.find((f) => f.id === id);
 
-  const handleReset = () => {
-    setMatrix(createDefaultMatrix());
-    setFilterName('Тактическая стратегия');
-    setTargetMarket('ТБ 0.5 во 2-м тайме');
-    setSelectedFilterId(null);
-    showNotice('Параметры тактической матрицы сброшены');
-  };
-
-  const handleAddNew = () => {
-    const newId = `matrix-${Date.now()}`;
-    const newRule: FilterRule = {
-      id: newId,
-      name: filterName.trim() || 'Тактическая стратегия ' + new Date().toLocaleTimeString('ru-RU'),
-      description: 'Мультипараметрический фильтр тактической матрицы',
+    return {
+      id,
+      name: filterName.trim() || 'Мой авторский фильтр',
+      description: filterDesc.trim() || 'Пользовательский алгоритм лайв-сканера',
       category: 'custom',
-      enabled: true,
+      sport: matrixSport,
+      enabled: existing?.enabled ?? true,
       minMinute: matrix.minuteRange.checked ? matrix.minuteRange.min : 0,
       maxMinute: matrix.minuteRange.checked ? matrix.minuteRange.max : 90,
-      scoreCondition: 'ANY',
-      targetMarket: targetMarket.trim() || 'ТБ 0.5 во 2-м тайме',
+      scoreCondition: (scoreConditionChoice as any) || 'ANY',
+      targetMarket: targetMarket.trim() || '',
       telegramEnabled,
       botId: selectedBotId || undefined,
       userId: currentUserId,
       color: 'emerald',
+      isPreset: false,
       scannerMatrix: matrix,
+      exactScore: exactScoreInput.trim() || undefined,
+      exactTotalGoals,
+      exactHomeGoals,
+      exactAwayGoals,
+      maxTotalGoals: exactTotalGoals,
       minDangerousAttacksDiff: matrix.dangerousAttacks.diffThreshold,
       minDangerousAttacksTotal: matrix.dangerousAttacks.totalMin,
       minTotalCorners: matrix.corners.totalMin,
-      maxOddsFavorite: matrix.p1.checked ? matrix.p1.max : undefined,
-      maxOddsOver25: matrix.tb25.checked ? matrix.tb25.max : undefined,
+      minXgTotal: matrix.xgTotal?.totalMin,
+      minXgOverScoreDiff: matrix.xgDeficit?.totalMin,
     };
-
-    onSaveFilter(newRule);
-    setSelectedFilterId(newId);
-    showNotice(`Стратегия «${newRule.name}» успешно создана`);
   };
 
-  const handleUpdate = () => {
-    if (!selectedFilterId) {
-      handleAddNew();
-      return;
-    }
-    const existing = filters.find((f) => f.id === selectedFilterId);
-    const updatedRule: FilterRule = {
-      ...(existing || {}),
-      id: selectedFilterId,
-      name: filterName.trim() || 'Тактическая стратегия',
-      description: existing?.description || 'Мультипараметрический фильтр тактической матрицы',
-      category: existing?.category || 'custom',
-      enabled: existing?.enabled ?? true,
-      minMinute: matrix.minuteRange.checked ? matrix.minuteRange.min : (existing?.minMinute ?? 0),
-      maxMinute: matrix.minuteRange.checked ? matrix.minuteRange.max : (existing?.maxMinute ?? 90),
-      scoreCondition: existing?.scoreCondition || 'ANY',
-      targetMarket: targetMarket.trim() || 'ТБ 0.5 во 2-м тайме',
-      telegramEnabled,
-      botId: selectedBotId || undefined,
-      userId: currentUserId || existing?.userId,
-      color: existing?.color || 'emerald',
-      scannerMatrix: matrix,
-      minDangerousAttacksDiff: matrix.dangerousAttacks.diffThreshold,
-      minDangerousAttacksTotal: matrix.dangerousAttacks.totalMin,
-      minTotalCorners: matrix.corners.totalMin,
-      maxOddsFavorite: matrix.p1.checked ? matrix.p1.max : undefined,
-      maxOddsOver25: matrix.tb25.checked ? matrix.tb25.max : undefined,
-    };
-
-    onSaveFilter(updatedRule);
-    showNotice(`Стратегия «${updatedRule.name}» успешно обновлена`);
+  const handleSave = () => {
+    const id = selectedFilterId || `matrix-${Date.now()}`;
+    const rule = buildCurrentRule(id);
+    onSaveFilter(rule);
+    if (!selectedFilterId) setSelectedFilterId(id);
+    showNotice(`Стратегия «${rule.name}» успешно сохранена!`);
   };
 
-  const handleDelete = () => {
+  const handleCleanBlank = () => {
+    setSelectedFilterId(null);
+    setFilterName('');
+    setFilterDesc('');
+    setTargetMarket('');
+    setSelectedBotId('');
+    setTelegramEnabled(true);
+    setScoreConditionChoice('ANY');
+    setExactScoreInput('');
+    setExactTotalGoals(undefined);
+    setExactHomeGoals(undefined);
+    setExactAwayGoals(undefined);
+    setMatrix(createCleanBlankMatrix());
+    setActiveStepTab('time_score');
+    showNotice('📄 Открыт чистый бланк. Настройте авторские параметры с нуля!');
+  };
+
+  const handleCreateNew = () => {
+    handleCleanBlank();
+  };
+
+  const handleDuplicate = () => {
     if (!selectedFilterId) return;
-    const target = filters.find((f) => f.id === selectedFilterId);
-    if (window.confirm(`Удалить стратегию «${target?.name || selectedFilterId}»?`)) {
-      onDeleteFilter(selectedFilterId);
-      const remaining = filters.filter((f) => f.id !== selectedFilterId);
+    const newId = `matrix-${Date.now()}`;
+    const cloned = buildCurrentRule(newId);
+    cloned.name = `${cloned.name} (Копия)`;
+    onSaveFilter(cloned);
+    setSelectedFilterId(newId);
+    showNotice(`Создана копия «${cloned.name}»`);
+  };
+
+  const handleDelete = (idToDelete: string) => {
+    const target = filters.find((f) => f.id === idToDelete);
+    if (window.confirm(`Удалить стратегию «${target?.name || idToDelete}»?`)) {
+      onDeleteFilter(idToDelete);
+      const remaining = filters.filter((f) => f.id !== idToDelete);
       setSelectedFilterId(remaining.length > 0 ? remaining[0].id : null);
       showNotice('Стратегия удалена');
     }
@@ -224,109 +328,148 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
     setMatrix((prev) => ({
       ...prev,
       [key]: {
-        ...(prev[key] as ScannerStatRow),
+        ...((prev[key] as ScannerStatRow) || createDefaultStatRow()),
         ...patch,
       },
     }));
   };
 
-  // Live match simulator/preview against active matrix configuration
-  const currentSyntheticRule = useMemo<FilterRule>(() => ({
-    id: 'current-matrix-preview',
-    name: filterName,
-    description: 'Превью матрицы',
-    category: 'custom',
-    enabled: true,
-    minMinute: matrix.minuteRange.checked ? matrix.minuteRange.min : 0,
-    maxMinute: matrix.minuteRange.checked ? matrix.minuteRange.max : 90,
-    scoreCondition: 'ANY',
-    telegramEnabled: false,
-    color: 'emerald',
-    scannerMatrix: matrix,
-  }), [filterName, matrix]);
+  // Preview synthetic rule against active live matches
+  const currentSyntheticRule = useMemo<FilterRule>(() => {
+    return buildCurrentRule('preview-matrix-id');
+  }, [
+    filterName,
+    filterDesc,
+    matrix,
+    matrixSport,
+    scoreConditionChoice,
+    exactScoreInput,
+    exactTotalGoals,
+    exactHomeGoals,
+    exactAwayGoals,
+    targetMarket,
+  ]);
 
-  const liveMatchesMatchingCount = useMemo(() => {
-    if (!liveMatches || liveMatches.length === 0) return 0;
-    return liveMatches.filter((m) => {
-      const res = evaluateFilterRule(m, currentSyntheticRule);
-      return res.matches;
-    }).length;
-  }, [liveMatches, currentSyntheticRule]);
+  // Live evaluation of matches with matching details
+  const liveEvaluationResults = useMemo(() => {
+    if (!liveMatches || liveMatches.length === 0) return [];
 
-  const statRows: Array<{
-    key: keyof ScannerMatrixConfig;
-    label: string;
-    category: 'attacks' | 'shots' | 'discipline';
-    icon: string;
-    unit?: string;
-  }> = [
-    { key: 'goals', label: 'Голы команд', category: 'shots', icon: '⚽' },
-    { key: 'attacks', label: 'Всего атак', category: 'attacks', icon: '⚡' },
-    { key: 'dangerousAttacks', label: 'Опасные атаки', category: 'attacks', icon: '🔥' },
-    { key: 'possession', label: 'Владение мячом (%)', category: 'attacks', icon: '📊', unit: '%' },
-    { key: 'shotsOnTarget', label: 'Удары в створ', category: 'shots', icon: '🎯' },
-    { key: 'shotsOffTarget', label: 'Удары мимо', category: 'shots', icon: '🏹' },
-    { key: 'corners', label: 'Угловые (Корнеры)', category: 'shots', icon: '🚩' },
-    { key: 'yellowCards', label: 'Жёлтые карточки (ЖК)', category: 'discipline', icon: '🟨' },
-    { key: 'redCards', label: 'Красные карточки (КК)', category: 'discipline', icon: '🟥' },
-  ];
+    return liveMatches
+      .filter((m) => (m.sport || 'football') === matrixSport)
+      .map((m) => {
+        const evaluation = evaluateFilterRule(m, currentSyntheticRule);
+        return {
+          match: m,
+          evaluation,
+        };
+      });
+  }, [liveMatches, currentSyntheticRule, matrixSport]);
 
-  const filteredStatRows = statRows.filter((r) => {
-    if (statViewCategory === 'all') return true;
-    return r.category === statViewCategory;
-  });
+  const matchingMatches = liveEvaluationResults.filter((r) => r.evaluation.matches);
+  const partialMatches = liveEvaluationResults.filter((r) => !r.evaluation.matches);
+
+  // Find current selected rule object
+  const selectedRule = useMemo(() => {
+    if (!selectedFilterId) return null;
+    return filters.find((f) => f.id === selectedFilterId) || null;
+  }, [filters, selectedFilterId]);
+
+  // Is the currently selected rule a preset on a free account?
+  const isPresetSelectedByFreeUser = !isPaidUser && !!selectedRule?.isPreset;
+
+  // Filtered lists for left sidebar: split custom vs preset for clean separation
+  const filteredCustomList = useMemo(() => {
+    const list = filters.filter((f) => !f.isPreset);
+    if (!filterSearchQuery.trim()) return list;
+    return list.filter(
+      (f) =>
+        f.name.toLowerCase().includes(filterSearchQuery.toLowerCase()) ||
+        (f.targetMarket && f.targetMarket.toLowerCase().includes(filterSearchQuery.toLowerCase()))
+    );
+  }, [filters, filterSearchQuery]);
+
+  const filteredPresetList = useMemo(() => {
+    const list = filters.filter((f) => f.isPreset);
+    if (!filterSearchQuery.trim()) return list;
+    return list.filter(
+      (f) =>
+        f.name.toLowerCase().includes(filterSearchQuery.toLowerCase()) ||
+        (f.targetMarket && f.targetMarket.toLowerCase().includes(filterSearchQuery.toLowerCase()))
+    );
+  }, [filters, filterSearchQuery]);
 
   return (
-    <div className="space-y-5">
-      {/* Top Header & Tactical Terminal Command Bar */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 border border-emerald-500/20 p-5 sm:p-6 shadow-xl backdrop-blur-md">
-        <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-1/3 -mb-12 w-48 h-48 bg-cyan-500/5 rounded-full blur-2xl pointer-events-none" />
+    <div className="space-y-6">
+      {/* Top Header Banner: BetLab Style Pro Studio */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-emerald-500/30 p-5 sm:p-7 shadow-2xl backdrop-blur-xl">
+        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-1/4 -mb-16 w-60 h-60 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-5">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 text-emerald-400 shadow-inner">
-                <SlidersHorizontal className="h-5 w-5" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent border border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-950/50">
+              <SlidersHorizontal className="h-6 w-6 text-emerald-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+                  Конструктор фильтров & Сканер сигналов Pro
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-black uppercase">
+                  BETLAB FORMAT
+                </span>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg sm:text-xl font-black tracking-wide text-white">
-                    Тактическая мульти-матрица
-                  </h2>
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
-                    PRO Grid
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 max-w-2xl leading-relaxed mt-0.5">
-                  Многомерный конфигуратор параметров: котировки исходов 1X2 и двойного шанса, тайминги, коридоры тоталов и детальные статистические фильтры обеих команд
-                </p>
-              </div>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                Пошаговая настройка алгоритмов: время матча, точный счёт, пороги live-атак (К1/К2, за 15 мин), прогруз Smart Money и фильтр лиг.
+              </p>
             </div>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300">
-              <span className={`w-2 h-2 rounded-full ${isMonitoringActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
-              <span className="text-[11px] font-medium">
-                {isMonitoringActive ? 'Мониторинг активен' : 'Мониторинг на паузе'}
-              </span>
-            </div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {onOpenEducation && (
+              <button
+                type="button"
+                onClick={onOpenEducation}
+                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-850 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-2 transition active:scale-95 shadow-sm"
+                title="Открыть подробный обучающий гид по настройке фильтров"
+              >
+                <GraduationCap className="h-4 w-4 text-amber-400" />
+                <span>Гид по настройке</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleCleanBlank}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-teal-300 border border-teal-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+              title="Открыть абсолютно чистый бланк и настроить фильтр с нуля"
+            >
+              <FileText className="h-4 w-4 text-teal-400" />
+              <span>Чистый бланк</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCreateNew}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-2 transition active:scale-95 shadow-lg shadow-emerald-950/50"
+            >
+              <Plus className="h-4 w-4" />
+              <span>+ Новый фильтр</span>
+            </button>
 
             <button
               onClick={onToggleMonitoring}
               type="button"
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition active:scale-95 shadow-md ${
+              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition active:scale-95 shadow-lg ${
                 isMonitoringActive
-                  ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
+                  ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 shadow-rose-950/40'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50 border border-emerald-400/40'
               }`}
             >
               {isMonitoringActive ? (
                 <>
                   <Square className="h-3.5 w-3.5 fill-current" />
-                  <span>Остановить сканер</span>
+                  <span>Сканер активен</span>
                 </>
               ) : (
                 <>
@@ -335,705 +478,939 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                 </>
               )}
             </button>
-
-            <button
-              onClick={handleReset}
-              type="button"
-              className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/60 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95"
-              title="Сбросить все параметры матрицы к стандартным"
-            >
-              <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
-              <span>Сбросить</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Filter Matching Ribbon */}
-        <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400 font-medium">Активная стратегия:</span>
-            <span className="text-emerald-400 font-bold px-2.5 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 font-mono">
-              {filterName}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-slate-400">
-              <Activity className="h-3.5 w-3.5 text-sky-400" />
-              <span>Совпадений в лайве прямо сейчас:</span>
-              <span className={`font-mono font-bold px-2 py-0.5 rounded-md ${
-                liveMatchesMatchingCount > 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
-              }`}>
-                {liveMatchesMatchingCount} из {liveMatches.length} матчей
-              </span>
-            </div>
           </div>
         </div>
       </div>
 
       {actionSuccessMsg && (
-        <div className="bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg animate-fade-in">
+        <div className="bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-semibold px-4 py-3 rounded-2xl flex items-center gap-2 shadow-lg animate-fade-in">
           <Check className="h-4 w-4 text-emerald-400" />
           <span>{actionSuccessMsg}</span>
         </div>
       )}
 
-      {/* Grid: Main Controls */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Column: Odds, Periods, Totals, and Statistics */}
-        <div className="lg:col-span-8 space-y-5">
-          {/* Block 1: Котировки 1X2 и Двойной шанс */}
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3.5 pb-2.5 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-white uppercase tracking-wider">
-                  Коэффициенты исходов (1X2 & Двойной шанс)
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-400">
-                Включите нужный исход галочкой и задайте коридор [min - max]
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                { label: 'П1 (Победа 1)', shortLabel: 'П1', key: 'p1' as const, color: 'emerald' },
-                { label: 'X (Ничья)', shortLabel: 'X', key: 'draw' as const, color: 'cyan' },
-                { label: 'П2 (Победа 2)', shortLabel: 'П2', key: 'p2' as const, color: 'blue' },
-                { label: '1X (1 или Ничья)', shortLabel: '1X', key: 'dc1X' as const, color: 'teal' },
-                { label: '12 (Победа 1 или 2)', shortLabel: '12', key: 'dc12' as const, color: 'indigo' },
-                { label: 'X2 (Ничья или 2)', shortLabel: 'X2', key: 'dcX2' as const, color: 'violet' },
-              ].map(({ label, shortLabel, key }) => {
-                const item = matrix[key];
-                return (
-                  <div
-                    key={key}
-                    className={`p-3 rounded-xl border transition-all duration-200 ${
-                      item.checked
-                        ? 'bg-slate-950 border-emerald-500/40 shadow-sm shadow-emerald-950/20'
-                        : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700/80'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          onChange={(e) =>
-                            setMatrix((prev) => ({
-                              ...prev,
-                              [key]: { ...prev[key], checked: e.target.checked },
-                            }))
-                          }
-                          className="w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/30"
-                        />
-                        <span className={`text-xs font-bold ${item.checked ? 'text-emerald-400' : 'text-slate-300'}`}>
-                          {shortLabel}
-                        </span>
-                      </label>
-                      <span className="text-[10px] text-slate-500 truncate max-w-[85px]" title={label}>
-                        {label.split(' ')[0]}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex-1">
-                        <span className="text-[9px] text-slate-500 block text-center mb-0.5">Мин</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          min="1.00"
-                          value={item.min}
-                          onChange={(e) =>
-                            setMatrix((prev) => ({
-                              ...prev,
-                              [key]: { ...prev[key], min: parseFloat(e.target.value) || 1.0 },
-                            }))
-                          }
-                          disabled={!item.checked}
-                          className="w-full py-1 text-center bg-slate-900 border border-slate-800 disabled:opacity-30 rounded-lg text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
-                        />
-                      </div>
-                      <span className="text-slate-600 text-xs mt-3">-</span>
-                      <div className="flex-1">
-                        <span className="text-[9px] text-slate-500 block text-center mb-0.5">Макс</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          min="1.00"
-                          value={item.max}
-                          onChange={(e) =>
-                            setMatrix((prev) => ({
-                              ...prev,
-                              [key]: { ...prev[key], max: parseFloat(e.target.value) || 1.0 },
-                            }))
-                          }
-                          disabled={!item.checked}
-                          className="w-full py-1 text-center bg-slate-900 border border-slate-800 disabled:opacity-30 rounded-lg text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+      {/* 3-Column Professional Layout (Left: Strategies list, Center: Step-by-step editor, Right: Live scanner check) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        {/* LEFT COLUMN: Strategies list (3 cols) */}
+        <div className="lg:col-span-3 space-y-3 bg-slate-950/90 border border-slate-800 rounded-3xl p-4 shadow-xl">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-emerald-400" />
+              {isPaidUser ? `Все фильтры (${filters.length})` : `Мои фильтры (${customFilters.length})`}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCleanBlank}
+                className="px-2 py-1 rounded-lg bg-teal-500/10 text-teal-300 hover:bg-teal-500/20 border border-teal-500/30 transition text-[11px] font-bold flex items-center gap-1"
+                title="Создать фильтр с чистого бланка"
+              >
+                <FileText className="h-3 w-3" />
+                <span>Бланк</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateNew}
+                className="p-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition text-xs font-bold"
+                title="Создать новую стратегию"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
 
-          {/* Block 2: Игровой период & Минутное окно */}
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-cyan-400" />
-                Игровой период матча:
-              </span>
-              <div className="flex items-center gap-1.5 pt-1">
-                {[
-                  { id: 'ALL', label: 'Вся игра (0-90\')' },
-                  { id: '1H', label: '1-й тайм (1-45\')' },
-                  { id: '2H', label: '2-й тайм (46-90\')' },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() =>
-                      setMatrix((prev) => ({
-                        ...prev,
-                        period: item.id as 'ALL' | '1H' | '2H',
-                      }))
-                    }
-                    className={`px-3 py-1.5 rounded-xl font-bold transition text-xs border ${
-                      matrix.period === item.id
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-950/40'
-                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1 w-full sm:w-auto">
-              <label className="flex items-center gap-2 text-xs text-white font-bold cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={matrix.minuteRange.checked}
-                  onChange={(e) =>
-                    setMatrix((prev) => ({
-                      ...prev,
-                      minuteRange: { ...prev.minuteRange, checked: e.target.checked },
-                    }))
-                  }
-                  className="w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/30"
-                />
-                <span>Фильтр по минутам:</span>
-              </label>
-
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="number"
-                  min="0"
-                  max="120"
-                  value={matrix.minuteRange.min}
-                  onChange={(e) =>
-                    setMatrix((prev) => ({
-                      ...prev,
-                      minuteRange: { ...prev.minuteRange, min: parseInt(e.target.value) || 0 },
-                    }))
-                  }
-                  disabled={!matrix.minuteRange.checked}
-                  className="w-16 px-2 py-1.5 text-center bg-slate-950 border border-slate-800 disabled:opacity-40 rounded-xl text-xs text-emerald-400 font-mono font-bold"
-                  placeholder="От мин"
-                />
-                <span className="text-slate-600 text-xs font-bold">—</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="120"
-                  value={matrix.minuteRange.max}
-                  onChange={(e) =>
-                    setMatrix((prev) => ({
-                      ...prev,
-                      minuteRange: { ...prev.minuteRange, max: parseInt(e.target.value) || 90 },
-                    }))
-                  }
-                  disabled={!matrix.minuteRange.checked}
-                  className="w-16 px-2 py-1.5 text-center bg-slate-950 border border-slate-800 disabled:opacity-40 rounded-xl text-xs text-emerald-400 font-mono font-bold"
-                  placeholder="До мин"
-                />
-                <span className="text-slate-400 text-xs font-mono">мин</span>
-              </div>
-            </div>
+          {/* Search filters */}
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Поиск фильтров..."
+              value={filterSearchQuery}
+              onChange={(e) => setFilterSearchQuery(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
-          {/* Block 3: Коридоры тоталов ТБ / ТМ */}
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3.5 pb-2.5 border-b border-slate-800">
-              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                Коридоры тоталов матча (ТБ / ТМ)
-              </span>
-              <span className="text-[11px] text-slate-400">
-                Задайте допустимый диапазон коэффициента на тоталы
-              </span>
-            </div>
+          {/* Strategies List */}
+          <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
+            {/* 1. Custom User Filters (Clean Blank / User Created) */}
+            <div className="space-y-1.5">
+              {!isPaidUser && (
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                  Авторские фильтры ({filteredCustomList.length})
+                </div>
+              )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                { label: 'ТБ 0.5', key: 'tb05' as const, isOver: true },
-                { label: 'ТБ 1.5', key: 'tb15' as const, isOver: true },
-                { label: 'ТБ 2.5', key: 'tb25' as const, isOver: true },
-                { label: 'ТМ 0.5', key: 'tm05' as const, isOver: false },
-                { label: 'ТМ 1.5', key: 'tm15' as const, isOver: false },
-                { label: 'ТМ 2.5', key: 'tm25' as const, isOver: false },
-              ].map(({ label, key, isOver }) => {
-                const item = matrix[key];
-                return (
-                  <div
-                    key={key}
-                    className={`p-3 rounded-xl border transition-all ${
-                      item.checked
-                        ? isOver
-                          ? 'bg-slate-950 border-emerald-500/40'
-                          : 'bg-slate-950 border-amber-500/40'
-                        : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          onChange={(e) =>
-                            setMatrix((prev) => ({
-                              ...prev,
-                              [key]: { ...prev[key], checked: e.target.checked },
-                            }))
-                          }
-                          className={`w-4 h-4 rounded border-slate-700 ${
-                            isOver ? 'text-emerald-500' : 'text-amber-500'
+              {filteredCustomList.length === 0 ? (
+                <div
+                  onClick={handleCleanBlank}
+                  className="p-3.5 rounded-2xl border border-dashed border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10 cursor-pointer text-center space-y-1 transition"
+                >
+                  <FileText className="h-4 w-4 text-emerald-400 mx-auto" />
+                  <div className="text-xs font-bold text-emerald-300">Чистый бланк активен</div>
+                  <div className="text-[10px] text-slate-400">Настройте условия справа и нажмите «Сохранить»</div>
+                </div>
+              ) : (
+                filteredCustomList.map((f) => {
+                  const isSelected = f.id === selectedFilterId;
+                  const matchesCount = liveMatches.filter((m) => evaluateFilterRule(m, f).matches).length;
+
+                  return (
+                    <div
+                      key={f.id}
+                      onClick={() => setSelectedFilterId(f.id)}
+                      className={`p-3 rounded-2xl border cursor-pointer transition text-xs space-y-2 ${
+                        isSelected
+                          ? 'bg-emerald-500/15 border-emerald-500/50 shadow-md ring-1 ring-emerald-500/30'
+                          : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-bold text-white text-xs leading-snug line-clamp-2">
+                          {f.name}
+                        </div>
+                        {/* Active toggle */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSaveFilter({ ...f, enabled: !f.enabled });
+                          }}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 transition ${
+                            f.enabled
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-slate-800 text-slate-500'
                           }`}
-                        />
-                        <span className={`text-xs font-bold ${
-                          item.checked
-                            ? isOver ? 'text-emerald-400' : 'text-amber-400'
-                            : 'text-slate-300'
-                        }`}>
-                          {label}
+                          title={f.enabled ? 'Остановить фильтр' : 'Включить фильтр'}
+                        >
+                          {f.enabled ? 'ON' : 'OFF'}
+                        </button>
+                      </div>
+
+                      {f.targetMarket && (
+                        <div className="text-[10px] text-amber-300 font-mono flex items-center gap-1">
+                          <Target className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{f.targetMarket}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
+                        <span className="font-mono">
+                          {f.minMinute ?? 0}' – {f.maxMinute ?? 90}' мин
                         </span>
-                      </label>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex-1">
-                        <span className="text-[9px] text-slate-500 block text-center mb-0.5">Кэф от</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          min="1.00"
-                          value={item.min}
-                          onChange={(e) =>
-                            setMatrix((prev) => ({
-                              ...prev,
-                              [key]: { ...prev[key], min: parseFloat(e.target.value) || 1.0 },
-                            }))
-                          }
-                          disabled={!item.checked}
-                          className="w-full py-1 text-center bg-slate-900 border border-slate-800 disabled:opacity-30 rounded-lg text-xs font-mono text-cyan-300 focus:border-cyan-500 focus:outline-none"
-                        />
-                      </div>
-                      <span className="text-slate-600 text-xs mt-3">-</span>
-                      <div className="flex-1">
-                        <span className="text-[9px] text-slate-500 block text-center mb-0.5">до</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          min="1.00"
-                          value={item.max}
-                          onChange={(e) =>
-                            setMatrix((prev) => ({
-                              ...prev,
-                              [key]: { ...prev[key], max: parseFloat(e.target.value) || 1.0 },
-                            }))
-                          }
-                          disabled={!item.checked}
-                          className="w-full py-1 text-center bg-slate-900 border border-slate-800 disabled:opacity-30 rounded-lg text-xs font-mono text-cyan-300 focus:border-cyan-500 focus:outline-none"
-                        />
+                        {matchesCount > 0 ? (
+                          <span className="font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
+                            🔥 {matchesCount} LIVE
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 font-mono">0 LIVE</span>
+                        )}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
-          </div>
 
-          {/* Block 4: Сетка 9 статистических показателей */}
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Activity className="h-4 w-4 text-emerald-400" />
-                  Тактические метрики давления и матча (9 параметров)
+            {/* 2. Ready-Made Presets: Locked on FREE accounts, Unlocked on PAID */}
+            {filteredPresetList.length > 0 && (
+              <div className="space-y-1.5 pt-3 border-t border-slate-800/80">
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                  <span className="flex items-center gap-1.5">
+                    {!isPaidUser ? <Lock className="h-3 w-3 text-amber-400" /> : <Sparkles className="h-3 w-3 text-amber-400" />}
+                    Готовые стратегии ({filteredPresetList.length})
+                  </span>
+                  {!isPaidUser && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold">
+                      PRO/VIP
+                    </span>
+                  )}
+                </div>
+
+                {filteredPresetList.map((f) => {
+                  const isSelected = f.id === selectedFilterId;
+                  const matchesCount = liveMatches.filter((m) => evaluateFilterRule(m, f).matches).length;
+
+                  return (
+                    <div
+                      key={f.id}
+                      onClick={() => setSelectedFilterId(f.id)}
+                      className={`p-3 rounded-2xl border cursor-pointer transition text-xs space-y-2 ${
+                        isSelected
+                          ? !isPaidUser
+                            ? 'bg-amber-500/10 border-amber-500/50 shadow-md ring-1 ring-amber-500/30'
+                            : 'bg-emerald-500/15 border-emerald-500/50 shadow-md ring-1 ring-emerald-500/30'
+                          : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-bold text-white text-xs leading-snug line-clamp-2">
+                          {f.name}
+                        </div>
+                        {isPaidUser ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSaveFilter({ ...f, enabled: !f.enabled });
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 transition ${
+                              f.enabled
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-slate-800 text-slate-500'
+                            }`}
+                          >
+                            {f.enabled ? 'ON' : 'OFF'}
+                          </button>
+                        ) : (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1"
+                            title="Готовая стратегия доступна на тарифах PRO и VIP"
+                          >
+                            <Lock className="h-2.5 w-2.5" />
+                            <span>PRO</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {f.targetMarket && (
+                        <div className="text-[10px] text-amber-300/90 font-mono flex items-center gap-1">
+                          <Target className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{f.targetMarket}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
+                        <span className="font-mono">
+                          {f.minMinute ?? 0}' – {f.maxMinute ?? 90}' мин
+                        </span>
+                        {matchesCount > 0 ? (
+                          <span className="font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
+                            🔥 {matchesCount} LIVE
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 font-mono">0 LIVE</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* CENTER COLUMN: BetLab Step-by-Step Editor (6 cols) */}
+        <div className="lg:col-span-6 space-y-4 bg-slate-950/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">
+          {isPresetSelectedByFreeUser ? (
+            /* Locked Screen for Ready-Made Presets on Free Accounts */
+            <div className="p-6 sm:p-8 space-y-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-xl shadow-amber-950/40">
+                <Lock className="h-8 w-8" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5">
+                  <Crown className="h-3.5 w-3.5" />
+                  Готовая стратегия тарифов PRO & VIP
+                </span>
+                <h3 className="text-xl sm:text-2xl font-black text-white">
+                  {selectedRule?.name}
                 </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Заполняйте только необходимые ограничения — пустые поля игнорируются фильтром
+                <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+                  {selectedRule?.description || 'Готовый авторский алгоритм с рассчитанной математической моделью.'}
                 </p>
               </div>
 
-              {/* Category tabs */}
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-                {[
-                  { id: 'all', label: 'Все (9)' },
-                  { id: 'attacks', label: 'Атака' },
-                  { id: 'shots', label: 'Удары и голы' },
-                  { id: 'discipline', label: 'Карточки' },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setStatViewCategory(t.id as any)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
-                      statViewCategory === t.id
-                        ? 'bg-slate-800 text-emerald-400 shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Interactive Metrics Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse min-w-[720px]">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase font-bold tracking-wider bg-slate-950/70">
-                    <th className="py-2.5 px-3 rounded-l-xl">Метрика</th>
-                    <th className="py-2.5 px-2 text-center">Сторона</th>
-                    <th className="py-2.5 px-2 text-center">Условие</th>
-                    <th className="py-2.5 px-2 text-center">Порог (Δ)</th>
-                    <th className="py-2.5 px-2 text-center">Индив. К1 (min - max)</th>
-                    <th className="py-2.5 px-2 text-center">Индив. К2 (min - max)</th>
-                    <th className="py-2.5 px-3 text-center rounded-r-xl">Суммарно (min - max)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {filteredStatRows.map(({ key, label, icon }) => {
-                    const row = matrix[key] as ScannerStatRow;
-                    return (
-                      <tr key={key} className="hover:bg-slate-800/30 transition-colors">
-                        {/* Name & Icon */}
-                        <td className="py-2.5 px-3 font-semibold text-white whitespace-nowrap">
-                          <span className="mr-1.5">{icon}</span>
-                          <span>{label}</span>
-                        </td>
-
-                        {/* Side selector */}
-                        <td className="py-2.5 px-2 text-center">
-                          <div className="inline-flex items-center gap-0.5 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
-                            {(['K1', 'K2', '12'] as const).map((side) => (
-                              <button
-                                key={side}
-                                type="button"
-                                onClick={() => updateStatRow(key, { side })}
-                                className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${
-                                  row.side === side
-                                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                                    : 'text-slate-400 hover:text-white'
-                                }`}
-                                title={side === 'K1' ? 'Команда 1 (Хозяева)' : side === 'K2' ? 'Команда 2 (Гости)' : 'Обе команды'}
-                              >
-                                {side}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-
-                        {/* Operator */}
-                        <td className="py-2.5 px-2 text-center">
-                          <select
-                            value={row.operator}
-                            onChange={(e) =>
-                              updateStatRow(key, {
-                                operator: e.target.value as ScannerStatRow['operator'],
-                              })
-                            }
-                            className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-                          >
-                            <option value=">=">≥</option>
-                            <option value="<=">≤</option>
-                            <option value="==">=</option>
-                            <option value=">">&gt;</option>
-                            <option value="<">&lt;</option>
-                            <option value="DIFF">Разница</option>
-                          </select>
-                        </td>
-
-                        {/* Diff Threshold */}
-                        <td className="py-2.5 px-2 text-center">
-                          <input
-                            type="number"
-                            placeholder="—"
-                            value={row.diffThreshold ?? ''}
-                            onChange={(e) =>
-                              updateStatRow(key, {
-                                diffThreshold: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                              })
-                            }
-                            className="w-14 px-1.5 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-amber-300 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                          />
-                        </td>
-
-                        {/* Indiv K1 [min - max] */}
-                        <td className="py-2.5 px-2 text-center">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              placeholder="min"
-                              value={row.ind1Min ?? ''}
-                              onChange={(e) =>
-                                updateStatRow(key, {
-                                  ind1Min: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                                })
-                              }
-                              className="w-12 px-1 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                            />
-                            <span className="text-slate-600">-</span>
-                            <input
-                              type="number"
-                              placeholder="max"
-                              value={row.ind1Max ?? ''}
-                              onChange={(e) =>
-                                updateStatRow(key, {
-                                  ind1Max: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                                })
-                              }
-                              className="w-12 px-1 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                            />
-                          </div>
-                        </td>
-
-                        {/* Indiv K2 [min - max] */}
-                        <td className="py-2.5 px-2 text-center">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              placeholder="min"
-                              value={row.ind2Min ?? ''}
-                              onChange={(e) =>
-                                updateStatRow(key, {
-                                  ind2Min: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                                })
-                              }
-                              className="w-12 px-1 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-blue-400 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                            />
-                            <span className="text-slate-600">-</span>
-                            <input
-                              type="number"
-                              placeholder="max"
-                              value={row.ind2Max ?? ''}
-                              onChange={(e) =>
-                                updateStatRow(key, {
-                                  ind2Max: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                                })
-                              }
-                              className="w-12 px-1 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-blue-400 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                            />
-                          </div>
-                        </td>
-
-                        {/* Total [min - max] */}
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              placeholder="min"
-                              value={row.totalMin ?? ''}
-                              onChange={(e) =>
-                                updateStatRow(key, {
-                                  totalMin: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                                })
-                              }
-                              className="w-12 px-1 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-cyan-300 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                            />
-                            <span className="text-slate-600">-</span>
-                            <input
-                              type="number"
-                              placeholder="max"
-                              value={row.totalMax ?? ''}
-                              onChange={(e) =>
-                                updateStatRow(key, {
-                                  totalMax: e.target.value === '' ? undefined : parseFloat(e.target.value),
-                                })
-                              }
-                              className="w-12 px-1 py-1 text-center bg-slate-950 border border-slate-800 rounded-lg text-xs text-cyan-300 font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-700"
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Strategy Configuration & Saved Presets */}
-        <div className="lg:col-span-4 space-y-5">
-          {/* Strategy Meta Card */}
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
-                Параметры стратегии
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                Live Trigger
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-300 block mb-1">
-                  Название стратегии:
-                </label>
-                <input
-                  type="text"
-                  value={filterName}
-                  onChange={(e) => setFilterName(e.target.value)}
-                  placeholder="Введите понятное название стратегии..."
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition shadow-inner"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-300 block mb-1">
-                  Целевой исход (рекомендация для ставки):
-                </label>
-                <input
-                  type="text"
-                  value={targetMarket}
-                  onChange={(e) => setTargetMarket(e.target.value)}
-                  placeholder="например: ТБ 0.5 во 2-м тайме / Победа 1"
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-emerald-400 placeholder-slate-500 focus:outline-none font-medium transition shadow-inner"
-                />
-              </div>
-
-              {/* Bot selection */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1">
-                    <Bot className="h-3.5 w-3.5 text-cyan-400" />
-                    Telegram бот:
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setTelegramEnabled(!telegramEnabled)}
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-lg transition border ${
-                      telegramEnabled
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                        : 'bg-slate-800 text-slate-500 border-slate-700'
-                    }`}
-                  >
-                    {telegramEnabled ? 'Уведомления: ВКЛ' : 'Уведомления: ВЫКЛ'}
-                  </button>
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left text-xs space-y-2.5 max-w-md mx-auto text-slate-300">
+                <div className="font-bold text-white flex items-center gap-1.5 pb-1 border-b border-slate-800">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  Возможности тарифов:
                 </div>
-                <select
-                  value={selectedBotId}
-                  onChange={(e) => setSelectedBotId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-xl px-3 py-2 text-xs text-cyan-300 focus:outline-none"
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                  <span><strong>Тариф FREE:</strong> настройка собственных фильтров с чистого бланка по 20+ метрикам.</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <span><strong>Тарифы PRO & VIP:</strong> доступ ко всей библиотеке готовых авторских алгоритмов сервиса + до 5-15 ботов.</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCleanBlank}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition active:scale-95"
                 >
-                  <option value="">🤖 Основной Telegram бот по умолчанию</option>
-                  {userBots.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      🤖 {b.name}
-                    </option>
-                  ))}
-                </select>
+                  <FileText className="h-4 w-4" />
+                  <span>Создать свой фильтр (Чистый бланк)</span>
+                </button>
+                {onUpgradePlan && (
+                  <button
+                    type="button"
+                    onClick={onUpgradePlan}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition active:scale-95"
+                  >
+                    <Crown className="h-4 w-4" />
+                    <span>Разблокировать в тарифе PRO</span>
+                  </button>
+                )}
               </div>
             </div>
+          ) : (
+            <>
+              {/* Editor Header: Name & Target Market with Clean Blank button */}
+              <div className="space-y-3 pb-4 border-b border-slate-800">
+                <div className="flex items-center justify-between gap-3">
+                  <input
+                    type="text"
+                    value={filterName}
+                    onChange={(e) => setFilterName(e.target.value)}
+                    placeholder="Введите название фильтра (например: Гол на 75-й минуте)..."
+                    className="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none"
+                  />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleCleanBlank}
+                      className="px-2.5 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 transition text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                      title="Очистить все параметры в чистый бланк с нуля"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-teal-400" />
+                      <span className="hidden sm:inline">Чистый бланк</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDuplicate}
+                      className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition"
+                      title="Клонировать эту стратегию"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    {selectedFilterId && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(selectedFilterId)}
+                        className="p-2 rounded-xl bg-slate-900 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 border border-slate-800 transition"
+                        title="Удалить стратегию"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-            {/* Action Buttons */}
-            <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                      🎯 Целевой исход (на что делать ставку):
+                    </label>
+                    <input
+                      type="text"
+                      value={targetMarket}
+                      onChange={(e) => setTargetMarket(e.target.value)}
+                      placeholder="Например: ТБ 0.5 во 2-м тайме / Победа фаворита"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-bold focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                      📱 Telegram бот для уведомлений:
+                    </label>
+                    <select
+                      value={selectedBotId}
+                      onChange={(e) => setSelectedBotId(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      <option value="">Бот по умолчанию (Главный канал)</option>
+                      {userBots.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          🤖 {b.name} (@{b.botToken.slice(0, 10)}...)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+          {/* BetLab Navigation Tabs (Step-by-step workflow) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs border-b border-slate-800">
+            {[
+              { id: 'time_score', label: '⏱️ Время и Счёт' },
+              { id: 'stats', label: '📊 Live-Статистика' },
+              { id: 'odds', label: '💰 Кэфы & Smart Money' },
+              { id: 'history', label: '📜 Серии & H2H' },
+              { id: 'leagues', label: '🌍 Лиги & Турниры' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveStepTab(tab.id as any)}
+                className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                  activeStepTab === tab.id
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-850'
+                }`}
+              >
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* TAB 1: ВРЕМЯ И СЧЁТ (BetLab Time & Score block) */}
+          {activeStepTab === 'time_score' && (
+            <div className="space-y-4 pt-1">
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-white flex items-center gap-1.5">
+                    <Clock className="h-4 w-4 text-sky-400" />
+                    Минуты матча (Интервал сканирования):
+                  </span>
+                  <span className="font-mono font-bold text-sky-400 text-sm bg-sky-950/80 px-2 py-0.5 rounded border border-sky-500/30">
+                    {matrix.minuteRange.min}' – {matrix.minuteRange.max}' мин
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-semibold">От минуты:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="90"
+                      value={matrix.minuteRange.min}
+                      onChange={(e) =>
+                        setMatrix({
+                          ...matrix,
+                          minuteRange: { ...matrix.minuteRange, min: Number(e.target.value) },
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-semibold">До минуты:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="90"
+                      value={matrix.minuteRange.max}
+                      onChange={(e) =>
+                        setMatrix({
+                          ...matrix,
+                          minuteRange: { ...matrix.minuteRange, max: Number(e.target.value) },
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Minute Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[10px] text-slate-500 font-semibold">Быстрый выбор:</span>
+                  {[
+                    { label: '70-88\' (Концовка)', min: 70, max: 88 },
+                    { label: '75-90\' (Штурм)', min: 75, max: 90 },
+                    { label: '15-40\' (1-й тайм)', min: 15, max: 40 },
+                    { label: '50-70\' (Старт 2Т)', min: 50, max: 70 },
+                    { label: '0-90\' (Весь матч)', min: 0, max: 90 },
+                  ].map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() =>
+                        setMatrix({
+                          ...matrix,
+                          minuteRange: { checked: true, min: p.min, max: p.max },
+                        })
+                      }
+                      className="px-2 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-[10px] text-slate-300 border border-slate-800 transition"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Score condition tags */}
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="text-xs font-bold text-white flex items-center justify-between">
+                  <span>Условие текущего счёта в матче:</span>
+                  <span className="text-[10px] text-emerald-400 font-mono">
+                    Выбрано: {scoreConditionChoice}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  {[
+                    { id: 'TOTAL_UNDER_25', label: 'ТБ 2.5 не пробит', desc: '≤ 2 голов' },
+                    { id: '0-0', label: 'Строго 0:0', desc: 'Сухая игра' },
+                    { id: 'DRAW', label: 'Любая ничья', desc: '0:0, 1:1, 2:2' },
+                    { id: 'ONE_GOAL_DIFF', label: 'Разница в 1 гол', desc: '1:0, 2:1, 0:1' },
+                    { id: 'HOME_LEAD', label: 'К1 (Хозяева) ведут', desc: 'Побеждают' },
+                    { id: 'AWAY_LEAD', label: 'К2 (Гости) ведут', desc: 'Побеждают' },
+                    { id: 'TOTAL_UNDER_2', label: 'ТМ 2.5', desc: '≤ 2 голов' },
+                    { id: 'ANY', label: 'Любой счёт', desc: 'Без ограничений' },
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setScoreConditionChoice(s.id)}
+                      className={`p-2 rounded-xl border text-left transition ${
+                        scoreConditionChoice === s.id
+                          ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">{s.label}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{s.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Maximum total goals input */}
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
+                  <span className="text-slate-300">Максимум голов в матче (тотал ≤):</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    value={exactTotalGoals ?? ''}
+                    onChange={(e) =>
+                      setExactTotalGoals(e.target.value === '' ? undefined : Number(e.target.value))
+                    }
+                    placeholder="2 (не более 2 голов)"
+                    className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs text-white text-center font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: LIVE-СТАТИСТИКА (BetLab Stats Matrix) */}
+          {activeStepTab === 'stats' && (
+            <div className="space-y-3 pt-1">
+              <div className="text-xs text-slate-400 pb-1">
+                Настройте пороги по ключевым показателям игры. Система проверит их автоматически:
+              </div>
+
+              {/* 1. Dangerous Attacks */}
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <Flame className="h-4 w-4 text-emerald-400" />
+                    Опасные атаки (Главный индикатор гола)
+                  </span>
+                  <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                    {matrix.dangerousAttacks.side === 'K1' ? 'К1 (Хозяева)' : 'Обе команды'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Сторона:</label>
+                    <select
+                      value={matrix.dangerousAttacks.side}
+                      onChange={(e) => updateStatRow('dangerousAttacks', { side: e.target.value as any })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                    >
+                      <option value="K1">К1 (Хозяева)</option>
+                      <option value="K2">К2 (Гости)</option>
+                      <option value="12">Сумма (К1+К2)</option>
+                      <option value="FAVORITE">Фаворит матча</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Разница (К1 - К2) ≥:</label>
+                    <input
+                      type="number"
+                      placeholder="Например: 15"
+                      value={matrix.dangerousAttacks.diffThreshold ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('dangerousAttacks', {
+                          diffThreshold: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Всего за матч ≥:</label>
+                    <input
+                      type="number"
+                      placeholder="Например: 45"
+                      value={matrix.dangerousAttacks.totalMin ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('dangerousAttacks', {
+                          totalMin: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Shots on target */}
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <Target className="h-4 w-4 text-amber-400" />
+                    Удары в створ ворот
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Ударов в створ всего (≥):</label>
+                    <input
+                      type="number"
+                      placeholder="Например: 4"
+                      value={matrix.shotsOnTarget.totalMin ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('shotsOnTarget', {
+                          totalMin: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Разница ударов в створ (≥):</label>
+                    <input
+                      type="number"
+                      placeholder="Например: 3"
+                      value={matrix.shotsOnTarget.diffThreshold ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('shotsOnTarget', {
+                          diffThreshold: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Corners */}
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <Zap className="h-4 w-4 text-sky-400" />
+                    Угловые удары (Стандарты)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Угловых всего (≥):</label>
+                    <input
+                      type="number"
+                      placeholder="Например: 6"
+                      value={matrix.corners.totalMin ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('corners', {
+                          totalMin: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Разница угловых (≥):</label>
+                    <input
+                      type="number"
+                      placeholder="Например: 3"
+                      value={matrix.corners.diffThreshold ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('corners', {
+                          diffThreshold: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. xG Model */}
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <Activity className="h-4 w-4 text-purple-400" />
+                    Модель xG (Ожидаемые голы)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Суммарный xG матча (≥):</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="1.4"
+                      value={matrix.xgTotal?.totalMin ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('xgTotal', {
+                          totalMin: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">xG дефицит над счётом (≥):</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="+1.0"
+                      value={matrix.xgDeficit?.totalMin ?? ''}
+                      onChange={(e) =>
+                        updateStatRow('xgDeficit', {
+                          totalMin: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: КОЭФФИЦИЕНТЫ И SMART MONEY */}
+          {activeStepTab === 'odds' && (
+            <div className="space-y-4 pt-1">
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <TrendingDown className="h-4 w-4 text-rose-400" />
+                  Smart Money: Денежный прогруз биржи (Steam Move)
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Падение кэфа от (%):</label>
+                    <input
+                      type="number"
+                      placeholder="15 (%)"
+                      value={matrix.favoriteCondition?.maxOdds ? 15 : ''}
+                      onChange={() => {}}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Доля денег в пуле (≥ %):</label>
+                    <input
+                      type="number"
+                      placeholder="65 (% пула)"
+                      defaultValue={65}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Odds corridors */}
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="font-bold text-white text-xs">Коридоры коэффициентов:</div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-[10px] text-slate-400">Кэф на ТБ 2.5 (максимум):</label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      placeholder="1.95"
+                      defaultValue={1.95}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Кэф на фаворита (максимум):</label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      placeholder="1.70"
+                      defaultValue={1.70}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: СЕРИИ & H2H */}
+          {activeStepTab === 'history' && (
+            <div className="space-y-4 pt-1">
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <History className="h-4 w-4 text-indigo-400" />
+                  Исторические серии и очные встречи (H2H)
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input type="checkbox" defaultChecked className="accent-emerald-500" />
+                    <span>Серия ТБ 2.5 в очных матчах (минимум 4 из 5)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input type="checkbox" defaultChecked className="accent-emerald-500" />
+                    <span>Серия без счёта 0:0 за последние 5 туров</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input type="checkbox" className="accent-emerald-500" />
+                    <span>Два быстрых гола в 1-м тайме (паттерн гола после 75')</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: ЛИГИ & ТУРНИРЫ */}
+          {activeStepTab === 'leagues' && (
+            <div className="space-y-4 pt-1">
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <Globe className="h-4 w-4 text-teal-400" />
+                  Фильтр лиг и чемпионатов
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input type="checkbox" defaultChecked className="accent-emerald-500" />
+                    <span>Исключить молодёжные первенства (U18, U19, U21, Reserves)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input type="checkbox" defaultChecked className="accent-emerald-500" />
+                    <span>Исключить женский футбол</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input type="checkbox" defaultChecked className="accent-emerald-500" />
+                    <span>Включить топ-чемпионаты Европы (EPL, La Liga, Serie A, Bundesliga, RPL)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Save Action Bar */}
+          <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <span className="text-[11px] text-slate-400">
+              {matchingMatches.length > 0 ? (
+                <span className="text-emerald-400 font-bold">
+                  🟢 Прямо сейчас совпадает: {matchingMatches.length} live-матчей
+                </span>
+              ) : (
+                '⏳ Ожидание наступления условий в live'
+              )}
+            </span>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
               <button
                 type="button"
-                onClick={handleUpdate}
-                className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-md shadow-emerald-950/40"
+                onClick={handleCleanBlank}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-teal-300 border border-teal-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                title="Очистить все параметры в чистый бланк"
               >
-                <Save className="h-4 w-4" />
-                <span>Сохранить изменения</span>
+                <FileText className="h-4 w-4 text-teal-400" />
+                <span>Чистый бланк</span>
               </button>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleAddNew}
-                  className="py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 border border-slate-700"
-                >
-                  <Plus className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Как новый</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={!selectedFilterId}
-                  className="py-2 bg-slate-900 hover:bg-rose-950/40 disabled:opacity-30 text-slate-400 hover:text-rose-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 border border-slate-800 hover:border-rose-800/50"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-rose-400" />
-                  <span>Удалить</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleSave}
+                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/60 transition active:scale-95"
+              >
+                <Save className="h-4 w-4" />
+                <span>Сохранить и запустить</span>
+              </button>
             </div>
           </div>
+          </>
+          )}
+        </div>
 
-          {/* Saved Filters Selector */}
-          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-3 shadow-sm flex-1 flex flex-col">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Layers className="h-3.5 w-3.5 text-cyan-400" />
-                Сохраненные фильтры
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono bg-slate-950 px-2 py-0.5 rounded-md border border-slate-800">
-                {filters.length} шт.
+        {/* RIGHT COLUMN: Live Match Scanner & Real-Time Test (3 cols) */}
+        <div className="lg:col-span-3 space-y-4 bg-slate-950/90 border border-slate-800 rounded-3xl p-4 shadow-xl">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+            <div className="flex items-center gap-1.5">
+              <Radar className="h-4 w-4 text-emerald-400 animate-spin-slow" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Живой тест
               </span>
             </div>
+            <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              {matchingMatches.length} / {liveEvaluationResults.length} совпало
+            </span>
+          </div>
 
-            <div className="space-y-1.5 overflow-y-auto max-h-[260px] pr-1 scrollbar-thin">
-              {filters.map((f) => {
-                const isSelected = selectedFilterId === f.id;
-                return (
-                  <div
-                    key={f.id}
-                    onClick={() => setSelectedFilterId(f.id)}
-                    className={`p-2.5 rounded-xl text-xs cursor-pointer flex items-center justify-between transition-all border ${
-                      isSelected
-                        ? 'bg-slate-800/90 border-emerald-500/50 text-white shadow-sm'
-                        : 'bg-slate-950/50 border-slate-800/70 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                    }`}
-                  >
-                    <div className="truncate pr-2 font-medium">
-                      <span>{f.name}</span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span
-                        className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                          f.enabled
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-slate-800 text-slate-500'
-                        }`}
-                      >
-                        {f.enabled ? 'АКТИВЕН' : 'ПАУЗА'}
-                      </span>
-                    </div>
+          <div className="text-[11px] text-slate-400 leading-relaxed">
+            Показывает в реальном времени, какие матчи прямо сейчас проходят по вашему фильтру:
+          </div>
+
+          {/* Matches List */}
+          <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
+            {matchingMatches.length > 0 ? (
+              matchingMatches.map(({ match, evaluation }) => (
+                <div
+                  key={match.id}
+                  className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/50 text-xs space-y-2 shadow-md"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white">
+                      {match.homeTeam} <span className="text-emerald-400">{match.score[0]}:{match.score[1]}</span> {match.awayTeam}
+                    </span>
+                    <span className="font-mono text-emerald-400 font-bold bg-emerald-500/20 px-1.5 py-0.5 rounded text-[10px]">
+                      {match.minute}'
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="text-[10px] text-emerald-300 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    <span>Все условия выполнены! Сигнал готов</span>
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 pt-1 border-t border-emerald-500/30 font-mono">
+                    Оп. атаки: {match.stats.dangerousAttacks[0]}-{match.stats.dangerousAttacks[1]} | xG: {match.stats.xg[0].toFixed(2)}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-1.5 text-slate-400">
+                <div className="text-xs font-bold text-slate-300">Нет 100% совпадений</div>
+                <p className="text-[10px] text-slate-500">
+                  Матчи ниже почти подошли, но им не хватило нескольких показателей:
+                </p>
+              </div>
+            )}
+
+            {/* Partial matches */}
+            {partialMatches.slice(0, 4).map(({ match, evaluation }) => (
+              <div
+                key={match.id}
+                className="p-3 rounded-2xl bg-slate-900/50 border border-slate-800/80 text-xs space-y-1.5 opacity-90"
+              >
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="font-semibold truncate max-w-[140px]">
+                    {match.homeTeam} vs {match.awayTeam}
+                  </span>
+                  <span className="font-mono text-slate-400 text-[10px]">{match.minute}' ({match.score[0]}:{match.score[1]})</span>
+                </div>
+
+                {evaluation.unmetCriteria && evaluation.unmetCriteria.length > 0 && (
+                  <div className="text-[10px] text-amber-400 font-medium">
+                    ⚠️ Ждём: {evaluation.unmetCriteria[0]}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
+
       </div>
     </div>
   );

@@ -1,3 +1,15 @@
+export type SportType = 'football' | 'hockey' | 'basketball' | 'volleyball' | 'tennis' | 'table_tennis';
+
+export interface RecentMatchRecord {
+  date: string;
+  opponent: string;
+  isHome: boolean;
+  score: [number, number];
+  totalGoals: number;
+  isOver25: boolean;
+  league?: string;
+}
+
 export interface MatchStats {
   possession: [number, number];
   dangerousAttacks: [number, number];
@@ -20,10 +32,14 @@ export interface Match {
   score: [number, number];
   minute: number;
   status: 'LIVE' | 'HT' | 'FT' | 'PREMATCH';
+  sport?: SportType;
   source: 'Flashscore' | 'Sofascore' | 'SStats' | 'API-Football' | 'Football-Data' | 'The-Odds-API' | 'Custom-Webhook' | 'Public-Feed';
   startTime?: string;
   startsInMinutes?: number;
   prematchAnalysisConducted?: boolean;
+  h2hMatches?: RecentMatchRecord[];
+  team1RecentMatches?: RecentMatchRecord[];
+  team2RecentMatches?: RecentMatchRecord[];
   stats: MatchStats;
   momentum: number[];
   lastEvent: string;
@@ -135,11 +151,37 @@ export interface FilterRule {
   description: string;
   category?: FilterCategory;
   ruleType?: 'LIVE' | 'PREMATCH' | 'HYBRID'; // Тип стратегии: Лайв или Предматчевый отбор
+  sport?: SportType; // Вид спорта (football, hockey, basketball, volleyball, tennis, table_tennis)
   prematchTimingMinutes?: number; // За сколько минут до матча проводить анализ (по умолчанию 60 мин / 1 час)
   enabled: boolean;
   minMinute: number;
   maxMinute: number;
   scoreCondition: ScoreCondition;
+
+  // Точные параметры счёта и количества голов (по запросу пользователя)
+  exactScore?: string;              // Например '0:0', '1:0', '1:1', '2:1'
+  exactHomeGoals?: number;          // Точное количество голов Хозяев (К1) = N
+  exactAwayGoals?: number;          // Точное количество голов Гостей (К2) = N
+  exactTotalGoals?: number;         // Точный суммарный тотал голов = N (например ровно 2)
+
+  // Предматчевый анализ и ежедневный сигнал (Daily Prematch Digest)
+  prematchAnalysisEnabled?: boolean;
+  prematchAlertDailyTime?: string;        // Время отправки ежедневного сигнала (например '10:00', '12:30')
+  prematchMinOddsHome?: number;           // Коридор кэфов П1 мин
+  prematchMaxOddsHome?: number;           // Коридор кэфов П1 макс
+  prematchMinOddsDraw?: number;           // Коридор кэфов Х (ничья) мин
+  prematchMaxOddsDraw?: number;           // Коридор кэфов Х (ничья) макс
+  prematchMinOddsAway?: number;           // Коридор кэфов П2 мин
+  prematchMaxOddsAway?: number;           // Коридор кэфов П2 макс
+  prematchMinOddsOver25?: number;         // Коридор кэфов ТБ 2.5 мин
+  prematchMaxOddsOver25?: number;         // Коридор кэфов ТБ 2.5 макс
+  prematchH2hMatchesCount?: number;       // Сколько последних очных матчей учитывать (5 или 10)
+  prematchH2hOver25MinHits?: number;      // В скольких из них пробит ТБ 2.5 (например >= 3 из 5)
+  prematchTeamRecentMatchesCount?: number;// Сколько последних матчей команд с другими учитывать (5 или 10)
+  prematchTeam1Over25MinHits?: number;    // В скольких матчах К1 пробит ТБ 2.5
+  prematchTeam2Over25MinHits?: number;    // В скольких матчах К2 пробит ТБ 2.5
+  prematchNotifyOnceDaily?: boolean;      // Отправлять строго 1 раз в сутки
+
   minDangerousAttacksDiff?: number;
   minDangerousAttacksTotal?: number;
   minAttacksDiff?: number;
@@ -214,6 +256,7 @@ export interface FilterRule {
   telegramEnabled: boolean;
   color: string;
   isPreset?: boolean;
+  requiredPlan?: 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
 
   // Привязка бота к фильтру (пользовательский бот или кастомные реквизиты)
   botId?: string;             // ID привязанного бота из личного кабинета (например, 'bot-main', 'bot-corners')
@@ -225,7 +268,7 @@ export interface FilterRule {
   scannerMatrix?: ScannerMatrixConfig;
 }
 
-export type StatSideChoice = 'K1' | 'K2' | '12';
+export type StatSideChoice = 'K1' | 'K2' | '12' | 'FAVORITE' | 'UNDERDOG';
 
 export interface ScannerStatRow {
   side: StatSideChoice;
@@ -237,12 +280,32 @@ export interface ScannerStatRow {
   ind2Max?: number;
   totalMin?: number;
   totalMax?: number;
+  // Dynamic time-window stats
+  last5MinMin?: number;
+  last10MinMin?: number;
+  last15MinMin?: number;
+  half1Min?: number;
+  half2Min?: number;
 }
 
 export interface ScannerOddsItem {
   checked: boolean;
   min: number;
   max: number;
+}
+
+export interface HistoricalStreakConfig {
+  checked: boolean;
+  matchesCount: number; // e.g. 5, 6, 10
+  targetSide: 'K1' | 'K2' | 'ANY' | 'FAVORITE';
+  minWins?: number;
+  maxLosses?: number;
+  minDraws?: number;
+  minGoalsScored?: number;
+  maxGoalsConceded?: number;
+  bothTeamsScoredHits?: number;
+  over25Hits?: number;
+  zeroZeroCount?: number;
 }
 
 export interface ScannerMatrixConfig {
@@ -262,15 +325,35 @@ export interface ScannerMatrixConfig {
     max: number;
   };
 
-  // Тоталы
+  // Добавленное время
+  addedTime1H?: { checked: boolean; min: number; max: number };
+  addedTime2H?: { checked: boolean; min: number; max: number };
+
+  // Лиги и фильтрация турниров
+  excludedLeagues?: string[];
+  includedLeagueGroups?: string[]; // Championship, Cups, Friendly, Juniors, Women, Europe
+
+  // Тоталы матча и 1-го тайма
   tb05: ScannerOddsItem;
   tb15: ScannerOddsItem;
   tb25: ScannerOddsItem;
   tm05: ScannerOddsItem;
   tm15: ScannerOddsItem;
   tm25: ScannerOddsItem;
+  tb15_1h?: ScannerOddsItem;
+  tm15_1h?: ScannerOddsItem;
+  bttsYes?: ScannerOddsItem;
+  bttsNo?: ScannerOddsItem;
 
-  // 9 статистических строк
+  // Фаворит состояние
+  favoriteCondition?: {
+    enabled: boolean;
+    maxOdds?: number;
+    state?: 'LOSING' | 'WINNING' | 'DRAW' | 'ANY';
+    location?: 'HOME' | 'AWAY' | 'ANY';
+  };
+
+  // 9 статистических строк + интенсивность
   goals: ScannerStatRow;
   attacks: ScannerStatRow;
   dangerousAttacks: ScannerStatRow;
@@ -280,6 +363,21 @@ export interface ScannerMatrixConfig {
   corners: ScannerStatRow;
   yellowCards: ScannerStatRow;
   redCards: ScannerStatRow;
+
+  // Интенсивность за последние 10 мин и за матч
+  intensity10m?: ScannerStatRow;
+  intensityMatch?: ScannerStatRow;
+
+  // Исторические серии последних N матчей (H2H, Форма, Тоталы)
+  historyForm?: HistoricalStreakConfig;
+  historyGoals?: HistoricalStreakConfig;
+  historyTotals?: HistoricalStreakConfig;
+
+  // Расширенная xG динамика и ожидаемые голы
+  xgTotal?: ScannerStatRow;
+  xgDiff?: ScannerStatRow;
+  xgDeficit?: ScannerStatRow; // xG - Голы
+  xgMomentum15m?: ScannerStatRow; // xG темп за последние 15 минут
 }
 
 export type SignalOutcome = 'WIN' | 'LOSS' | 'PENDING' | 'REFUND';

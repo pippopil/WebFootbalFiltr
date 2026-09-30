@@ -52,6 +52,7 @@ import {
   SlidersHorizontal,
   TableProperties,
   LayoutGrid,
+  Calendar,
   ChevronRight,
   ChevronLeft,
   ChevronDown,
@@ -64,7 +65,11 @@ import {
   Moon,
   LogOut,
   Crown,
+  GraduationCap,
+  FileText,
+  Lock,
 } from 'lucide-react';
+import { createCleanBlankFilter, isUserPaid } from './utils/filterDefaults';
 
 import {
   Match,
@@ -82,6 +87,7 @@ import {
   TelegramBotProfile,
   AdBannerItem,
   OddsDropData,
+  SportType,
 } from './types';
 import { EXPANDED_DEFAULT_FILTERS } from './data/defaultFilters';
 import { DEFAULT_USERS } from './data/defaultUsers';
@@ -109,6 +115,9 @@ import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
 import { saveMatchesToAccumulatedLiveDB } from './services/liveMatchesDatabase';
 import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
+import { PrematchScannerView } from './components/PrematchScannerView';
+import { AIStrategySynthesizerModal } from './components/AIStrategySynthesizerModal';
+import { EducationGuideView } from './components/EducationGuideView';
 // import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
@@ -733,6 +742,229 @@ const INITIAL_MATCHES: Match[] = [
       h2hOver15Pct: 75,
     },
   },
+  {
+    id: 'm-hockey-1',
+    country: 'Russia',
+    countryCode: '🇷🇺',
+    league: 'KHL (КХЛ)',
+    homeTeam: 'СКА Санкт-Петербург',
+    awayTeam: 'ЦСКА Москва',
+    score: [2, 3],
+    minute: 56,
+    status: 'LIVE',
+    sport: 'hockey',
+    source: 'Flashscore',
+    stats: {
+      possession: [54, 46],
+      dangerousAttacks: [48, 38],
+      attacks: [88, 72],
+      shotsOnTarget: [28, 22],
+      shotsOffTarget: [14, 10],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [2.85, 3.10],
+    },
+    momentum: [10, 20, 40, -10, 30, 50, 70],
+    lastEvent: "55' СКА снимает вратаря! Штурм в 6 полевых игроков",
+    odds: {
+      home: 2.80,
+      draw: 4.10,
+      away: 1.85,
+      over25: 1.15,
+      over35: 1.75,
+    },
+    history: {
+      homeLast5NoZeroZero: true,
+      awayLast5NoZeroZero: true,
+      h2hOver15Pct: 90,
+    },
+  },
+  {
+    id: 'm-hockey-2',
+    country: 'USA / Canada',
+    countryCode: '🇺🇸',
+    league: 'NHL (НХЛ)',
+    homeTeam: 'Tampa Bay Lightning',
+    awayTeam: 'Florida Panthers',
+    score: [0, 0],
+    minute: 0,
+    status: 'PREMATCH',
+    sport: 'hockey',
+    startTime: 'Сегодня в 20:00',
+    startsInMinutes: 60,
+    source: 'Flashscore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [0, 0],
+      attacks: [0, 0],
+      shotsOnTarget: [0, 0],
+      shotsOffTarget: [0, 0],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [0, 0],
+    },
+    momentum: [0, 0, 0, 0],
+    lastEvent: "До матча: 1 час (20:00). Линия прогружена на ТБ 5.5",
+    odds: {
+      home: 2.25,
+      draw: 4.20,
+      away: 2.50,
+      over25: 1.78,
+    },
+    history: {
+      homeLast5NoZeroZero: true,
+      awayLast5NoZeroZero: true,
+      h2hOver15Pct: 85,
+      homeOver25CountLast5: 4,
+      awayOver25CountLast5: 5,
+    },
+  },
+  {
+    id: 'm-basketball-1',
+    country: 'Europe',
+    countryCode: '🇪🇺',
+    league: 'EuroLeague',
+    homeTeam: 'Real Madrid',
+    awayTeam: 'Barcelona',
+    score: [78, 82],
+    minute: 38,
+    status: 'LIVE',
+    sport: 'basketball',
+    source: 'Flashscore',
+    stats: {
+      possession: [51, 49],
+      dangerousAttacks: [60, 62],
+      attacks: [95, 98],
+      shotsOnTarget: [34, 37],
+      shotsOffTarget: [22, 19],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [1.2, 1.3],
+    },
+    momentum: [15, -20, 30, 45, -15, 60],
+    lastEvent: "38' 4-я четверть: тактические фолы, пробитие штрафных",
+    odds: {
+      home: 2.10,
+      draw: 15.0,
+      away: 1.75,
+      over25: 1.85,
+    },
+    history: {
+      h2hOver15Pct: 80,
+    },
+  },
+  {
+    id: 'm-tennis-1',
+    country: 'ATP Tour',
+    countryCode: '🎾',
+    league: 'ATP Masters 1000',
+    homeTeam: 'Carlos Alcaraz',
+    awayTeam: 'Jannik Sinner',
+    score: [1, 1],
+    minute: 74,
+    status: 'LIVE',
+    sport: 'tennis',
+    source: 'Flashscore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [24, 26],
+      attacks: [45, 48],
+      shotsOnTarget: [12, 14],
+      shotsOffTarget: [8, 7],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [1.1, 1.2],
+    },
+    momentum: [20, -10, 40, -30, 50],
+    lastEvent: "Решающий 3-й сет: брейк-поинты у Алькараса",
+    odds: {
+      home: 1.85,
+      draw: 25.0,
+      away: 1.95,
+      over25: 1.70,
+    },
+    history: {
+      h2hOver15Pct: 85,
+    },
+  },
+  {
+    id: 'm-volleyball-1',
+    country: 'Europe',
+    countryCode: '🏐',
+    league: 'Champions League',
+    homeTeam: 'Zenit Kazan',
+    awayTeam: 'Sir Safety Perugia',
+    score: [23, 23],
+    minute: 32,
+    status: 'LIVE',
+    sport: 'volleyball',
+    source: 'Flashscore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [18, 18],
+      attacks: [30, 30],
+      shotsOnTarget: [14, 14],
+      shotsOffTarget: [4, 4],
+      corners: [0, 0],
+      yellowCards: [1, 1],
+      redCards: [0, 0],
+      xg: [0, 0],
+    },
+    momentum: [10, -10, 20, -20, 10],
+    lastEvent: "4-я партия: счёт 23:23, выход на баланс (ТБ 45.5)",
+    odds: {
+      home: 1.90,
+      draw: 30.0,
+      away: 1.90,
+      over25: 1.80,
+    },
+    history: {
+      h2hOver15Pct: 80,
+    },
+  },
+  {
+    id: 'm-football-prematch-today',
+    country: 'England',
+    countryCode: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    league: 'Premier League',
+    homeTeam: 'Manchester City',
+    awayTeam: 'Liverpool',
+    score: [0, 0],
+    minute: 0,
+    status: 'PREMATCH',
+    sport: 'football',
+    startTime: 'Сегодня в 19:30',
+    startsInMinutes: 45,
+    source: 'Flashscore',
+    stats: {
+      possession: [50, 50],
+      dangerousAttacks: [0, 0],
+      attacks: [0, 0],
+      shotsOnTarget: [0, 0],
+      shotsOffTarget: [0, 0],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [0, 0],
+    },
+    momentum: [0, 0, 0, 0],
+    lastEvent: "Сегодня в 19:30. Очные матчи: ТБ 2.5 в 4 из 5 (80%)",
+    odds: {
+      home: 1.85,
+      draw: 3.80,
+      away: 4.10,
+      over25: 1.65,
+    },
+    history: {
+      h2hOver15Pct: 80,
+      homeOver25CountLast5: 4,
+      awayOver25CountLast5: 4,
+    },
+  },
 ];
 
 export default function App() {
@@ -839,6 +1071,8 @@ export default function App() {
     return allUsers.find((u) => u.id === currentUserId) || allUsers[0] || DEFAULT_USERS[0];
   }, [allUsers, currentUserId]);
 
+  const isPaidUser = useMemo(() => isUserPaid(currentUser), [currentUser]);
+
   // Ads state with persistence
   const [ads, setAds] = useState<AdBannerItem[]>(() => {
     try {
@@ -937,6 +1171,8 @@ export default function App() {
   // Persistent filters isolated per user (Only run filters explicitly launched by the user)
   const [filters, setFilters] = useState<FilterRule[]>(() => {
     const uid = localStorage.getItem('footbalmonitor_current_user_id') || DEFAULT_USERS[0].id;
+    const initialUser = DEFAULT_USERS.find((u) => u.id === uid) || DEFAULT_USERS[0];
+    const isFree = initialUser.plan === 'FREE';
     const userSaved = localStorage.getItem(`footbalmonitor_filters_user_${uid}`);
     const migrationFlag = localStorage.getItem('footbalmonitor_user_launched_only_v2');
 
@@ -944,6 +1180,13 @@ export default function App() {
       try {
         const parsed = JSON.parse(userSaved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          if (isFree) {
+            // For free accounts, show ONLY their own custom filters (starting from clean blank)
+            const customOnly = parsed.filter((p: FilterRule) => !p.isPreset);
+            if (customOnly.length > 0) return customOnly;
+            return [createCleanBlankFilter(uid)];
+          }
+
           // Update strat-guest-two-quick to 75' rule if present
           const migratedSaved = parsed.map((p: FilterRule) => {
             if (p.id === 'strat-guest-two-quick') {
@@ -1064,6 +1307,9 @@ export default function App() {
     }
 
     localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
+    if (isFree) {
+      return [createCleanBlankFilter(uid)];
+    }
     return EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
       ...f,
       enabled: idx === 0, // Only 1 filter launched initially, user explicitly launches others
@@ -1079,6 +1325,7 @@ export default function App() {
   const [editingFilter, setEditingFilter] = useState<FilterRule | null>(null);
   const [backtestModalFilter, setBacktestModalFilter] = useState<FilterRule | null>(null);
   const [isBacktestModalOpen, setIsBacktestModalOpen] = useState<boolean>(false);
+  const [isAISynthesizerOpen, setIsAISynthesizerOpen] = useState<boolean>(false);
 
   // Save users & current user id
   useEffect(() => {
@@ -1125,8 +1372,9 @@ export default function App() {
   const inspectorRef = useRef<HTMLDivElement>(null);
 
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser'>('matches');
-  const [filterViewMode, setFilterViewMode] = useState<'matrix' | 'cards'>('matrix');
+  const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education'>('matches');
+  const [filterViewMode, setFilterViewMode] = useState<'matrix' | 'cards' | 'prematch'>('matrix');
+  const [selectedSport, setSelectedSport] = useState<SportType | 'all'>('football');
   const [signalsViewMode, setSignalsViewMode] = useState<'table' | 'cards'>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -1193,11 +1441,23 @@ export default function App() {
     localStorage.setItem('footbalmonitor_current_user_id', newUser.id);
 
     // 2. Load selected user's filters
+    const isNewUserFree = newUser.plan === 'FREE';
     const userSaved = localStorage.getItem(`footbalmonitor_filters_user_${newUser.id}`);
     if (userSaved) {
       try {
         const parsed = JSON.parse(userSaved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          if (isNewUserFree) {
+            // Free accounts only get their custom filters (starting from clean blank)
+            const customOnly = parsed.filter((p: FilterRule) => !p.isPreset);
+            if (customOnly.length > 0) {
+              setFilters(customOnly);
+              return;
+            }
+            setFilters([createCleanBlankFilter(newUser.id)]);
+            return;
+          }
+
           const migrated = parsed.map((p: FilterRule) => {
             if (p.id === 'strat-7') {
               return {
@@ -1232,6 +1492,11 @@ export default function App() {
     }
 
     // Default filters for new user with default bot assignment
+    if (isNewUserFree) {
+      setFilters([createCleanBlankFilter(newUser.id)]);
+      return;
+    }
+
     const defaultBot = newUser.telegramBots.find((b) => b.isDefault) || newUser.telegramBots[0];
     const initialForUser = EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
       ...f,
@@ -2424,11 +2689,17 @@ export default function App() {
 
   const filteredMatches = useMemo(() => {
     const queried = matches.filter(
-      (m) =>
-        m.homeTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.awayTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.league.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.country.toLowerCase().includes(searchQuery.toLowerCase())
+      (m) => {
+        if (selectedSport !== 'all' && (m.sport || 'football') !== selectedSport) {
+          return false;
+        }
+        return (
+          m.homeTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.awayTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.league.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.country.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+      }
     );
 
     // CRITICAL USER DIRECTIVE:
@@ -2465,7 +2736,7 @@ export default function App() {
       // 5. For LIVE matches: sort by minute descending
       return (b.minute || 0) - (a.minute || 0);
     });
-  }, [matches, searchQuery, getMatchTriggeredCount, signals]);
+  }, [matches, searchQuery, getMatchTriggeredCount, signals, selectedSport]);
 
   // Screen resize watcher for desktop 2-column layout
   useEffect(() => {
@@ -2707,8 +2978,14 @@ export default function App() {
   };
 
   const handleResetFilters = () => {
-    if (window.confirm('Сбросить все фильтры к расширенным заводским алгоритмам? Все пользовательские изменения будут сброшены.')) {
-      setFilters(EXPANDED_DEFAULT_FILTERS);
+    if (isPaidUser) {
+      if (window.confirm('Сбросить все фильтры к расширенным заводским алгоритмам? Все пользовательские изменения будут сброшены.')) {
+        setFilters(EXPANDED_DEFAULT_FILTERS);
+      }
+    } else {
+      if (window.confirm('Сбросить фильтры в чистый бланк? Все поля будут очищены.')) {
+        setFilters([createCleanBlankFilter(currentUser.id)]);
+      }
     }
   };
 
@@ -2980,6 +3257,19 @@ export default function App() {
           </button>
 
           <button
+            id="open-ai-synthesizer-header-btn"
+            onClick={() => setIsAISynthesizerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white shadow-md shadow-emerald-950/50 border border-emerald-400/40 transition hover:scale-[1.02] active:scale-[0.98]"
+            title="ИИ-Синтезатор стратегий: генерация готовых карточек фильтров по скриншотам, текстовым файлам и заметкам (без VPN)"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-pulse" />
+            <span>ИИ-Синтезатор</span>
+            <span className="px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 text-[9px] font-extrabold font-mono">
+              VIP
+            </span>
+          </button>
+
+          <button
             id="create-filter-header-btn"
             onClick={() => {
               setEditingFilter(null);
@@ -3035,6 +3325,22 @@ export default function App() {
               className={`px-3 py-1 rounded-md transition ${activeTab === 'telegram' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400 hover:text-slate-200'}`}
             >
               Telegram Бот
+            </button>
+            <button
+              id="education-nav-btn"
+              onClick={() => setActiveTab('education')}
+              className={`px-3 py-1 rounded-md transition flex items-center gap-1.5 ${
+                activeTab === 'education'
+                  ? 'bg-slate-800 text-emerald-400 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-emerald-300'
+              }`}
+              title="Обучение по фильтрам и карточкам для новичков"
+            >
+              <GraduationCap className="h-3.5 w-3.5 text-amber-400" />
+              <span>Обучение</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-extrabold uppercase hidden sm:inline">
+                Гид
+              </span>
             </button>
             <button
               id="cabinet-nav-btn"
@@ -3377,6 +3683,48 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Multi-Sport Switcher Bar (SportSignal AI) */}
+        <div className="flex items-center justify-between gap-3 p-2 bg-slate-900/90 border border-slate-800 rounded-2xl backdrop-blur-md overflow-x-auto shadow-sm">
+          <div className="flex items-center gap-1.5 flex-nowrap">
+            {[
+              { id: 'football', label: '⚽ Футбол' },
+              { id: 'hockey', label: '🏒 Хоккей' },
+              { id: 'basketball', label: '🏀 Баскетбол' },
+              { id: 'tennis', label: '🎾 Большой теннис' },
+              { id: 'volleyball', label: '🏐 Волейбол' },
+              { id: 'table_tennis', label: '🏓 Настольный теннис' },
+              { id: 'all', label: '🌐 Все виды спорта' },
+            ].map((sportItem) => {
+              const isSelected = selectedSport === sportItem.id;
+              const count = matches.filter((m) => sportItem.id === 'all' || (m.sport || 'football') === sportItem.id).length;
+              return (
+                <button
+                  key={sportItem.id}
+                  type="button"
+                  onClick={() => setSelectedSport(sportItem.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/50'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+                  }`}
+                >
+                  <span>{sportItem.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    isSelected ? 'bg-black/30 text-emerald-200' : 'bg-slate-800 text-slate-500'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="hidden lg:flex items-center gap-2 text-xs text-slate-400 pr-2 shrink-0">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[11px] font-medium text-slate-400">Все виды спорта мониторятся параллельно</span>
+          </div>
+        </div>
 
         {/* Tab 1: Live Matches & Detailed In-Play Analytics */}
         {activeTab === 'matches' && (
@@ -4569,11 +4917,59 @@ export default function App() {
                     <LayoutGrid className="h-3.5 w-3.5" />
                     <span>Карточки ({filters.length})</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterViewMode('prematch')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                      filterViewMode === 'prematch'
+                        ? 'bg-sky-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Calendar className="h-3.5 w-3.5" />
+                    <span>Прематч дня</span>
+                  </button>
                 </div>
 
                 <button
+                  type="button"
+                  onClick={() => setActiveTab('education')}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition active:scale-95"
+                  title="Обучение: интерактивный гид по фильтрам, карточкам и песочница"
+                >
+                  <GraduationCap className="h-4 w-4 text-amber-400" />
+                  <span>Гид & Обучение</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAISynthesizerOpen(true)}
+                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 border border-emerald-400/30 transition active:scale-95"
+                  title="ИИ-Синтезатор: перевести скриншот стратегии, текстовый файл или заметки в готовую карточку (без VPN)"
+                >
+                  <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
+                  <span>ИИ-Синтезатор карточек</span>
+                  <span className="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-extrabold font-mono">
+                    VIP / MAX
+                  </span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
-                    setEditingFilter(null);
+                    setEditingFilter(createCleanBlankFilter(currentUser.id));
+                    setIsFilterModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-850 text-teal-300 border border-teal-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  title="Открыть абсолютно чистый бланк для настройки алгоритма с нуля"
+                >
+                  <FileText className="h-4 w-4 text-teal-400" />
+                  Чистый бланк
+                </button>
+
+                <button
+                  onClick={() => {
+                    setEditingFilter(createCleanBlankFilter(currentUser.id));
                     setIsFilterModalOpen(true);
                   }}
                   className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 transition active:scale-95"
@@ -4616,6 +5012,36 @@ export default function App() {
               </div>
             </div>
 
+            {/* AI Synthesizer Callout Banner */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-950 via-emerald-950/20 to-slate-950 border border-emerald-500/30 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 shrink-0">
+                  <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-xs sm:text-sm font-bold text-white">
+                      ИИ-Генератор карточек стратегий по фото, заметкам или файлу
+                    </h4>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono border border-emerald-500/30 font-bold">
+                      100% Без VPN в РФ
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Загрузите скриншот стратегии из Telegram, текстовый файл или опишите мысли своими словами — ИИ мгновенно настроит фильтр (Сбер GigaChat, YandexGPT или встроенный движок)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAISynthesizerOpen(true)}
+                className="self-start md:self-center whitespace-nowrap px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition active:scale-95"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                <span>Запустить ИИ-Синтез</span>
+              </button>
+            </div>
+
             {filterViewMode === 'matrix' ? (
               <ScannerMatrixFilterView
                 filters={filters}
@@ -4626,21 +5052,80 @@ export default function App() {
                 userBots={currentUser?.telegramBots}
                 currentUserId={currentUser?.id}
                 liveMatches={matches}
+                selectedSport={selectedSport}
+                onOpenEducation={() => setActiveTab('education')}
+                isPaidUser={isPaidUser}
+                onUpgradePlan={() => setActiveTab('cabinet')}
+              />
+            ) : filterViewMode === 'prematch' ? (
+              <PrematchScannerView
+                matches={matches}
+                filters={filters}
+                selectedSport={selectedSport}
+                userBots={currentUser?.telegramBots}
+                onOpenCreateFilter={(initial) => {
+                  setEditingFilter({
+                    id: `custom-prematch-${Date.now()}`,
+                    name: initial?.name || 'Прематч: Анализ дня',
+                    description: initial?.description || 'Отбор матчей по котировкам и сериям',
+                    category: 'goals',
+                    ruleType: 'PREMATCH',
+                    sport: (selectedSport === 'all' ? 'football' : selectedSport) as SportType,
+                    enabled: true,
+                    minMinute: 0,
+                    maxMinute: 10,
+                    scoreCondition: 'ANY',
+                    prematchAnalysisEnabled: true,
+                    prematchAlertDailyTime: initial?.prematchAlertDailyTime || '10:00',
+                    prematchMinOddsOver25: initial?.prematchMinOddsOver25 ?? 1.55,
+                    prematchMaxOddsOver25: initial?.prematchMaxOddsOver25 ?? 1.95,
+                    prematchH2hOver25MinHits: initial?.prematchH2hOver25MinHits ?? 3,
+                    prematchTeam1Over25MinHits: 3,
+                    prematchTeam2Over25MinHits: 3,
+                    prematchNotifyOnceDaily: true,
+                    targetMarket: initial?.targetMarket || 'ТБ 2.5',
+                    telegramEnabled: true,
+                    color: 'sky',
+                  });
+                  setIsFilterModalOpen(true);
+                }}
+                onSendTelegramAlert={async (text, botId) => {
+                  await sendTelegramMessage(text, true, { botToken: botId });
+                  return true;
+                }}
               />
             ) : (
               <>
                 {/* Quick Strategy Templates Banner */}
-            <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                  Быстрый старт: популярные шаблоны алгоритмов для настройки
+                  {isPaidUser
+                    ? 'Быстрый старт: популярные шаблоны алгоритмов для настройки'
+                    : 'Конструктор алгоритмов: создание с чистого бланка'}
                 </span>
-                <span className="text-[11px] text-slate-500">
-                  Кликните по шаблону для открытия конструктора с готовыми параметрами
+                <span className="text-[11px] text-slate-400">
+                  {isPaidUser
+                    ? 'Кликните по шаблону для открытия конструктора с готовыми параметрами'
+                    : 'На бесплатном тарифе настраивайте фильтр с чистого бланка (шаблоны входят в PRO/VIP)'}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Clean Slate Button for everyone, highlighted for free users */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingFilter(createCleanBlankFilter(currentUser.id));
+                    setIsFilterModalOpen(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  title="Открыть чистый бланк и настроить собственный алгоритм с нуля"
+                >
+                  <FileText className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>📄 Чистый бланк (с нуля)</span>
+                </button>
+
                 {[
                   {
                     name: '🔥 Штурм (75-90\')',
@@ -4775,6 +5260,17 @@ export default function App() {
                     key={idx}
                     type="button"
                     onClick={() => {
+                      if (!isPaidUser) {
+                        if (
+                          window.confirm(
+                            `🔒 Готовый шаблон «${item.name}» входит в тарифы PRO и VIP.\n\nНа бесплатном тарифе FREE вы можете настроить любые условия через «Чистый бланк».\n\nОткрыть чистый бланк сейчас?`
+                          )
+                        ) {
+                          setEditingFilter(createCleanBlankFilter(currentUser.id));
+                          setIsFilterModalOpen(true);
+                        }
+                        return;
+                      }
                       setEditingFilter({
                         id: `custom-${Date.now()}`,
                         enabled: true,
@@ -4784,10 +5280,17 @@ export default function App() {
                       });
                       setIsFilterModalOpen(true);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-xs text-slate-300 hover:text-white flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                    className={`px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition active:scale-95 shadow-sm ${
+                      !isPaidUser
+                        ? 'bg-slate-950/60 hover:bg-slate-900 border-slate-800 text-slate-400 hover:text-amber-300 hover:border-amber-500/40'
+                        : 'bg-slate-950 hover:bg-slate-800 border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-white'
+                    }`}
                   >
+                    {!isPaidUser && <Lock className="h-3 w-3 text-amber-400" />}
                     <span className="font-semibold">{item.name}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">({item.desc})</span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {!isPaidUser ? 'PRO' : `(${item.desc})`}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -4923,6 +5426,9 @@ export default function App() {
             {/* Grid of Strategy Cards */}
             {(() => {
               const filteredList = filters.filter((rule) => {
+                const matchSport =
+                  selectedSport === 'all' || (rule.sport || 'football') === selectedSport;
+
                 const matchCategory =
                   activeFilterCategory === 'all'
                     ? true
@@ -4940,7 +5446,7 @@ export default function App() {
                   rule.description.toLowerCase().includes(filterSearchQuery.toLowerCase()) ||
                   (rule.targetMarket && rule.targetMarket.toLowerCase().includes(filterSearchQuery.toLowerCase()));
 
-                return matchCategory && matchQuery;
+                return matchSport && matchCategory && matchQuery;
               });
 
               if (filteredList.length === 0) {
@@ -4984,12 +5490,42 @@ export default function App() {
                           {/* Top row */}
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1.5 flex-wrap">
+                              {filter.sport && filter.sport !== 'football' && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  {filter.sport === 'hockey' ? '🏒 Хоккей' : filter.sport === 'basketball' ? '🏀 Баскетбол' : filter.sport === 'tennis' ? '🎾 Теннис' : filter.sport === 'volleyball' ? '🏐 Волейбол' : '🏓 Настольный теннис'}
+                                </span>
+                              )}
                               <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                                {filter.minMinute}' - {filter.maxMinute}'
+                                {filter.ruleType === 'PREMATCH' ? 'ПРЕМАТЧ' : `${filter.minMinute}' - ${filter.maxMinute}'`}
                               </span>
                               {filter.category && (
                                 <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800/80 text-emerald-400 border border-emerald-500/20">
                                   {filter.category}
+                                </span>
+                              )}
+                              {filter.exactScore && (
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  Счёт {filter.exactScore}
+                                </span>
+                              )}
+                              {filter.exactTotalGoals !== undefined && (
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  Ровно {filter.exactTotalGoals} г.
+                                </span>
+                              )}
+                              {filter.exactHomeGoals !== undefined && (
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  К1: {filter.exactHomeGoals} г.
+                                </span>
+                              )}
+                              {filter.exactAwayGoals !== undefined && (
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                  К2: {filter.exactAwayGoals} г.
+                                </span>
+                              )}
+                              {filter.ruleType === 'PREMATCH' && (
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                  {filter.prematchAlertDailyTime || '10:00'} (1 р/день)
                                 </span>
                               )}
                               {filter.isPreset ? (
@@ -6576,12 +7112,77 @@ export default function App() {
           />
         )}
 
+        {/* Tab 8: Educational Interactive Guide for Beginners (Filters & Cards) */}
+        {activeTab === 'education' && (
+          <EducationGuideView
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            onApplyPresetFilter={(preset) => {
+              const newRule: FilterRule = {
+                id: `custom-edu-${Date.now()}`,
+                name: preset.name || 'Обучающий алгоритм',
+                description: preset.description || 'Создан на основе интерактивного обучения',
+                category: preset.category || 'goals',
+                ruleType: preset.ruleType || 'LIVE',
+                enabled: true,
+                telegramEnabled: true,
+                minMinute: preset.minMinute ?? 75,
+                maxMinute: preset.maxMinute ?? 90,
+                scoreCondition: preset.scoreCondition || 'ANY',
+                minDangerousAttacksDiff: preset.minDangerousAttacksDiff,
+                minTotalShots: preset.minTotalShots,
+                minShotsOnTargetTotal: preset.minShotsOnTargetTotal,
+                minXgTotal: preset.minXgTotal,
+                targetMarket: preset.targetMarket,
+                color: preset.color || 'emerald',
+                userId: currentUser.id,
+              };
+              handleSaveFilter(newRule);
+              setActiveTab('filters');
+            }}
+            onOpenFilterBuilder={(preset) => {
+              if (preset) {
+                setEditingFilter({
+                  id: `custom-edu-${Date.now()}`,
+                  name: preset.name || 'Новый алгоритм',
+                  description: preset.description || 'Настроен по обучающему материалу',
+                  category: preset.category || 'goals',
+                  ruleType: preset.ruleType || 'LIVE',
+                  enabled: true,
+                  telegramEnabled: true,
+                  minMinute: preset.minMinute ?? 75,
+                  maxMinute: preset.maxMinute ?? 90,
+                  scoreCondition: preset.scoreCondition || 'ANY',
+                  minDangerousAttacksDiff: preset.minDangerousAttacksDiff,
+                  minTotalShots: preset.minTotalShots,
+                  minShotsOnTargetTotal: preset.minShotsOnTargetTotal,
+                  minXgTotal: preset.minXgTotal,
+                  targetMarket: preset.targetMarket,
+                  color: preset.color || 'emerald',
+                  userId: currentUser.id,
+                });
+              } else {
+                setEditingFilter(null);
+              }
+              setIsFilterModalOpen(true);
+            }}
+          />
+        )}
+
         {/* Filter Builder & Editor Modal */}
         <FilterBuilderModal
           isOpen={isFilterModalOpen}
           initialFilter={editingFilter}
           liveMatches={matches}
           userBots={currentUser.telegramBots}
+          isPaidUser={isPaidUser}
+          onUpgradePlan={() => {
+            setIsFilterModalOpen(false);
+            setActiveTab('cabinet');
+          }}
+          onOpenAISynthesizer={() => {
+            setIsFilterModalOpen(false);
+            setIsAISynthesizerOpen(true);
+          }}
           onClose={() => {
             setIsFilterModalOpen(false);
             setEditingFilter(null);
@@ -6593,6 +7194,28 @@ export default function App() {
             });
             setIsFilterModalOpen(false);
             setEditingFilter(null);
+          }}
+        />
+
+        {/* AI Strategy Synthesizer Modal (VIP / Max Plan Feature - No VPN) */}
+        <AIStrategySynthesizerModal
+          isOpen={isAISynthesizerOpen}
+          onClose={() => setIsAISynthesizerOpen(false)}
+          currentUser={currentUser}
+          onSaveStrategy={(newRule, activateImmediately) => {
+            const ruleWithUser: FilterRule = {
+              ...newRule,
+              userId: currentUser.id,
+              enabled: activateImmediately !== undefined ? activateImmediately : true,
+            };
+            handleSaveFilter(ruleWithUser);
+          }}
+          onOpenInBuilder={(rule) => {
+            setEditingFilter(rule);
+            setIsFilterModalOpen(true);
+          }}
+          onUpgradePlan={() => {
+            setActiveTab('cabinet');
           }}
         />
 

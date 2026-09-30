@@ -24,6 +24,9 @@ import {
   TrendingUp,
   TrendingDown,
   Bot,
+  FileText,
+  Lock,
+  Crown,
 } from 'lucide-react';
 import { FilterRule, Match, ScoreCondition, FilterCategory, TelegramBotProfile } from '../types';
 import { evaluateFilterRule } from '../algorithms';
@@ -35,6 +38,9 @@ interface FilterBuilderModalProps {
   initialFilter?: FilterRule | null;
   liveMatches: Match[];
   userBots?: TelegramBotProfile[];
+  onOpenAISynthesizer?: () => void;
+  isPaidUser?: boolean;
+  onUpgradePlan?: () => void;
 }
 
 const STRATEGY_PRESETS = [
@@ -439,6 +445,55 @@ const COLORS = [
   { name: 'cyan', bg: 'bg-cyan-500', label: 'Бирюзовый' },
 ];
 
+export const createCleanBlankModalFormData = (): Partial<FilterRule> => ({
+  id: `custom-${Date.now()}`,
+  name: '',
+  description: '',
+  category: 'custom',
+  enabled: true,
+  minMinute: 0,
+  maxMinute: 90,
+  scoreCondition: 'ANY',
+  exactScore: undefined,
+  exactTotalGoals: undefined,
+  exactHomeGoals: undefined,
+  exactAwayGoals: undefined,
+  minDangerousAttacksDiff: undefined,
+  minDangerousAttacksTotal: undefined,
+  minAttacksDiff: undefined,
+  minAttacksTotal: undefined,
+  minTotalShots: undefined,
+  minShotsDiff: undefined,
+  minShotsOnTargetTotal: undefined,
+  minShotsOnTargetDiff: undefined,
+  minTotalCorners: undefined,
+  minCornersDiff: undefined,
+  minPossessionDiff: undefined,
+  minXgTotal: undefined,
+  minXgDiff: undefined,
+  minXgOverScoreDiff: undefined,
+  minPressureIndex: undefined,
+  maxPressureIndex: undefined,
+  maxDangerousAttacksTotal: undefined,
+  maxShotsOnTargetTotal: undefined,
+  maxScoreDiff: undefined,
+  redCardCondition: 'ANY',
+  maxOddsFavorite: undefined,
+  minOddsFavorite: undefined,
+  maxOddsOver25: undefined,
+  minOddsOver25: undefined,
+  minOddsDropPercent: undefined,
+  minMoneyVolumePercent: undefined,
+  excludeYouthAndWomen: false,
+  targetMarket: '',
+  telegramEnabled: true,
+  color: 'emerald',
+  isPreset: false,
+  botId: undefined,
+  customBotToken: undefined,
+  customChatId: undefined,
+});
+
 export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
   isOpen,
   onClose,
@@ -446,33 +501,13 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
   initialFilter,
   liveMatches,
   userBots = [],
+  onOpenAISynthesizer,
+  isPaidUser = false,
+  onUpgradePlan,
 }) => {
   const [formData, setFormData] = useState<Partial<FilterRule>>(() => {
     if (initialFilter) return { ...initialFilter };
-    return {
-      id: `custom-${Date.now()}`,
-      name: 'Новый авторский фильтр',
-      description: 'Пользовательский алгоритм мониторинга аномалий',
-      category: 'custom',
-      enabled: true,
-      minMinute: 60,
-      maxMinute: 88,
-      scoreCondition: 'ANY',
-      minDangerousAttacksDiff: 20,
-      minTotalShots: 8,
-      minShotsOnTargetTotal: 4,
-      minTotalCorners: 6,
-      minXgTotal: 1.2,
-      minPressureIndex: 55,
-      redCardCondition: 'ANY',
-      targetMarket: 'ТБ 0.5 во 2-м тайме',
-      telegramEnabled: true,
-      color: 'emerald',
-      isPreset: false,
-      botId: undefined,
-      customBotToken: undefined,
-      customChatId: undefined,
-    };
+    return createCleanBlankModalFormData();
   });
 
   const [showLiveMatchesPreview, setShowLiveMatchesPreview] = useState(false);
@@ -482,30 +517,7 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
       if (initialFilter) {
         setFormData({ ...initialFilter });
       } else {
-        setFormData({
-          id: `custom-${Date.now()}`,
-          name: 'Новый авторский фильтр',
-          description: 'Пользовательский алгоритм мониторинга аномалий',
-          category: 'custom',
-          enabled: true,
-          minMinute: 60,
-          maxMinute: 88,
-          scoreCondition: 'ANY',
-          minDangerousAttacksDiff: 20,
-          minTotalShots: 8,
-          minShotsOnTargetTotal: 4,
-          minTotalCorners: 6,
-          minXgTotal: 1.2,
-          minPressureIndex: 55,
-          redCardCondition: 'ANY',
-          targetMarket: 'ТБ 0.5 во 2-м тайме',
-          telegramEnabled: true,
-          color: 'emerald',
-          isPreset: false,
-          botId: undefined,
-          customBotToken: undefined,
-          customChatId: undefined,
-        });
+        setFormData(createCleanBlankModalFormData());
       }
       setShowLiveMatchesPreview(false);
     }
@@ -522,7 +534,21 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
   const matchingResults = matchResults.filter((r) => r.result.matches);
   const matchingCount = matchingResults.length;
 
+  const handleCleanSlate = () => {
+    setFormData(createCleanBlankModalFormData());
+  };
+
   const applyPreset = (presetData: Partial<FilterRule>) => {
+    if (!isPaidUser) {
+      if (
+        window.confirm(
+          '🔒 Данный готовый шаблон входит в тарифы PRO и VIP.\n\nНа бесплатном тарифе FREE вам доступна настройка собственных правил через «Чистый бланк».\n\nПерейти в личный кабинет для подключения PRO/VIP?'
+        )
+      ) {
+        if (onUpgradePlan) onUpgradePlan();
+      }
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       ...presetData,
@@ -631,6 +657,33 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
       requireLateGoalsLastMatches: formData.requireLateGoalsLastMatches,
       requireH2hOver15High: formData.requireH2hOver15High,
       isDeadlyCombination: formData.isDeadlyCombination,
+      sport: formData.sport || 'football',
+      exactScore: formData.exactScore?.trim() || undefined,
+      exactHomeGoals: formData.exactHomeGoals !== undefined && formData.exactHomeGoals !== null && String(formData.exactHomeGoals) !== ''
+        ? Number(formData.exactHomeGoals)
+        : undefined,
+      exactAwayGoals: formData.exactAwayGoals !== undefined && formData.exactAwayGoals !== null && String(formData.exactAwayGoals) !== ''
+        ? Number(formData.exactAwayGoals)
+        : undefined,
+      exactTotalGoals: formData.exactTotalGoals !== undefined && formData.exactTotalGoals !== null && String(formData.exactTotalGoals) !== ''
+        ? Number(formData.exactTotalGoals)
+        : undefined,
+      prematchAnalysisEnabled: formData.prematchAnalysisEnabled ?? (formData.ruleType === 'PREMATCH'),
+      prematchAlertDailyTime: formData.prematchAlertDailyTime || '10:00',
+      prematchMinOddsHome: formData.prematchMinOddsHome !== undefined && String(formData.prematchMinOddsHome) !== '' ? Number(formData.prematchMinOddsHome) : undefined,
+      prematchMaxOddsHome: formData.prematchMaxOddsHome !== undefined && String(formData.prematchMaxOddsHome) !== '' ? Number(formData.prematchMaxOddsHome) : undefined,
+      prematchMinOddsDraw: formData.prematchMinOddsDraw !== undefined && String(formData.prematchMinOddsDraw) !== '' ? Number(formData.prematchMinOddsDraw) : undefined,
+      prematchMaxOddsDraw: formData.prematchMaxOddsDraw !== undefined && String(formData.prematchMaxOddsDraw) !== '' ? Number(formData.prematchMaxOddsDraw) : undefined,
+      prematchMinOddsAway: formData.prematchMinOddsAway !== undefined && String(formData.prematchMinOddsAway) !== '' ? Number(formData.prematchMinOddsAway) : undefined,
+      prematchMaxOddsAway: formData.prematchMaxOddsAway !== undefined && String(formData.prematchMaxOddsAway) !== '' ? Number(formData.prematchMaxOddsAway) : undefined,
+      prematchMinOddsOver25: formData.prematchMinOddsOver25 !== undefined && String(formData.prematchMinOddsOver25) !== '' ? Number(formData.prematchMinOddsOver25) : undefined,
+      prematchMaxOddsOver25: formData.prematchMaxOddsOver25 !== undefined && String(formData.prematchMaxOddsOver25) !== '' ? Number(formData.prematchMaxOddsOver25) : undefined,
+      prematchH2hMatchesCount: formData.prematchH2hMatchesCount !== undefined ? Number(formData.prematchH2hMatchesCount) : 5,
+      prematchH2hOver25MinHits: formData.prematchH2hOver25MinHits !== undefined && String(formData.prematchH2hOver25MinHits) !== '' ? Number(formData.prematchH2hOver25MinHits) : undefined,
+      prematchTeamRecentMatchesCount: formData.prematchTeamRecentMatchesCount !== undefined ? Number(formData.prematchTeamRecentMatchesCount) : 5,
+      prematchTeam1Over25MinHits: formData.prematchTeam1Over25MinHits !== undefined && String(formData.prematchTeam1Over25MinHits) !== '' ? Number(formData.prematchTeam1Over25MinHits) : undefined,
+      prematchTeam2Over25MinHits: formData.prematchTeam2Over25MinHits !== undefined && String(formData.prematchTeam2Over25MinHits) !== '' ? Number(formData.prematchTeam2Over25MinHits) : undefined,
+      prematchNotifyOnceDaily: formData.prematchNotifyOnceDaily ?? true,
     };
 
     onSave(finalRule);
@@ -666,38 +719,190 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Quick Presets Bar */}
-        <div className="bg-slate-950/90 px-4 sm:px-6 py-2.5 border-b border-slate-800/80 shrink-0 flex items-center gap-2 overflow-x-auto text-xs">
-          <span className="text-slate-400 font-semibold text-[11px] shrink-0 flex items-center gap-1">
-            <Zap className="h-3.5 w-3.5 text-amber-400" />
-            Быстрые шаблоны:
-          </span>
-          <div className="flex items-center gap-1.5 flex-nowrap">
-            {STRATEGY_PRESETS.map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => applyPreset(preset.data)}
-                className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 hover:border-slate-700 text-[11px] font-medium transition active:scale-95 flex items-center gap-1"
-                title={`Заполнить форму параметрами «${preset.data.name}»`}
-              >
-                <span>{preset.label}</span>
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCleanSlate}
+              className="px-3 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold transition active:scale-95 flex items-center gap-1.5 shadow-sm"
+              title="Очистить все параметры и открыть чистый бланк"
+            >
+              <FileText className="h-3.5 w-3.5 text-teal-400" />
+              <span>Чистый бланк</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
+        {/* Quick Presets Bar */}
+        <div className="bg-slate-950/90 px-4 sm:px-6 py-2.5 border-b border-slate-800/80 shrink-0 flex items-center justify-between gap-2 overflow-x-auto text-xs">
+          <div className="flex items-center gap-2 overflow-x-auto">
+            <span className="text-slate-400 font-semibold text-[11px] shrink-0 flex items-center gap-1">
+              <Zap className="h-3.5 w-3.5 text-amber-400" />
+              {isPaidUser ? 'Быстрые шаблоны:' : 'Режим настройки:'}
+            </span>
+            <div className="flex items-center gap-1.5 flex-nowrap flex-1">
+              {/* Primary Clean Slate Button */}
+              <button
+                type="button"
+                onClick={handleCleanSlate}
+                className="whitespace-nowrap px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold transition active:scale-95 flex items-center gap-1.5 shadow-sm"
+                title="Сбросить все параметры в чистый бланк"
+              >
+                <FileText className="h-3.5 w-3.5 text-emerald-400" />
+                <span>📄 Чистый бланк (с нуля)</span>
+              </button>
+
+              {!isPaidUser && (
+                <div className="hidden sm:flex items-center gap-1 pl-2 border-l border-slate-800 text-[11px] text-slate-500">
+                  <Lock className="h-3 w-3 text-amber-400" />
+                  <span>Шаблоны PRO/VIP:</span>
+                </div>
+              )}
+
+              {STRATEGY_PRESETS.map((preset, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => applyPreset(preset.data)}
+                  className={`whitespace-nowrap px-2.5 py-1 rounded-lg border text-[11px] font-medium transition active:scale-95 flex items-center gap-1 ${
+                    !isPaidUser
+                      ? 'bg-slate-900/60 text-slate-400 border-slate-800 hover:border-amber-500/40 hover:text-amber-300'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800 hover:border-slate-700'
+                  }`}
+                  title={
+                    !isPaidUser
+                      ? `🔒 Готовый шаблон «${preset.data.name}» (Доступен на тарифах PRO и VIP)`
+                      : `Заполнить форму параметрами «${preset.data.name}»`
+                  }
+                >
+                  {!isPaidUser && <Lock className="h-2.5 w-2.5 text-amber-400" />}
+                  <span>{preset.label}</span>
+                  {!isPaidUser && (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                      PRO
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {!isPaidUser && onUpgradePlan && (
+              <button
+                type="button"
+                onClick={onUpgradePlan}
+                className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold transition flex items-center gap-1"
+              >
+                <Crown className="h-3 w-3 text-amber-400" />
+                <span>Тариф PRO</span>
+              </button>
+            )}
+
+            {onOpenAISynthesizer && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenAISynthesizer();
+                }}
+                className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-600/30 to-teal-600/30 hover:from-emerald-600/50 hover:to-teal-600/50 text-emerald-300 hover:text-white border border-emerald-500/40 text-[11px] font-bold transition active:scale-95 flex items-center gap-1.5 shadow-sm"
+                title="Сгенерировать стратегию по скриншоту, файлу или тексту через ИИ"
+              >
+                <Sparkles className="h-3 w-3 text-amber-300 animate-pulse" />
+                <span>ИИ-Синтез</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Modal Content: If preset is selected by free account, show locked state */}
+        {initialFilter?.isPreset && !isPaidUser ? (
+          <div className="p-6 sm:p-10 space-y-6 text-center max-w-lg mx-auto my-auto flex-1 overflow-y-auto">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-xl shadow-amber-950/40">
+              <Lock className="h-8 w-8" />
+            </div>
+            <div className="space-y-2">
+              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5">
+                <Crown className="h-3.5 w-3.5" />
+                Готовая стратегия тарифов PRO & VIP
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-white">{initialFilter.name}</h3>
+              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                {initialFilter.description || 'Готовый авторский алгоритм сервиса с рассчитанной математической моделью.'}
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left text-xs space-y-2.5 text-slate-300">
+              <div className="text-amber-300 font-bold flex items-center gap-1.5 pb-1 border-b border-slate-800">
+                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                Разделение функционала:
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                <span><strong>Тариф FREE:</strong> создание и тонкая настройка любых собственных алгоритмов через <strong>чистый бланк</strong> (без ограничений по метрикам).</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                <span><strong>Тарифы PRO & VIP:</strong> готовые пресеты стратегий сервиса с рассчитанной моделью + расширенный мониторинг.</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleCleanSlate}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition active:scale-95"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Создать фильтр с чистого бланка</span>
+              </button>
+              {onUpgradePlan && (
+                <button
+                  type="button"
+                  onClick={onUpgradePlan}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition active:scale-95"
+                >
+                  <Crown className="h-4 w-4" />
+                  <span>Разблокировать в тарифе PRO</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Form Body */
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
+            {!isPaidUser && (
+              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-emerald-300">
+                      Режим: Чистый бланк (Тариф FREE)
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      Вы настраиваете собственный авторский алгоритм с нуля. Готовые авторские шаблоны стратегий доступны на тарифах PRO и VIP.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCleanSlate}
+                  className="self-start sm:self-center px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold shrink-0 transition"
+                  title="Сбросить все поля к чистому бланку"
+                >
+                  Сбросить к чистому бланку
+                </button>
+              </div>
+            )}
           {/* Main Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5 md:col-span-2">
@@ -728,6 +933,23 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
               />
             </div>
 
+            {/* Sport Selector */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-200">Вид спорта</label>
+              <select
+                value={formData.sport || 'football'}
+                onChange={(e) => setFormData({ ...formData, sport: e.target.value as any })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white font-bold focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="football">⚽ Футбол</option>
+                <option value="hockey">🏒 Хоккей</option>
+                <option value="basketball">🏀 Баскетбол</option>
+                <option value="tennis">🎾 Большой теннис</option>
+                <option value="volleyball">🏐 Волейбол</option>
+                <option value="table_tennis">🏓 Настольный теннис</option>
+              </select>
+            </div>
+
             {/* Category */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-200">Категория алгоритма</label>
@@ -736,12 +958,13 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                 onChange={(e) => setFormData({ ...formData, category: e.target.value as FilterCategory })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
               >
-                <option value="goals">⚽ Голы (ТБ / ТМ / Обе забьют)</option>
-                <option value="corners">🚩 Угловые (Осада / Тотал угловых)</option>
-                <option value="comeback">🎯 Камбэк фаворита (1X / Фора 0)</option>
-                <option value="halftime">⏱️ 1-й тайм (HT Over / Гол до перерыва)</option>
+                <option value="goals">⚽ Голы / Шайбы / Очки (ТБ / ТМ)</option>
+                <option value="corners">🚩 Угловые / Броски / Стандарты</option>
+                <option value="comeback">🎯 Камбэк фаворита (1X / Фора)</option>
+                <option value="halftime">⏱️ 1-й тайм / 1-й период / 1-я четверть</option>
                 <option value="pressure">🔥 Индекс давления / Штурм</option>
-                <option value="cards">🟥 Карточки / Удаления (КК)</option>
+                <option value="cards">🟥 Карточки / Штрафы / Удаления</option>
+                <option value="odds_drop">📉 Прогруз Smart Money / Steam</option>
                 <option value="custom">🛠️ Авторский / Пользовательский</option>
               </select>
             </div>
@@ -815,14 +1038,209 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
             </div>
 
             {formData.ruleType === 'PREMATCH' && (
-              <div className="p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-xs text-sky-300 flex items-center justify-between">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Clock className="h-3.5 w-3.5 text-sky-400 shrink-0" />
-                  <span>Анализ матчей запускается строго за 1 час (60 мин) до начала. Матчи со сработавшими фильтрами поднимаются в самый верх списка.</span>
-                </span>
-                <span className="text-[10px] font-mono font-bold bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30">
-                  60 мин
-                </span>
+              <div className="space-y-4 pt-2">
+                <div className="p-3 rounded-xl bg-sky-950/40 border border-sky-500/30 text-xs text-sky-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Clock className="h-4 w-4 text-sky-400 shrink-0" />
+                    <span>Предматчевый фильтр: анализирует линии, котировки и H2H очные встречи до начала игры.</span>
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30">
+                    ПРЕМАТЧ
+                  </span>
+                </div>
+
+                {/* Daily Alert Time Picker */}
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-amber-400" />
+                      <span>Время отправки ежедневного сигнала:</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={formData.prematchAlertDailyTime || '10:00'}
+                        onChange={(e) => setFormData({ ...formData, prematchAlertDailyTime: e.target.value })}
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-amber-300 font-mono font-bold focus:border-amber-400 focus:outline-none"
+                      />
+                      <span className="text-[10px] text-slate-400 font-mono">1 раз в сутки</span>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={formData.prematchNotifyOnceDaily ?? true}
+                      onChange={(e) => setFormData({ ...formData, prematchNotifyOnceDaily: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded border-slate-700 text-sky-500"
+                    />
+                    <span>Отправлять сигнал строго один раз в день в указанное время</span>
+                  </label>
+                </div>
+
+                {/* Prematch Odds Corridors: P1, X, P2, TB 2.5 */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Коридоры предматчевых коэффициентов:
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-emerald-400 font-bold block">П1 (мин - макс)</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="мин"
+                          value={formData.prematchMinOddsHome ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMinOddsHome: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                        <span className="text-slate-600 text-xs">-</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="макс"
+                          value={formData.prematchMaxOddsHome ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMaxOddsHome: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-cyan-400 font-bold block">X Ничья (мин - макс)</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="мин"
+                          value={formData.prematchMinOddsDraw ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMinOddsDraw: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                        <span className="text-slate-600 text-xs">-</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="макс"
+                          value={formData.prematchMaxOddsDraw ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMaxOddsDraw: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-blue-400 font-bold block">П2 (мин - макс)</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="мин"
+                          value={formData.prematchMinOddsAway ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMinOddsAway: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                        <span className="text-slate-600 text-xs">-</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="макс"
+                          value={formData.prematchMaxOddsAway ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMaxOddsAway: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-amber-400 font-bold block">ТБ 2.5 (мин - макс)</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="мин"
+                          value={formData.prematchMinOddsOver25 ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMinOddsOver25: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                        <span className="text-slate-600 text-xs">-</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          placeholder="макс"
+                          value={formData.prematchMaxOddsOver25 ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchMaxOddsOver25: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-white font-mono text-center"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* H2H and Last Matches Over 2.5 conditions */}
+                <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                  <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wider block">
+                    Условия по очным встречам и последним 5-10 матчам:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-slate-300 block">
+                        Очные встречи (H2H):
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-400">ТБ 2.5 в ≥</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          placeholder="3"
+                          value={formData.prematchH2hOver25MinHits ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchH2hOver25MinHits: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-14 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-amber-300 font-mono text-center font-bold"
+                        />
+                        <span className="text-xs text-slate-400">из {formData.prematchH2hMatchesCount || 5} матчей</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-slate-300 block">
+                        Форма Команды 1 (Хозяева):
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-400">ТБ 2.5 в ≥</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          placeholder="3"
+                          value={formData.prematchTeam1Over25MinHits ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchTeam1Over25MinHits: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-14 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-emerald-300 font-mono text-center font-bold"
+                        />
+                        <span className="text-xs text-slate-400">из 5 последних</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-slate-300 block">
+                        Форма Команды 2 (Гости):
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-400">ТБ 2.5 в ≥</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          placeholder="3"
+                          value={formData.prematchTeam2Over25MinHits ?? ''}
+                          onChange={(e) => setFormData({ ...formData, prematchTeam2Over25MinHits: e.target.value ? Number(e.target.value) : undefined })}
+                          className="w-14 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-blue-300 font-mono text-center font-bold"
+                        />
+                        <span className="text-xs text-slate-400">из 5 последних</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -884,6 +1302,132 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                   <option value="TOTAL_UNDER_2">Низкий тотал (≤ 1 гол)</option>
                   <option value="TOTAL_OVER_2">Результативный матч (≥ 2 гола)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Выставление конкретного количества голов (Новая секция по запросу) */}
+            <div className="pt-3 border-t border-slate-800/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Target className="h-3.5 w-3.5" />
+                  Выставление конкретного количества голов (строгое совпадение):
+                </span>
+                <span className="text-[10px] text-slate-500 font-normal">Опционально (необязательно)</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Exact Total Goals */}
+                <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                  <div className="flex justify-between items-center text-[10px] text-slate-300 font-semibold">
+                    <span>Суммарно голов ровно:</span>
+                    <span className="font-mono text-emerald-400 font-bold">
+                      {formData.exactTotalGoals !== undefined ? `${formData.exactTotalGoals} голов` : 'Любое'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[undefined, 0, 1, 2, 3, 4].map((cnt) => (
+                      <button
+                        key={String(cnt)}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, exactTotalGoals: cnt })}
+                        className={`flex-1 py-1 rounded text-[10px] font-bold transition ${
+                          formData.exactTotalGoals === cnt
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-slate-950 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {cnt === undefined ? '—' : cnt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Exact Home Goals */}
+                <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                  <div className="flex justify-between items-center text-[10px] text-slate-300 font-semibold">
+                    <span>Голов Хозяев (К1):</span>
+                    <span className="font-mono text-emerald-400 font-bold">
+                      {formData.exactHomeGoals !== undefined ? `${formData.exactHomeGoals} гол.` : 'Любое'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[undefined, 0, 1, 2, 3].map((cnt) => (
+                      <button
+                        key={String(cnt)}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, exactHomeGoals: cnt })}
+                        className={`flex-1 py-1 rounded text-[10px] font-bold transition ${
+                          formData.exactHomeGoals === cnt
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-slate-950 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {cnt === undefined ? '—' : cnt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Exact Away Goals */}
+                <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                  <div className="flex justify-between items-center text-[10px] text-slate-300 font-semibold">
+                    <span>Голов Гостей (К2):</span>
+                    <span className="font-mono text-sky-400 font-bold">
+                      {formData.exactAwayGoals !== undefined ? `${formData.exactAwayGoals} гол.` : 'Любое'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[undefined, 0, 1, 2, 3].map((cnt) => (
+                      <button
+                        key={String(cnt)}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, exactAwayGoals: cnt })}
+                        className={`flex-1 py-1 rounded text-[10px] font-bold transition ${
+                          formData.exactAwayGoals === cnt
+                            ? 'bg-sky-600 text-white shadow-sm'
+                            : 'bg-slate-950 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {cnt === undefined ? '—' : cnt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Exact Score Quick Buttons */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                <span className="text-[10px] text-slate-400 font-semibold">Быстрый точный счёт:</span>
+                {['0:0', '1:0', '0:1', '1:1', '2:0', '0:2', '2:1', '1:2', '2:2', '3:1'].map((sc) => (
+                  <button
+                    key={sc}
+                    type="button"
+                    onClick={() => {
+                      const isCurrent = formData.exactScore === sc;
+                      setFormData({
+                        ...formData,
+                        exactScore: isCurrent ? undefined : sc,
+                        scoreCondition: 'ANY',
+                      });
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition ${
+                      formData.exactScore === sc
+                        ? 'bg-purple-600 text-white border border-purple-400 shadow-sm'
+                        : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {sc}
+                  </button>
+                ))}
+                {formData.exactScore && (
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, exactScore: undefined })}
+                    className="text-[10px] text-rose-400 hover:underline ml-1"
+                  >
+                    Очистить точный счёт
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1889,6 +2433,7 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
             </div>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

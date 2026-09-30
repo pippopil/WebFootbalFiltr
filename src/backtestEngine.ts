@@ -317,6 +317,23 @@ function snapshotMatchesRule(
     return { matches: false, reason: 'Тотал меньше или равен 2' };
   }
 
+  // 2b. Exact score & exact goals checks (Выставление конкретного количества голов)
+  if (rule.exactScore && rule.exactScore.trim()) {
+    const [reqH, reqA] = rule.exactScore.split(':').map((s) => Number(s.trim()));
+    if (!isNaN(reqH) && !isNaN(reqA) && (homeScore !== reqH || awayScore !== reqA)) {
+      return { matches: false, reason: `Счёт ${homeScore}:${awayScore} не равен требуемому ${rule.exactScore}` };
+    }
+  }
+  if (rule.exactHomeGoals !== undefined && homeScore !== rule.exactHomeGoals) {
+    return { matches: false, reason: `Голы К1 (${homeScore}) не равны ${rule.exactHomeGoals}` };
+  }
+  if (rule.exactAwayGoals !== undefined && awayScore !== rule.exactAwayGoals) {
+    return { matches: false, reason: `Голы К2 (${awayScore}) не равны ${rule.exactAwayGoals}` };
+  }
+  if (rule.exactTotalGoals !== undefined && homeScore + awayScore !== rule.exactTotalGoals) {
+    return { matches: false, reason: `Сумма голов (${homeScore + awayScore}) не равна ${rule.exactTotalGoals}` };
+  }
+
   // 3. Dangerous attacks difference
   const dangDiff = Math.abs(stats.dangerousAttacks[0] - stats.dangerousAttacks[1]);
   if (rule.minDangerousAttacksDiff && dangDiff < rule.minDangerousAttacksDiff) {

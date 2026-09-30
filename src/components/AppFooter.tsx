@@ -15,6 +15,7 @@ import {
   Users,
   CheckCircle2,
   ChevronRight,
+  GraduationCap,
 } from 'lucide-react';
 import { SiteAnalyticsData, AdBannerItem } from '../types';
 import { AppLogo } from './AppLogo';
@@ -23,7 +24,7 @@ interface AppFooterProps {
   analytics: SiteAnalyticsData;
   ads: AdBannerItem[];
   activeTab: string;
-  onSelectTab: (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser') => void;
+  onSelectTab: (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education') => void;
   dataSourceName: string;
   isMonitoringActive: boolean;
   liveMatchesCount: number;
@@ -54,7 +55,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
     }
   };
 
-  const handleNavigate = (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser') => {
+  const handleNavigate = (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education') => {
     onSelectTab(tab);
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -299,6 +300,22 @@ export const AppFooter: React.FC<AppFooterProps> = ({
               </li>
               <li>
                 <button
+                  onClick={() => handleNavigate('education')}
+                  className={`flex items-center justify-between w-full p-1.5 rounded-lg hover:bg-slate-900 transition text-left ${
+                    activeTab === 'education' ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <GraduationCap className="h-3.5 w-3.5 text-amber-400" />
+                    <span>Обучение & Гид новичка</span>
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">
+                    ГИД
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
                   onClick={() => handleNavigate('cabinet')}
                   className={`flex items-center justify-between w-full p-1.5 rounded-lg hover:bg-slate-900 transition text-left ${
                     activeTab === 'cabinet' ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
@@ -361,7 +378,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
         {/* Bottom Disclaimer & Copyright */}
         <div className="mt-8 pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div>
-            © {new Date().getFullYear()} <span className="text-slate-300 font-semibold">Footbalmonitor Pro</span> v2.4. Все права защищены.
+            © {new Date().getFullYear()} <span className="text-slate-300 font-semibold">SportSignal AI Pro</span> v2.4. Все права защищены.
           </div>
           <div className="text-center sm:text-right text-[11px]">
             Статистика, вероятности и сигналы носят сугубо информационно-аналитический характер. Платформа не организует азартные игры.

@@ -571,6 +571,50 @@ export function evaluateFilterRule(
     }
   }
 
+  // 2b-2. Exact Score & Exact Goals checks (Выставление конкретного количества голов)
+  if (rule.exactScore && rule.exactScore.trim()) {
+    totalCriteria++;
+    const [reqH, reqA] = rule.exactScore.split(':').map((s) => Number(s.trim()));
+    if (!isNaN(reqH) && !isNaN(reqA) && h === reqH && a === reqA) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Счёт ${h}:${a} не равен требуемому точному счёту ${rule.exactScore}`);
+    }
+  }
+
+  if (rule.exactHomeGoals !== undefined) {
+    totalCriteria++;
+    if (h === rule.exactHomeGoals) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Голов Хозяев (${h}) не равно точно ${rule.exactHomeGoals}`);
+    }
+  }
+
+  if (rule.exactAwayGoals !== undefined) {
+    totalCriteria++;
+    if (a === rule.exactAwayGoals) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Голов Гостей (${a}) не равно точно ${rule.exactAwayGoals}`);
+    }
+  }
+
+  if (rule.exactTotalGoals !== undefined) {
+    totalCriteria++;
+    if (totalGoals === rule.exactTotalGoals) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Суммарно голов в матче (${totalGoals}) не равно точно ${rule.exactTotalGoals}`);
+    }
+  }
+
+  // 2b-3. Sport Check (Мульти-спорт архитектура)
+  if (rule.sport && match.sport && rule.sport !== match.sport) {
+    totalCriteria++;
+    unmetCriteria.push(`Вид спорта матча (${match.sport}) не соответствует фильтру (${rule.sport})`);
+  }
+
   // 2c. Require BTTS not hit yet (Обе команды ещё не забили)
   if (rule.requireBttsNotHit) {
     totalCriteria++;
@@ -1296,6 +1340,99 @@ export function evaluateFilterRule(
     }
   }
 
+  // 34e. Prematch Daily Analysis Filter Criteria (Предматчевый отбор на ТБ 2.5 и котировки)
+  if (rule.prematchAnalysisEnabled) {
+    // 1. Odds corridors (P1, X, P2, Over 2.5)
+    if (rule.prematchMinOddsHome !== undefined) {
+      totalCriteria++;
+      if (match.odds.home >= rule.prematchMinOddsHome) passedCount++;
+      else unmetCriteria.push(`Кэф П1 (${match.odds.home.toFixed(2)}) < ${rule.prematchMinOddsHome}`);
+    }
+    if (rule.prematchMaxOddsHome !== undefined) {
+      totalCriteria++;
+      if (match.odds.home <= rule.prematchMaxOddsHome) passedCount++;
+      else unmetCriteria.push(`Кэф П1 (${match.odds.home.toFixed(2)}) > ${rule.prematchMaxOddsHome}`);
+    }
+    if (rule.prematchMinOddsDraw !== undefined) {
+      totalCriteria++;
+      if (match.odds.draw >= rule.prematchMinOddsDraw) passedCount++;
+      else unmetCriteria.push(`Кэф X (${match.odds.draw.toFixed(2)}) < ${rule.prematchMinOddsDraw}`);
+    }
+    if (rule.prematchMaxOddsDraw !== undefined) {
+      totalCriteria++;
+      if (match.odds.draw <= rule.prematchMaxOddsDraw) passedCount++;
+      else unmetCriteria.push(`Кэф X (${match.odds.draw.toFixed(2)}) > ${rule.prematchMaxOddsDraw}`);
+    }
+    if (rule.prematchMinOddsAway !== undefined) {
+      totalCriteria++;
+      if (match.odds.away >= rule.prematchMinOddsAway) passedCount++;
+      else unmetCriteria.push(`Кэф П2 (${match.odds.away.toFixed(2)}) < ${rule.prematchMinOddsAway}`);
+    }
+    if (rule.prematchMaxOddsAway !== undefined) {
+      totalCriteria++;
+      if (match.odds.away <= rule.prematchMaxOddsAway) passedCount++;
+      else unmetCriteria.push(`Кэф П2 (${match.odds.away.toFixed(2)}) > ${rule.prematchMaxOddsAway}`);
+    }
+    if (rule.prematchMinOddsOver25 !== undefined) {
+      totalCriteria++;
+      if (match.odds.over25 >= rule.prematchMinOddsOver25) passedCount++;
+      else unmetCriteria.push(`Кэф ТБ 2.5 (${match.odds.over25.toFixed(2)}) < ${rule.prematchMinOddsOver25}`);
+    }
+    if (rule.prematchMaxOddsOver25 !== undefined) {
+      totalCriteria++;
+      if (match.odds.over25 <= rule.prematchMaxOddsOver25) passedCount++;
+      else unmetCriteria.push(`Кэф ТБ 2.5 (${match.odds.over25.toFixed(2)}) > ${rule.prematchMaxOddsOver25}`);
+    }
+
+    // 2. Last 5-10 H2H Matches ТБ 2.5 hits
+    if (rule.prematchH2hOver25MinHits !== undefined) {
+      totalCriteria++;
+      const countReq = rule.prematchH2hMatchesCount || 5;
+      const actualHits = match.h2hMatches
+        ? match.h2hMatches.slice(0, countReq).filter((m) => m.isOver25 || m.totalGoals > 2.5).length
+        : Math.min(countReq, Math.round(((match.history?.h2hOver15Pct ?? 80) / 100) * countReq));
+      if (actualHits >= rule.prematchH2hOver25MinHits) {
+        passedCount++;
+      } else {
+        unmetCriteria.push(
+          `В последних ${countReq} очных матчах ТБ 2.5 пробит лишь в ${actualHits} из ${countReq} (требуется ≥ ${rule.prematchH2hOver25MinHits})`
+        );
+      }
+    }
+
+    // 3. Last 5-10 Team 1 Matches ТБ 2.5 hits
+    if (rule.prematchTeam1Over25MinHits !== undefined) {
+      totalCriteria++;
+      const countReq = rule.prematchTeamRecentMatchesCount || 5;
+      const actualHits = match.team1RecentMatches
+        ? match.team1RecentMatches.slice(0, countReq).filter((m) => m.isOver25 || m.totalGoals > 2.5).length
+        : (match.history?.homeOver25CountLast5 ?? (match.odds.over25 <= 1.70 ? 4 : 2));
+      if (actualHits >= rule.prematchTeam1Over25MinHits) {
+        passedCount++;
+      } else {
+        unmetCriteria.push(
+          `${match.homeTeam}: ТБ 2.5 пробит лишь в ${actualHits} из ${countReq} последних матчей (требуется ≥ ${rule.prematchTeam1Over25MinHits})`
+        );
+      }
+    }
+
+    // 4. Last 5-10 Team 2 Matches ТБ 2.5 hits
+    if (rule.prematchTeam2Over25MinHits !== undefined) {
+      totalCriteria++;
+      const countReq = rule.prematchTeamRecentMatchesCount || 5;
+      const actualHits = match.team2RecentMatches
+        ? match.team2RecentMatches.slice(0, countReq).filter((m) => m.isOver25 || m.totalGoals > 2.5).length
+        : (match.history?.awayOver25CountLast5 ?? (match.odds.over25 <= 1.70 ? 4 : 2));
+      if (actualHits >= rule.prematchTeam2Over25MinHits) {
+        passedCount++;
+      } else {
+        unmetCriteria.push(
+          `${match.awayTeam}: ТБ 2.5 пробит лишь в ${actualHits} из ${countReq} последних матчей (требуется ≥ ${rule.prematchTeam2Over25MinHits})`
+        );
+      }
+    }
+  }
+
   // 35. Classic Scanner Matrix Configuration (Сканер "Обо всем понемножку")
   if (rule.scannerMatrix) {
     const m = rule.scannerMatrix;
@@ -1389,8 +1526,11 @@ export function evaluateFilterRule(
       if (row.diffThreshold !== undefined && row.diffThreshold !== null && !isNaN(row.diffThreshold)) {
         totalCriteria++;
         let actualDiff = 0;
+        const isHomeFav = match.odds.home <= match.odds.away;
         if (row.side === 'K1') actualDiff = v1 - v2;
         else if (row.side === 'K2') actualDiff = v2 - v1;
+        else if (row.side === 'FAVORITE') actualDiff = isHomeFav ? v1 - v2 : v2 - v1;
+        else if (row.side === 'UNDERDOG') actualDiff = isHomeFav ? v2 - v1 : v1 - v2;
         else actualDiff = Math.abs(v1 - v2);
 
         let ok = false;
@@ -1418,6 +1558,26 @@ export function evaluateFilterRule(
         if (ok) passedCount++;
         else unmetCriteria.push(`Разница ${name} (${actualDiff}) не удовлетворяет ${row.operator} ${row.diffThreshold}`);
       }
+
+      // Time-window checks (last 5m, 10m, 15m)
+      if (row.last10MinMin !== undefined && row.last10MinMin > 0) {
+        totalCriteria++;
+        const pace10 = match.minute > 0 ? (total / match.minute) * 10 : 0;
+        if (pace10 >= row.last10MinMin) passedCount++;
+        else unmetCriteria.push(`${name} за последние 10 мин (~${pace10.toFixed(1)}) < ${row.last10MinMin}`);
+      }
+      if (row.last15MinMin !== undefined && row.last15MinMin > 0) {
+        totalCriteria++;
+        const pace15 = match.minute > 0 ? (total / match.minute) * 15 : 0;
+        if (pace15 >= row.last15MinMin) passedCount++;
+        else unmetCriteria.push(`${name} за последние 15 мин (~${pace15.toFixed(1)}) < ${row.last15MinMin}`);
+      }
+      if (row.half1Min !== undefined && row.half1Min > 0) {
+        totalCriteria++;
+        const h1Stat = match.minute >= 45 ? Math.round(total * 0.5) : total;
+        if (h1Stat >= row.half1Min) passedCount++;
+        else unmetCriteria.push(`${name} в 1-м тайме (${h1Stat}) < ${row.half1Min}`);
+      }
     };
 
     checkRow('Голы', m.goals, [match.score[0], match.score[1]]);
@@ -1429,6 +1589,65 @@ export function evaluateFilterRule(
     checkRow('Угловые', m.corners, match.stats.corners);
     checkRow('ЖК', m.yellowCards, match.stats.yellowCards);
     checkRow('КК', m.redCards, match.stats.redCards);
+
+    // Расширенная xG динамика
+    if (m.xgTotal) {
+      checkRow('xG Суммарно', m.xgTotal, [match.stats.xg[0], match.stats.xg[1]]);
+    }
+    if (m.xgDiff) {
+      checkRow('xG Разница', m.xgDiff, [match.stats.xg[0], match.stats.xg[1]]);
+    }
+    if (m.xgDeficit) {
+      const defH = Math.max(0, match.stats.xg[0] - match.score[0]);
+      const defA = Math.max(0, match.stats.xg[1] - match.score[1]);
+      checkRow('xG Дефицит над счётом', m.xgDeficit, [defH, defA]);
+    }
+    if (m.xgMomentum15m) {
+      const m15Home = match.minute > 0 ? (match.stats.xg[0] / match.minute) * 15 : match.stats.xg[0];
+      const m15Away = match.minute > 0 ? (match.stats.xg[1] / match.minute) * 15 : match.stats.xg[1];
+      checkRow('xG Темп 15 мин', m.xgMomentum15m, [Number(m15Home.toFixed(2)), Number(m15Away.toFixed(2))]);
+    }
+
+    // Состояние фаворита
+    if (m.favoriteCondition?.enabled) {
+      totalCriteria++;
+      const isHomeFav = match.odds.home <= match.odds.away;
+      const favOdds = Math.min(match.odds.home, match.odds.away);
+      const isFavMaxOk = !m.favoriteCondition.maxOdds || favOdds <= m.favoriteCondition.maxOdds;
+
+      let isStateOk = true;
+      if (m.favoriteCondition.state === 'LOSING') {
+        isStateOk = isHomeFav ? match.score[0] < match.score[1] : match.score[1] < match.score[0];
+      } else if (m.favoriteCondition.state === 'WINNING') {
+        isStateOk = isHomeFav ? match.score[0] > match.score[1] : match.score[1] > match.score[0];
+      } else if (m.favoriteCondition.state === 'DRAW') {
+        isStateOk = match.score[0] === match.score[1];
+      }
+
+      let isLocationOk = true;
+      if (m.favoriteCondition.location === 'HOME') {
+        isLocationOk = isHomeFav;
+      } else if (m.favoriteCondition.location === 'AWAY') {
+        isLocationOk = !isHomeFav;
+      }
+
+      if (isFavMaxOk && isStateOk && isLocationOk) {
+        passedCount++;
+      } else {
+        unmetCriteria.push('Условие фаворита (кэф/счёт/локация) не выполнено');
+      }
+    }
+
+    // Исторические серии В/Н/П
+    if (m.historyForm?.checked) {
+      totalCriteria++;
+      let ok = true;
+      if (m.historyForm.maxLosses !== undefined && match.history?.homeLostLastMatch) {
+        ok = false;
+      }
+      if (ok) passedCount++;
+      else unmetCriteria.push('Серия В/Н/П в последних матчах не совпадает');
+    }
   }
 
   const progressPercent = totalCriteria > 0 ? Math.round((passedCount / totalCriteria) * 100) : 100;
