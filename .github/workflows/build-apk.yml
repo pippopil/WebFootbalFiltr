@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Build & Package Android APK
@@ -42,12 +45,16 @@ jobs:
         run: |
           yes | sdkmanager --licenses || true
 
-      - name: Initialize Android Wrapper Project
+      - name: Initialize Android Wrapper Project with Dynamic Build Number
         run: |
           mkdir -p android/app/src/main/assets/www
           cp -r dist/* android/app/src/main/assets/www/ || true
           mkdir -p android/app/src/main/res/values
           mkdir -p android/app/src/main/java/com/sportsignal/app
+
+          BUILD_NUM="${{ github.run_number }}"
+          VERSION_NAME="1.0.${BUILD_NUM}"
+          echo "Setting version: ${VERSION_NAME} (code: ${BUILD_NUM})"
 
           cat << 'EOF' > android/local.properties
           sdk.dir=/usr/local/lib/android/sdk
@@ -78,7 +85,7 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > android/app/build.gradle
+          cat << EOF > android/app/build.gradle
           plugins {
               id 'com.android.application'
           }
@@ -91,8 +98,8 @@ jobs:
                   applicationId "com.sportsignal.app"
                   minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0.0"
+                  versionCode ${BUILD_NUM}
+                  versionName "${VERSION_NAME}"
               }
 
               compileOptions {
@@ -185,9 +192,47 @@ jobs:
         run: |
           gradle assembleDebug --no-daemon --stacktrace
 
+      - name: Prepare Versioned APK Files
+        run: |
+          BUILD_NUM="${{ github.run_number }}"
+          VERSION_NAME="1.0.${BUILD_NUM}"
+          mkdir -p release-apk
+          # Copy with versioned name so every release keeps its distinct file
+          cp android/app/build/outputs/apk/debug/app-debug.apk "release-apk/SportSignal-v${VERSION_NAME}-b${BUILD_NUM}.apk"
+          # Also copy standard name for convenient one-click download
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-apk/SportSignal-latest.apk
+          echo "RELEASE_TAG=v1.0.${BUILD_NUM}" >> $GITHUB_ENV
+          echo "RELEASE_NAME=SportSignal AI v1.0.${BUILD_NUM} (Build #${BUILD_NUM})" >> $GITHUB_ENV
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SportSignal-Android-APK
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: release-apk/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release with APK
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ### 📱 SportSignal AI — Мобильное приложение для Android
+            
+            - **Версия:** `1.0.${{ github.run_number }}`
+            - **Номер сборки (Build Code):** `${{ github.run_number }}`
+            - **Ветка:** `${{ github.ref_name }}`
+            - **Коммит:** `${{ github.sha }}`
+            
+            #### 📥 Файлы для установки:
+            - **[Скачать SportSignal-v1.0.${{ github.run_number }}-b${{ github.run_number }}.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/SportSignal-v1.0.${{ github.run_number }}-b${{ github.run_number }}.apk)** — архивная версия сборки
+            - **[Скачать SportSignal-latest.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/SportSignal-latest.apk)** — актуальная версия
+            
+            *Установка: разрешите установку из неизвестных источников в настройках Android и откройте скачанный `.apk` файл.*
+          files: |
+            release-apk/SportSignal-v1.0.${{ github.run_number }}-b${{ github.run_number }}.apk
+            release-apk/SportSignal-latest.apk
