@@ -33,13 +33,14 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle 8.5
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.5'
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
       - name: Initialize Android Wrapper Project
         run: |
@@ -47,6 +48,10 @@ jobs:
           cp -r dist/* android/app/src/main/assets/www/ || true
           mkdir -p android/app/src/main/res/values
           mkdir -p android/app/src/main/java/com/sportsignal/app
+
+          cat << 'EOF' > android/local.properties
+          sdk.dir=/usr/local/lib/android/sdk
+          EOF
 
           cat << 'EOF' > android/settings.gradle
           pluginManagement {
