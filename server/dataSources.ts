@@ -554,6 +554,19 @@ function getMultiSportOngoingMatches(): Match[] {
   ];
 }
 
+// Helper to deduplicate list of matches by unique id
+function deduplicateMatchesById(items: Match[]): Match[] {
+  const seen = new Set<string>();
+  const res: Match[] = [];
+  for (const m of items) {
+    if (!seen.has(m.id)) {
+      seen.add(m.id);
+      res.push(m);
+    }
+  }
+  return res;
+}
+
 // Helper to obtain REAL currently ongoing live matches from the best available live feed
 async function getRealActiveLiveMatches(): Promise<Match[]> {
   const multiSport = getMultiSportOngoingMatches();
@@ -562,7 +575,7 @@ async function getRealActiveLiveMatches(): Promise<Match[]> {
   try {
     const fs = await fetchFlashscoreLiveMatches();
     if (fs.ok && fs.matches.length > 0) {
-      return [...fs.matches, ...multiSport];
+      return deduplicateMatchesById([...fs.matches, ...multiSport]);
     }
   } catch {}
 
@@ -570,7 +583,7 @@ async function getRealActiveLiveMatches(): Promise<Match[]> {
   try {
     const ss = await fetchSstatsLiveMatches();
     if (ss.ok && ss.matches.length > 0) {
-      return [...ss.matches, ...multiSport];
+      return deduplicateMatchesById([...ss.matches, ...multiSport]);
     }
   } catch {}
 
@@ -578,7 +591,7 @@ async function getRealActiveLiveMatches(): Promise<Match[]> {
   try {
     const webhookMatches = getIngestedLiveMatches();
     if (webhookMatches.length > 0) {
-      return [...webhookMatches, ...multiSport];
+      return deduplicateMatchesById([...webhookMatches, ...multiSport]);
     }
   } catch {}
 
@@ -586,11 +599,11 @@ async function getRealActiveLiveMatches(): Promise<Match[]> {
   try {
     const pf = await fetchPublicLiveMatches();
     if (pf.matches.length > 0) {
-      return [...pf.matches, ...multiSport];
+      return deduplicateMatchesById([...pf.matches, ...multiSport]);
     }
   } catch {}
 
-  return multiSport;
+  return deduplicateMatchesById(multiSport);
 }
 
 // -------------------------------------------------------------
@@ -628,9 +641,10 @@ export async function fetchFonbetLiveMatches(options?: {
         const tb25 = totalGoals >= 3 ? 1.05 : Number(Math.max(1.20, 2.10 - (totalGoals * 0.35) + (m.minute * 0.015)).toFixed(2));
         const tm25 = totalGoals >= 3 ? 8.50 : Number(Math.max(1.15, 1.80 + (totalGoals * 0.25) - (m.minute * 0.01)).toFixed(2));
 
+        const cleanId = m.id.replace(/^(fonbet-|fs-|sstats-|espn-|1x-|sofa-)/, '');
         return {
           ...m,
-          id: `fonbet-${m.id.replace(/^(fs-|sstats-|espn-|1x-)/, '')}`,
+          id: `fonbet-${cleanId}`,
           source: 'Fonbet',
           sport: m.sport || 'football',
           lastEvent: `${m.minute}' [Фонбет Live] ${m.homeTeam} ${m.score[0]}:${m.score[1]} ${m.awayTeam}`,
@@ -677,9 +691,10 @@ export async function fetch1xBetLiveMatches(options?: {
         const awayOdds = m.odds?.away || 3.40;
         const drawOdds = m.odds?.draw || 3.20;
 
+        const cleanId = m.id.replace(/^(1x-|fonbet-|fs-|sstats-|espn-|sofa-)/, '');
         return {
           ...m,
-          id: `1x-${m.id.replace(/^(fs-|sstats-|espn-|fonbet-)/, '')}`,
+          id: `1x-${cleanId}`,
           source: '1xBet',
           lastEvent: `${m.minute}' [1xBet Live] ${m.homeTeam} ${m.score[0]}:${m.score[1]} ${m.awayTeam}`,
           odds: {

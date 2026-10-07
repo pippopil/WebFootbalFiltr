@@ -866,6 +866,9 @@ export interface StrategyMarketplaceItem {
   filterTemplate: FilterRule;
   verifiedAt: string;
   isOfficial?: boolean;
+  priceType?: 'free' | 'paid';
+  priceRub?: number;
+  sellerTelegram?: string;
 }
 
 // -------------------------------------------------------------

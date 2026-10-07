@@ -2095,11 +2095,20 @@ export default function App() {
             const prevM = prev.find((m) => m.id === newM.id);
             return enrichMatchWithOddsTracker(newM, prevM);
           });
+          // Deduplicate incoming matches by id
+          const seen = new Set<string>();
+          const deduped: Match[] = [];
+          for (const m of updated) {
+            if (!seen.has(m.id)) {
+              seen.add(m.id);
+              deduped.push(m);
+            }
+          }
           // Accumulate real live matches into database
           try {
-            saveMatchesToAccumulatedLiveDB(updated);
+            saveMatchesToAccumulatedLiveDB(deduped);
           } catch {}
-          return updated;
+          return deduped;
         });
         if (!data.matches.some((m: Match) => m.id === selectedMatchId)) {
           setSelectedMatchId(data.matches[0].id);
@@ -2203,7 +2212,13 @@ export default function App() {
             : undefined
         );
 
-        editTelegramMessage(target.telegramMessageId, resolvedHtml).then((res) => {
+        const botTokenToUse = target.botToken || telegramConfig.botToken;
+        const chatIdToUse = target.chatId || telegramConfig.channelId;
+
+        editTelegramMessage(target.telegramMessageId, resolvedHtml, {
+          botToken: botTokenToUse,
+          chatId: chatIdToUse,
+        }).then((res) => {
           setSignals((curr) =>
             curr.map((s) =>
               s.id === signalId
@@ -2777,7 +2792,13 @@ export default function App() {
             }
           );
 
-          editTelegramMessage(sig.telegramMessageId, resolvedHtml).then((res) => {
+          const botTokenToUse = sig.botToken || telegramConfig.botToken;
+          const chatIdToUse = sig.chatId || telegramConfig.channelId;
+
+          editTelegramMessage(sig.telegramMessageId, resolvedHtml, {
+            botToken: botTokenToUse,
+            chatId: chatIdToUse,
+          }).then((res) => {
             setSignals((curr) =>
               curr.map((s) =>
                 s.id === sig.id
@@ -3073,7 +3094,17 @@ export default function App() {
       }
     }
 
-    const queried = sourcePool.filter(
+    // Ensure deduplication by unique match.id to prevent any React duplicate key warnings
+    const seenIds = new Set<string>();
+    const deduplicatedPool: Match[] = [];
+    for (const m of sourcePool) {
+      if (!seenIds.has(m.id)) {
+        seenIds.add(m.id);
+        deduplicatedPool.push(m);
+      }
+    }
+
+    const queried = deduplicatedPool.filter(
       (m) => {
         if (selectedSport !== 'all' && (m.sport || 'football') !== selectedSport) {
           return false;

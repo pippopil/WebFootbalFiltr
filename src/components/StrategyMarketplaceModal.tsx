@@ -194,7 +194,16 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
   onImportStrategy,
   currentUserId,
 }) => {
-  const [items, setItems] = useState<StrategyMarketplaceItem[]>(INITIAL_MARKETPLACE_ITEMS);
+  const [items, setItems] = useState<StrategyMarketplaceItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('footbalmonitor_marketplace_items');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_MARKETPLACE_ITEMS;
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'rating' | 'roi' | 'winRate' | 'popular'>('roi');
@@ -202,7 +211,17 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [selectedFilterToPublish, setSelectedFilterToPublish] = useState<string>('');
   const [publishDescription, setPublishDescription] = useState('');
+  const [publishPriceType, setPublishPriceType] = useState<'free' | 'paid'>('free');
+  const [publishPriceRub, setPublishPriceRub] = useState<number>(490);
+  const [publishTelegram, setPublishTelegram] = useState('');
   const [publishSuccess, setPublishSuccess] = useState(false);
+
+  const saveItemsToStorage = (updated: StrategyMarketplaceItem[]) => {
+    setItems(updated);
+    try {
+      localStorage.setItem('footbalmonitor_marketplace_items', JSON.stringify(updated));
+    } catch {}
+  };
 
   if (!isOpen) return null;
 
@@ -253,19 +272,26 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
       totalSignals: 45,
       avgOdds: 1.82,
       description: publishDescription || 'Авторский алгоритм, созданный в конструкторе фильтров.',
-      tags: ['Сообщество', 'Авторский фильтр', 'Live'],
-      sport: 'football',
+      tags: ['Сообщество', 'Авторский фильтр', sourceFilter.sport || 'football'],
+      sport: (sourceFilter.sport as any) || 'football',
       verifiedAt: 'Сегодня',
       filterTemplate: sourceFilter,
+      priceType: publishPriceType,
+      priceRub: publishPriceType === 'paid' ? publishPriceRub : 0,
+      sellerTelegram: publishTelegram.trim(),
     };
 
-    setItems((prev) => [newItem, ...prev]);
+    const updated = [newItem, ...items];
+    saveItemsToStorage(updated);
     setPublishSuccess(true);
     setTimeout(() => {
       setPublishSuccess(false);
       setIsPublishOpen(false);
       setSelectedFilterToPublish('');
       setPublishDescription('');
+      setPublishPriceType('free');
+      setPublishPriceRub(490);
+      setPublishTelegram('');
     }, 1500);
   };
 
@@ -347,6 +373,68 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
                       onChange={(e) => setPublishDescription(e.target.value)}
                       placeholder="Например: Ставка на ТБ 1.5, если фаворит давит во 2 тайме"
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Price & Contact Settings */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Тип доступа / Продажа:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPublishPriceType('free')}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
+                          publishPriceType === 'free'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                            : 'bg-slate-900 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        Бесплатно
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPublishPriceType('paid')}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
+                          publishPriceType === 'paid'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                            : 'bg-slate-900 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        Платная (PRO)
+                      </button>
+                    </div>
+                  </div>
+
+                  {publishPriceType === 'paid' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Стоимость (руб):
+                      </label>
+                      <input
+                        type="number"
+                        min="100"
+                        step="50"
+                        value={publishPriceRub}
+                        onChange={(e) => setPublishPriceRub(Number(e.target.value) || 0)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Ваш контакт в Telegram:
+                    </label>
+                    <input
+                      type="text"
+                      value={publishTelegram}
+                      onChange={(e) => setPublishTelegram(e.target.value)}
+                      placeholder="@username для связи"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>
@@ -444,7 +532,7 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
                   <div>
                     {/* Top Row: Author & Badge */}
                     <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold text-slate-300">{item.author}</span>
                         <span
                           className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
@@ -457,6 +545,20 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
                         >
                           {item.authorBadge}
                         </span>
+                        {item.priceType === 'paid' ? (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            💰 PRO • {item.priceRub} ₽
+                          </span>
+                        ) : (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            Бесплатно
+                          </span>
+                        )}
+                        {item.sellerTelegram && (
+                          <span className="text-[9px] text-cyan-400 font-mono">
+                            {item.sellerTelegram}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1 text-amber-400 font-bold text-xs">

@@ -187,6 +187,23 @@ async function startServer() {
     }
   });
 
+  // In-memory rate limiter to protect server from flooding / DDoS
+  const clientRateLimits = new Map<string, { count: number; resetAt: number }>();
+
+  function checkRateLimit(clientId: string, limitPerMinute: number = 60): boolean {
+    const now = Date.now();
+    const entry = clientRateLimits.get(clientId);
+    if (!entry || now > entry.resetAt) {
+      clientRateLimits.set(clientId, { count: 1, resetAt: now + 60000 });
+      return true;
+    }
+    if (entry.count >= limitPerMinute) {
+      return false;
+    }
+    entry.count++;
+    return true;
+  }
+
   // In-memory anti-spam deduplication cache for Telegram alerts
   interface DispatchedSignalRecord {
     timestamp: number;
@@ -217,6 +234,14 @@ async function startServer() {
 
   // Send message to Telegram chat / channel
   app.post('/api/telegram/send', async (req, res) => {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'local';
+    if (!checkRateLimit(clientIp, 60)) {
+      return res.status(429).json({
+        ok: false,
+        error: 'Превышен лимит запросов к Telegram API (максимум 60 сообщений в минуту). Подождите 1 минуту.',
+      });
+    }
+
     const {
       text,
       parse_mode = 'HTML',
@@ -251,6 +276,13 @@ async function startServer() {
       return res.status(400).json({
         ok: false,
         error: 'Текст сообщения не может быть пустым.',
+      });
+    }
+
+    if (text.length > 4096) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Длина сообщения превышает лимит Telegram (4096 символов).',
       });
     }
 
@@ -885,6 +917,14 @@ async function startServer() {
 
   // AI Match Analyst in 1 Click (Powered by Gemini 3.1 Flash-Lite / 3.8 Flash with Token Caching & Heuristic Fallback)
   app.post('/api/ai/analyze-match', async (req, res) => {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'local';
+    if (!checkRateLimit(clientIp, 30)) {
+      return res.status(429).json({
+        ok: false,
+        error: 'Превышен лимит запросов к ИИ-аналитику (максимум 30 запросов в минуту). Пожалуйста, подождите немного.',
+      });
+    }
+
     const { match, pressureAnalysis, mode = 'eco', bypassCache = false } = req.body;
 
     if (!match) {
@@ -1073,8 +1113,9 @@ async function startServer() {
       });
     }
 
-    // 2. Token-Saving Cache Check (60-second TTL prevents repeated API calls for the same match minute)
-    const cacheKey = `match_${match.id}_${minute}_${score[0]}-${score[1]}_${mode}`;
+    // 2. Token-Saving Cache Check (3-minute TTL per game segment prevents repeated token spend)
+    const minuteSegment = Math.floor((minute || 0) / 3);
+    const cacheKey = `match_${match.id}_seg${minuteSegment}_${score[0]}-${score[1]}_${mode}`;
     if (!bypassCache) {
       const cached = getFromAICache<any>(aiAnalysisCache, cacheKey);
       if (cached) {
@@ -1227,8 +1268,8 @@ async function startServer() {
             },
           };
 
-          // Cache for 60 seconds
-          setToAICache(aiAnalysisCache, cacheKey, finalAnalysis, 60 * 1000);
+          // Cache for 3 minutes (180 seconds) to cut token consumption by half
+          setToAICache(aiAnalysisCache, cacheKey, finalAnalysis, 180 * 1000);
 
           return res.json({
             ok: true,
