@@ -37,6 +37,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Set up Gradle Environment
+        uses: gradle/actions/setup-gradle@v3
+
       - name: Initialize Android Wrapper Project
         run: |
           mkdir -p android/app/src/main/assets/www
@@ -45,25 +48,33 @@ jobs:
           mkdir -p android/app/src/main/java/com/sportsignal/app
 
           cat << 'EOF' > android/settings.gradle
+          pluginManagement {
+              repositories {
+                  google {
+                      content {
+                          includeGroupByRegex("com\\.android.*")
+                          includeGroupByRegex("com\\.google.*")
+                          includeGroupByRegex("androidx.*")
+                      }
+                  }
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
           rootProject.name = "SportSignal"
           include ':app'
           EOF
 
           cat << 'EOF' > android/build.gradle
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.2'
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
           }
           EOF
 
@@ -87,7 +98,6 @@ jobs:
               buildTypes {
                   release {
                       minifyEnabled false
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
                   }
               }
           }
@@ -171,11 +181,10 @@ jobs:
           }
           EOF
 
-      - name: Build Android APK (Debug & Release unsigned)
+      - name: Build Android APK (Debug)
         working-directory: android
         run: |
-          gradle wrapper
-          ./gradlew assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
