@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   ChevronRight,
   GraduationCap,
+  Download,
+  Smartphone,
 } from 'lucide-react';
 import { SiteAnalyticsData, AdBannerItem } from '../types';
 import { AppLogo } from './AppLogo';
@@ -286,6 +288,20 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                   </span>
                   <span className="text-[10px] text-purple-400 font-mono">ROOT</span>
                 </button>
+              </li>
+              <li className="pt-1">
+                <a
+                  href="https://github.com/pippopil/WebFootbalFiltr/releases/download/v1.0.8/SportSignal-latest.apk"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between w-full p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 transition text-left text-xs font-bold"
+                >
+                  <span className="flex items-center gap-2">
+                    <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Скачать APK на Android</span>
+                  </span>
+                  <Download className="h-3.5 w-3.5 text-emerald-400 animate-bounce" />
+                </a>
               </li>
             </ul>
           </div>
