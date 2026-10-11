@@ -280,6 +280,36 @@ assert(
 );
 
 // ----------------------------------------------------
+// TEST GROUP 7: All Strategies Backtest Pass Rate >= 80%
+// ----------------------------------------------------
+console.log('\n--- Test Group 7: All Strategies Backtest Pass Rate >= 80% on Real Matches ---');
+const { EXPANDED_DEFAULT_FILTERS } = await import('../src/data/defaultFilters');
+const { runBacktest } = await import('../src/backtestEngine');
+
+let allHighPassRate = true;
+let lowestWinRate = 100;
+let lowestStrategy = '';
+
+for (const filter of EXPANDED_DEFAULT_FILTERS) {
+  const result = runBacktest(filter);
+  if (result.totalSignals > 0) {
+    if (result.winRate < 80) {
+      allHighPassRate = false;
+      console.error(`Strategy ${filter.id} (${filter.name}) has winRate ${result.winRate}% < 80%`);
+    }
+    if (result.winRate < lowestWinRate) {
+      lowestWinRate = result.winRate;
+      lowestStrategy = `${filter.id} (${filter.winRate || result.winRate}%)`;
+    }
+  }
+}
+
+assert(
+  allHighPassRate,
+  `All 50 strategies have winRate >= 80% on real historical matches (Lowest: ${lowestWinRate}%)`
+);
+
+// ----------------------------------------------------
 // SUMMARY
 // ----------------------------------------------------
 console.log('\n========================================');

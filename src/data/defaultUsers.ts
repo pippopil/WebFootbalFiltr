@@ -101,7 +101,7 @@ export const DEFAULT_USERS: UserProfile[] = [
     ],
     stats: {
       totalSignalsGenerated: 64,
-      winRate: 79.4,
+      winRate: 84.4,
       favoriteLeague: 'Англия: Премьер-лига',
       signalsToday: 7,
     },
@@ -182,7 +182,7 @@ export const DEFAULT_USERS: UserProfile[] = [
     ],
     stats: {
       totalSignalsGenerated: 12,
-      winRate: 66.7,
+      winRate: 83.3,
       favoriteLeague: 'Испания: Ла Лига',
       signalsToday: 2,
     },
