@@ -215,7 +215,8 @@ export const cleanPresetTitle = (name: string): string => {
 export const getStrategyCardDisplayName = (
   rule: FilterRule,
   isDeveloper: boolean = false,
-  allFilters?: FilterRule[]
+  allFilters?: FilterRule[],
+  lang?: string
 ): string => {
   if (!rule) return '';
   // Пользовательские авторские фильтры сохраняют свое название
@@ -224,23 +225,33 @@ export const getStrategyCardDisplayName = (
   // Разработчик видит стратегию полностью со всеми формулами и метками
   if (isDeveloper) return rule.name;
 
+  const currentLang = lang || (typeof localStorage !== 'undefined' ? localStorage.getItem('footbalmonitor_lang') : null) || 'ru';
+  const prefixMap: Record<string, string> = {
+    ru: 'Стратегия',
+    en: 'Strategy',
+    tr: 'Strateji',
+    it: 'Strategia',
+    zh: '策略',
+  };
+  const prefix = prefixMap[currentLang] || 'Стратегия';
+
   // Обычные пользователи видят строго "Стратегия 1", "Стратегия 2", "Стратегия 3"...
   const matchF = rule.id.match(/^f-(\d+)$/i);
   if (matchF) {
-    return `Стратегия ${matchF[1]}`;
+    return `${prefix} ${matchF[1]}`;
   }
 
   const matchPresetNum = rule.name.match(/Стратегия\s+(\d+)/i);
   if (matchPresetNum) {
-    return `Стратегия ${matchPresetNum[1]}`;
+    return `${prefix} ${matchPresetNum[1]}`;
   }
 
   if (allFilters) {
     const presetIndex = allFilters.filter((f) => f.isPreset).findIndex((f) => f.id === rule.id);
     if (presetIndex !== -1) {
-      return `Стратегия ${presetIndex + 1}`;
+      return `${prefix} ${presetIndex + 1}`;
     }
   }
 
-  return 'Стратегия';
+  return prefix;
 };

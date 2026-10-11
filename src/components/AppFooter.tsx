@@ -11,9 +11,6 @@ import {
   Radio,
   Clock,
   TrendingUp,
-  Eye,
-  Users,
-  CheckCircle2,
   ChevronRight,
   GraduationCap,
   Download,
@@ -21,6 +18,7 @@ import {
 } from 'lucide-react';
 import { SiteAnalyticsData, AdBannerItem } from '../types';
 import { AppLogo } from './AppLogo';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface AppFooterProps {
   analytics: SiteAnalyticsData;
@@ -45,10 +43,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
   activeFiltersCount,
   signalsCount,
 }) => {
-  const activeBannersCount = ads.filter((a) => a.active).length;
-  const totalImpressions = ads.reduce((acc, a) => acc + (a.impressions || 0), 0);
-  const totalClicks = ads.reduce((acc, a) => acc + (a.clicks || 0), 0);
-  const overallCtr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(1) : '0.0';
+  const { t } = useLanguage();
 
   const handleOpenAdvertiser = () => {
     onSelectTab('advertiser');
@@ -106,11 +101,11 @@ export const AppFooter: React.FC<AppFooterProps> = ({
           <div className="space-y-4">
             <AppLogo size="sm" animated={false} />
             <p className="text-xs text-slate-400 leading-relaxed">
-              Профессиональный аналитический сканер live-матчей и доматчевых линий. Отслеживание аномальных прогрузов коэффициентов (Steam Move), индексов давления и автоматическая доставка сигналов в Telegram.
+              Профессиональный аналитический сканер live-матчей и доматчевых линий. Отслеживание аномальных прогрузов коэффициентов, xG-индексов и автоматическая доставка сигналов в Telegram.
             </p>
             <div className="space-y-2 pt-1 text-xs">
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-400">Источник данных:</span>
+                <span className="text-slate-400">{t('activeProvider')}:</span>
                 <span className="font-semibold text-emerald-400 font-mono">{dataSourceName}</span>
               </div>
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800">
@@ -119,12 +114,12 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                   {isMonitoringActive ? (
                     <>
                       <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="text-emerald-400">Мониторинг активен</span>
+                      <span className="text-emerald-400">{t('monitoringActive')}</span>
                     </>
                   ) : (
                     <>
                       <span className="h-2 w-2 rounded-full bg-amber-400" />
-                      <span className="text-amber-400">На паузе</span>
+                      <span className="text-amber-400">{t('monitoringPaused')}</span>
                     </>
                   )}
                 </span>
@@ -190,7 +185,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <Activity className="h-3.5 w-3.5" />
-                    <span>Live Матчи & Сканер котировок</span>
+                    <span>{t('navLiveMatches')}</span>
                   </span>
                   <span className="px-1.5 py-0.2 rounded bg-slate-800 text-[10px] font-mono text-slate-300">
                     {liveMatchesCount}
@@ -206,7 +201,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <Layers className="h-3.5 w-3.5" />
-                    <span>Фильтры & 35 Стратегий</span>
+                    <span>{t('navStrategies')}</span>
                   </span>
                   <span className="px-1.5 py-0.2 rounded bg-slate-800 text-[10px] font-mono text-slate-300">
                     {activeFiltersCount}
@@ -222,7 +217,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <Radio className="h-3.5 w-3.5" />
-                    <span>Журнал сигналов & ROI</span>
+                    <span>{t('navSignals')}</span>
                   </span>
                   <span className="px-1.5 py-0.2 rounded bg-slate-800 text-[10px] font-mono text-slate-300">
                     {signalsCount}
@@ -238,7 +233,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <TrendingUp className="h-3.5 w-3.5" />
-                    <span>Бэктестинг & Винрейт</span>
+                    <span>{t('navBacktest')}</span>
                   </span>
                   <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-[10px] font-mono text-emerald-300 font-bold">
                     ROI
@@ -254,7 +249,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <Send className="h-3.5 w-3.5" />
-                    <span>Telegram Боты & Каналы</span>
+                    <span>{t('telegramBot')}</span>
                   </span>
                   <span className="text-[10px] text-sky-400 font-mono">TG</span>
                 </button>
@@ -268,7 +263,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <GraduationCap className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Обучение & Гид новичка</span>
+                    <span>{t('navEducation')}</span>
                   </span>
                   <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">
                     ГИД
@@ -284,21 +279,21 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                 >
                   <span className="flex items-center gap-2">
                     <User className="h-3.5 w-3.5" />
-                    <span>Личный кабинет пользователя</span>
+                    <span>{t('navCabinet')}</span>
                   </span>
                   <span className="text-[10px] text-purple-400 font-mono">ROOT</span>
                 </button>
               </li>
               <li className="pt-1">
                 <a
-                  href="https://github.com/pippopil/WebFootbalFiltr/releases/download/v1.0.8/SportSignal-latest.apk"
+                  href="https://github.com/pippopil/WebFootbalFiltr/releases/latest/download/SportSignal-latest.apk"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between w-full p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 transition text-left text-xs font-bold"
                 >
                   <span className="flex items-center gap-2">
                     <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>Скачать APK на Android</span>
+                    <span>{t('downloadApkBtn')}</span>
                   </span>
                   <Download className="h-3.5 w-3.5 text-emerald-400 animate-bounce" />
                 </a>
@@ -353,7 +348,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
         {/* Bottom Disclaimer & Copyright */}
         <div className="mt-8 pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <div>
-            © {new Date().getFullYear()} <span className="text-slate-300 font-semibold">SportSignal AI Pro</span> v2.4. Все права защищены.
+            © {new Date().getFullYear()} <span className="text-slate-300 font-semibold">SportSignal AI Pro</span>. Все права защищены.
           </div>
           <div className="text-center sm:text-right text-[11px]">
             Статистика, вероятности и сигналы носят сугубо информационно-аналитический характер. Платформа не организует азартные игры.

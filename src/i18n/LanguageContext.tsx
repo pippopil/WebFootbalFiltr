@@ -16,7 +16,7 @@ const LanguageContext = createContext<LanguageContextType>({
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
     const saved = localStorage.getItem('footbalmonitor_lang') as Language;
-    if (saved && (saved === 'ru' || saved === 'en' || saved === 'tr')) {
+    if (saved && (saved === 'ru' || saved === 'en' || saved === 'tr' || saved === 'it' || saved === 'zh')) {
       return saved;
     }
     return 'ru';

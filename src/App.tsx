@@ -159,6 +159,8 @@ import { EducationGuideView } from './components/EducationGuideView';
 import { StrategyMarketplaceModal } from './components/StrategyMarketplaceModal';
 import { BankrollTrackerModal } from './components/BankrollTrackerModal';
 import { OddsMovementRadarModal } from './components/OddsMovementRadarModal';
+import { MatchMomentumRadarModal } from './components/MatchMomentumRadarModal';
+import { voiceAnnouncer } from './services/voiceAlertAnnouncer';
 // import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
@@ -1937,6 +1939,8 @@ export default function App() {
   const [isMarketplaceOpen, setIsMarketplaceOpen] = useState<boolean>(false);
   const [isBankrollOpen, setIsBankrollOpen] = useState<boolean>(false);
   const [isOddsRadarOpen, setIsOddsRadarOpen] = useState<boolean>(false);
+  const [isMomentumRadarOpen, setIsMomentumRadarOpen] = useState<boolean>(false);
+  const [isVoiceAlertsEnabled, setIsVoiceAlertsEnabled] = useState<boolean>(() => voiceAnnouncer.isEnabled());
   const [isDataSourcesModalOpen, setIsDataSourcesModalOpen] = useState<boolean>(false);
   const [isProofOfWinOpen, setIsProofOfWinOpen] = useState<boolean>(false);
   const [isProofShareOpen, setIsProofShareOpen] = useState<boolean>(false);
@@ -3362,6 +3366,15 @@ export default function App() {
             `🔥 Сигнал ${displayRuleName}: ${match.homeTeam} vs ${match.awayTeam}`,
             `Минута ${match.minute}', счёт ${match.score[0]}:${match.score[1]}, кэф ${estimatedOdds.toFixed(2)}. Рынок: ${rule.targetMarket || 'ТБ'}`
           );
+          voiceAnnouncer.announceSignal({
+            strategyName: displayRuleName,
+            homeTeam: match.homeTeam,
+            awayTeam: match.awayTeam,
+            minute: match.minute,
+            score: match.score,
+            market: rule.targetMarket,
+            odds: estimatedOdds,
+          }, language);
           // Also persist this match to the accumulated live matches database (accumulated from scratch)
           try {
             saveMatchesToAccumulatedLiveDB([match]);
@@ -4170,7 +4183,7 @@ export default function App() {
               }`}
             >
               {isMonitoringActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              <span>{isMonitoringActive ? 'Мониторинг' : 'Пауза'}</span>
+              <span>{isMonitoringActive ? t('monitoringActive') : t('monitoringPaused')}</span>
             </button>
 
             {/* Web Push Notifications Toggle & Test */}
@@ -4185,8 +4198,8 @@ export default function App() {
               }`}
               title={
                 isWebPushEnabled
-                  ? 'Web Push активен: кликните для отключения'
-                  : 'Включить браузерные Web Push оповещения (даже при свернутой вкладке)'
+                  ? 'Web Push активен'
+                  : 'Web Push'
               }
             >
               {isWebPushEnabled ? (
@@ -4195,7 +4208,33 @@ export default function App() {
                 <Bell className="h-3.5 w-3.5 text-slate-400" />
               )}
               <span className="hidden sm:inline font-mono">
-                {isWebPushEnabled ? 'Push: ВКЛ' : 'Web Push'}
+                {isWebPushEnabled ? t('webPushActive') : t('webPushInactive')}
+              </span>
+            </button>
+
+            {/* Innovation 2: Live Multilingual Voice & Audio Announcer */}
+            <button
+              id="toggle-voice-alerts-btn"
+              type="button"
+              onClick={() => {
+                triggerTgHaptic('light');
+                const nextVal = !isVoiceAlertsEnabled;
+                setIsVoiceAlertsEnabled(nextVal);
+                voiceAnnouncer.setEnabled(nextVal);
+                if (nextVal) {
+                  voiceAnnouncer.testVoice(language);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition ${
+                isVoiceAlertsEnabled
+                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-300 hover:bg-purple-500/25 shadow-sm'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+              title="Live Voice Alert Announcer"
+            >
+              <Volume2 className={`h-3.5 w-3.5 ${isVoiceAlertsEnabled ? 'text-purple-400 animate-pulse' : 'text-slate-400'}`} />
+              <span className="hidden sm:inline font-mono">
+                {isVoiceAlertsEnabled ? t('voiceActive') : t('voiceInactive')}
               </span>
             </button>
 
@@ -4211,11 +4250,6 @@ export default function App() {
                       ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
                       : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
                   }`}
-                  title={
-                    isSoundAlertsEnabled
-                      ? `Звук включен: ${ALERT_SOUND_PROFILES.find((p) => p.id === alertSoundType)?.name || 'Свисток'}`
-                      : 'Звук выключен'
-                  }
                 >
                   {isSoundAlertsEnabled ? (
                     <Volume2 className="h-4 w-4 text-emerald-400" />
@@ -4223,7 +4257,7 @@ export default function App() {
                     <VolumeX className="h-4 w-4 text-rose-400" />
                   )}
                   <span className="hidden sm:inline font-mono">
-                    {isSoundAlertsEnabled ? 'Звук: ВКЛ' : 'Звук: ВЫКЛ'}
+                    {isSoundAlertsEnabled ? t('soundActive') : t('soundInactive')}
                   </span>
                 </button>
                 <button
@@ -4297,6 +4331,20 @@ export default function App() {
               )}
             </div>
 
+            {/* Innovation 1: AI Match Momentum & Goal Radar */}
+            <button
+              id="open-momentum-radar-btn"
+              onClick={() => {
+                triggerTgHaptic('medium');
+                setIsMomentumRadarOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-600/20 via-teal-600/20 to-emerald-500/20 hover:from-emerald-600/35 hover:to-teal-600/35 text-emerald-300 border border-emerald-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
+              title="AI Радар Доминации и Оценка Гола"
+            >
+              <Activity className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+              <span>{t('navMomentumRadar')}</span>
+            </button>
+
             {/* Proof-of-Win Public Checker */}
             <button
               onClick={() => {
@@ -4304,10 +4352,10 @@ export default function App() {
                 setIsProofOfWinOpen(true);
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Публичный чекер проходимости (Proof-of-Win) & Виральный шеринг сигналов"
+              title="Proof-of-Win"
             >
               <Trophy className="h-3.5 w-3.5 text-amber-400" />
-              <span>Proof-of-Win</span>
+              <span>{t('navProofOfWin')}</span>
             </button>
 
             {/* Leaderboard of creators */}
@@ -4317,10 +4365,9 @@ export default function App() {
                 setIsLeaderboardOpen(true);
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Еженедельный лидерборд и рейтинг создателей месяца"
             >
               <Crown className="h-3.5 w-3.5 text-purple-400" />
-              <span className="hidden xl:inline">Рейтинг авторов</span>
+              <span className="hidden xl:inline">{t('navLeaderboard')}</span>
             </button>
 
             {/* AI Analyst */}
@@ -4328,10 +4375,9 @@ export default function App() {
               id="open-ai-analyst-header-btn"
               onClick={() => handleOpenAIAnalyst(selectedMatch || matches[0])}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-950/50 border border-indigo-400/30 transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Запустить мгновенный AI-анализ матча"
             >
               <Sparkles className="h-3.5 w-3.5 text-indigo-200 animate-pulse" />
-              <span>AI-Аналитик</span>
+              <span>{t('navAiAnalyst')}</span>
             </button>
 
             {/* AI Synthesizer */}
@@ -4339,10 +4385,9 @@ export default function App() {
               id="open-ai-synthesizer-header-btn"
               onClick={() => setIsAISynthesizerOpen(true)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white shadow-md shadow-emerald-950/50 border border-emerald-400/40 transition hover:scale-[1.02] active:scale-[0.98]"
-              title="ИИ-Синтезатор стратегий"
             >
               <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-              <span>ИИ-Синтезатор</span>
+              <span>{t('navAiSynthesizer')}</span>
             </button>
 
             {/* Strategy Marketplace */}
@@ -4352,10 +4397,9 @@ export default function App() {
                 setIsMarketplaceOpen(true);
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Маркетплейс авторских алгоритмов"
             >
               <ShoppingBag className="h-3.5 w-3.5 text-amber-400" />
-              <span>Маркет</span>
+              <span>{t('navMarketplace')}</span>
             </button>
 
             {/* Virtual Bankroll & Bet Tracker */}
@@ -4365,10 +4409,9 @@ export default function App() {
                 setIsBankrollOpen(true);
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Трекер виртуального банка"
             >
               <Wallet className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Банк</span>
+              <span>{t('navBankroll')}</span>
             </button>
 
             {/* Odds Radar */}
@@ -4378,10 +4421,9 @@ export default function App() {
                 setIsOddsRadarOpen(true);
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Радар прогрузов коэффициентов"
             >
               <TrendingDown className="h-3.5 w-3.5 text-rose-400" />
-              <span>Радар</span>
+              <span>{t('navOddsRadar')}</span>
             </button>
 
             {/* User Cabinet */}
@@ -4563,7 +4605,7 @@ export default function App() {
               }`}
             >
               <GraduationCap className="h-3.5 w-3.5 text-amber-400" />
-              <span>Обучение</span>
+              <span>{t('navEducation')}</span>
             </button>
 
             <button
@@ -4576,7 +4618,7 @@ export default function App() {
               }`}
             >
               <User className="h-3.5 w-3.5 text-emerald-400" />
-              <span>{currentUser.role === 'god' ? 'GOD MODE' : 'Кабинет'}</span>
+              <span>{currentUser.role === 'god' ? 'GOD MODE' : t('navCabinet')}</span>
             </button>
           </div>
 
@@ -4716,7 +4758,7 @@ export default function App() {
           >
             <div className="space-y-1 min-w-0">
               <div className="flex items-center gap-1 text-[11px] sm:text-xs text-slate-400 group-hover:text-cyan-300 transition truncate">
-                <span>Провайдер</span>
+                <span>{t('activeProvider')}</span>
                 <span className="text-[10px] text-cyan-400 font-mono">⚙</span>
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2">
@@ -4756,7 +4798,7 @@ export default function App() {
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 sm:p-4 flex items-center justify-between">
             <div className="space-y-1">
-              <span className="text-[11px] sm:text-xs text-slate-400">Матчей в лайве</span>
+              <span className="text-[11px] sm:text-xs text-slate-400">{t('liveMatchesCount')}</span>
               <div className="text-lg sm:text-xl font-bold text-white">{matches.length}</div>
             </div>
             <Flame className="h-5 w-5 sm:h-6 sm:w-6 text-amber-400/50 shrink-0 ml-1" />
@@ -4764,7 +4806,7 @@ export default function App() {
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 sm:p-4 flex items-center justify-between">
             <div className="space-y-1">
-              <span className="text-[11px] sm:text-xs text-slate-400">Фильтры</span>
+              <span className="text-[11px] sm:text-xs text-slate-400">{t('filtersCount')}</span>
               <div className="text-lg sm:text-xl font-bold text-emerald-400">{filters.filter((f) => f.enabled).length} / {filters.length}</div>
             </div>
             <Sliders className="h-5 w-5 sm:h-6 sm:w-6 text-blue-400/50 shrink-0 ml-1" />
@@ -4773,9 +4815,9 @@ export default function App() {
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 sm:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <span className="text-[11px] sm:text-xs text-slate-400 truncate flex items-center gap-1">
-                <span>Канал TG</span>
+                <span>{t('tgChannel')}</span>
               </span>
-              <div className="text-lg sm:text-xl font-bold text-blue-400">{telegramConfig.notificationsCount} алертов</div>
+              <div className="text-lg sm:text-xl font-bold text-blue-400">{telegramConfig.notificationsCount}</div>
             </div>
             <Send className="h-5 w-5 sm:h-6 sm:w-6 text-blue-400/50 shrink-0 ml-1" />
           </div>
@@ -4914,10 +4956,10 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
-                    Live Proof-of-Win: ТОП-3 алгоритма недели
+                    {t('top3AlgorithmsTitle')}
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Подтвержденный винрейт 7 дней
+                    {t('verifiedWinrate7d')}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
@@ -4936,7 +4978,7 @@ export default function App() {
                 title="Включить в один клик ТОП-3 безопасные стратегии для новичка"
               >
                 <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-pulse" />
-                <span>🚀 Я новичок: включить ТОП-3</span>
+                <span>{t('noviceSafeTop3Btn')}</span>
               </button>
 
               {/* Open full Proof-of-Win audit modal */}
@@ -4949,7 +4991,7 @@ export default function App() {
                 className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
               >
                 <Trophy className="h-3.5 w-3.5 text-amber-400" />
-                <span>Чекер проходимости</span>
+                <span>{t('proofOfWinCheckerBtn')}</span>
               </button>
 
               {/* Share in TG / VK button */}
@@ -4974,7 +5016,7 @@ export default function App() {
                 title="Поделиться сигналом в Telegram / VK"
               >
                 <Share2 className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Поделиться карточкой</span>
+                <span>{t('shareCardBtn')}</span>
               </button>
             </div>
           </div>
@@ -4997,7 +5039,7 @@ export default function App() {
                 </div>
 
                 <div className="text-[11px] text-slate-400 line-clamp-1">
-                  Рынок: <strong className="text-slate-300">{algo.market}</strong>
+                  {t('marketLabel')}: <strong className="text-slate-300">{algo.market}</strong>
                 </div>
 
                 <div className="grid grid-cols-3 gap-1.5 text-center text-[10px] font-mono p-1.5 rounded-xl bg-slate-900 border border-slate-800/80">
@@ -5010,7 +5052,7 @@ export default function App() {
                     <span className="font-bold text-slate-200">{algo.wonCount}/{algo.totalSignals}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[9px]">Стрик</span>
+                    <span className="text-slate-500 block text-[9px]">{t('streakLabel')}</span>
                     <span className="font-bold text-amber-300">{algo.streak} 🔥</span>
                   </div>
                 </div>
@@ -5050,13 +5092,13 @@ export default function App() {
         <div className="flex items-center justify-between gap-3 p-2 bg-slate-900/90 border border-slate-800 rounded-2xl backdrop-blur-md overflow-x-auto shadow-sm">
           <div className="flex items-center gap-1.5 flex-nowrap">
             {[
-              { id: 'football', label: '⚽ Футбол' },
-              { id: 'hockey', label: '🏒 Хоккей' },
-              { id: 'basketball', label: '🏀 Баскетбол' },
-              { id: 'tennis', label: '🎾 Большой теннис' },
-              { id: 'volleyball', label: '🏐 Волейбол' },
-              { id: 'table_tennis', label: '🏓 Настольный теннис' },
-              { id: 'all', label: '🌐 Все виды спорта' },
+              { id: 'football', label: `⚽ ${t('sportFootball')}` },
+              { id: 'hockey', label: `🏒 ${t('sportHockey')}` },
+              { id: 'basketball', label: `🏀 ${t('sportBasketball')}` },
+              { id: 'tennis', label: `🎾 ${t('sportTennis')}` },
+              { id: 'volleyball', label: `🏐 ${t('sportVolleyball')}` },
+              { id: 'table_tennis', label: `🏓 ${t('sportTableTennis')}` },
+              { id: 'all', label: `🌐 ${t('sportAll')}` },
             ].map((sportItem) => {
               const isSelected = selectedSport === sportItem.id;
               const count = matches.filter((m) => sportItem.id === 'all' || (m.sport || inferSportFromMatch(m)) === sportItem.id).length;
@@ -5084,7 +5126,7 @@ export default function App() {
 
           <div className="hidden lg:flex items-center gap-2 text-xs text-slate-400 pr-2 shrink-0">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] font-medium text-slate-400">Все виды спорта мониторятся параллельно</span>
+            <span className="text-[11px] font-medium text-slate-400">{t('allSportsMonitored')}</span>
           </div>
         </div>
 
@@ -5101,7 +5143,7 @@ export default function App() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Поиск по команде, лиге, стране..."
+                    placeholder={t('searchPlaceholder')}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -5122,7 +5164,7 @@ export default function App() {
                   }
                 >
                   <Star className={`h-3.5 w-3.5 ${filterTrackedOnly ? 'fill-amber-400 text-amber-400' : ''}`} />
-                  <span className="hidden sm:inline">Избранное</span>
+                  <span className="hidden sm:inline">{t('favoritesFilter')}</span>
                   <span className="font-mono text-[10px] px-1 py-0.2 rounded bg-slate-800 text-amber-300">
                     {trackedMatchIds.length}
                   </span>
@@ -5235,10 +5277,10 @@ export default function App() {
                         <div className="mb-2.5 -mt-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-between text-[11px] text-amber-300">
                           <span className="flex items-center gap-1.5 font-bold">
                             <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" />
-                            <span>⭐ Матч на персональном отслеживании</span>
+                            <span>{t('trackedMatchBanner')}</span>
                           </span>
                           <span className="text-[10px] font-mono font-bold bg-amber-950/80 text-amber-200 px-1.5 py-0.5 rounded border border-amber-500/40">
-                            Избранное
+                            {t('favoritesBadge')}
                           </span>
                         </div>
                       )}
@@ -5248,14 +5290,14 @@ export default function App() {
                         <div className="mb-2.5 -mt-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between text-[11px] text-emerald-300">
                           <span className="flex items-center gap-1.5 font-bold truncate pr-2">
                             <Zap className="h-3.5 w-3.5 text-emerald-400 fill-emerald-400 shrink-0 animate-pulse" />
-                            <span className="shrink-0">{matchingRules.length === 1 ? 'Сработал фильтр:' : `Сработало фильтров (${matchingRules.length}):`}</span>
+                            <span className="shrink-0">{matchingRules.length === 1 ? t('triggeredFilterTitle') : t('triggeredFiltersTitle', { n: matchingRules.length })}</span>
                             <span className="text-emerald-100 font-semibold truncate">
-                              {matchingRules[0].name.split('(')[0].trim()}
-                              {matchingRules.length > 1 ? ` +ещё ${matchingRules.length - 1}` : ''}
+                              {getStrategyCardDisplayName(matchingRules[0], isDeveloper, filters, language)}
+                              {matchingRules.length > 1 ? ` +${matchingRules.length - 1}` : ''}
                             </span>
                           </span>
                           <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-950/90 px-1.5 py-0.5 rounded border border-emerald-500/40 shrink-0">
-                            Вверху списка ⬆
+                            {t('topOfList')}
                           </span>
                         </div>
                       )}
@@ -5267,13 +5309,13 @@ export default function App() {
                             <Clock className="h-3.5 w-3.5 text-sky-400 shrink-0" />
                             <span>
                               {match.startsInMinutes !== undefined && match.startsInMinutes <= 60
-                                ? `Анализ за 1 час до матча (${match.startsInMinutes} мин до старта)`
-                                : `До начала ${match.startsInMinutes ?? 60} мин (Анализ за 1 час / 60 мин)`}
+                                ? `${t('prematchAnalysis1h')} (${match.startsInMinutes} ${t('minute')})`
+                                : t('prematchStartsIn', { min: match.startsInMinutes ?? 60 })}
                             </span>
                           </span>
                           {match.startTime && (
                             <span className="text-[10px] font-mono text-sky-300 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-500/20 shrink-0">
-                              Старт {match.startTime}
+                              {t('matchStart', { time: match.startTime })}
                             </span>
                           )}
                         </div>
@@ -5282,11 +5324,11 @@ export default function App() {
                       <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
                         <span className="flex items-center gap-1.5 font-medium flex-wrap">
                           <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-emerald-300 border border-slate-700/60 shrink-0">
-                            {matchSport === 'hockey' ? '🏒 Хоккей' :
-                             matchSport === 'basketball' ? '🏀 Баскетбол' :
-                             matchSport === 'tennis' ? '🎾 Теннис' :
-                             matchSport === 'volleyball' ? '🏐 Волейбол' :
-                             matchSport === 'table_tennis' ? '🏓 Настольный' : '⚽ Футбол'}
+                            {matchSport === 'hockey' ? `🏒 ${t('sportHockey')}` :
+                             matchSport === 'basketball' ? `🏀 ${t('sportBasketball')}` :
+                             matchSport === 'tennis' ? `🎾 ${t('sportTennis')}` :
+                             matchSport === 'volleyball' ? `🏐 ${t('sportVolleyball')}` :
+                             matchSport === 'table_tennis' ? `🏓 ${t('sportTableTennis')}` : `⚽ ${t('sportFootball')}`}
                           </span>
                           <span>{match.countryCode}</span>
                           <span>{match.country}</span>
@@ -5304,12 +5346,12 @@ export default function App() {
                             }`}
                             title={
                               trackedMatchIds.includes(match.id)
-                                ? 'Матч в избранном на отслеживание (кликните чтобы снять)'
-                                : 'Отслеживать этот матч по фильтрам (в избранное)'
+                                ? 'Favorites'
+                                : 'Track'
                             }
                           >
                             <Star className={`h-2.5 w-2.5 ${trackedMatchIds.includes(match.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                            <span className="hidden sm:inline">{trackedMatchIds.includes(match.id) ? 'Следить' : 'Следить'}</span>
+                            <span className="hidden sm:inline">{trackedMatchIds.includes(match.id) ? t('inFavorites') : t('favoriteTrack')}</span>
                           </button>
                           <button
                             onClick={(e) => {
@@ -5317,7 +5359,7 @@ export default function App() {
                               handleOpenAIAnalyst(match);
                             }}
                             className="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold flex items-center gap-1 transition"
-                            title="Открыть AI-анализ матча в один клик"
+                            title="AI Analyst"
                           >
                             <Sparkles className="h-2.5 w-2.5 text-indigo-400" />
                             AI
@@ -5328,10 +5370,10 @@ export default function App() {
                               handleCreateFilterFromMatch(match);
                             }}
                             className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-300 border border-slate-700 hover:border-emerald-500/40 text-[10px] font-semibold flex items-center gap-1 transition"
-                            title="Создать алгоритм фильтрации по текущей статистике этого матча"
+                            title="Create filter"
                           >
                             <Sliders className="h-2.5 w-2.5 text-emerald-400" />
-                            Фильтр
+                            {t('matchFilter')}
                           </button>
                           {match.status === 'PREMATCH' ? (
                             <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-mono font-bold text-[11px] border border-sky-500/30 flex items-center gap-1" title="Предматчевый статус: анализ за 1 час до начала">
@@ -5390,14 +5432,14 @@ export default function App() {
                           </span>
                           <span className="text-[9px] text-slate-400 mt-1 font-medium text-center">
                             {match.status === 'PREMATCH'
-                              ? 'Прематч (1 ч)'
+                              ? t('prematchAnalysis1h')
                               : analysis.goalProbability === 'EXTREME'
-                              ? 'Гол назревает'
+                              ? t('goalImminent')
                               : analysis.goalProbability === 'HIGH'
-                              ? 'Высокое давл.'
+                              ? t('highPressure')
                               : analysis.goalProbability === 'MEDIUM'
-                              ? 'Средний темп'
-                              : 'Спокойно'}
+                              ? t('mediumTempo')
+                              : t('calmTempo')}
                           </span>
                         </div>
                       </div>
@@ -5406,10 +5448,10 @@ export default function App() {
                       {match.status === 'PREMATCH' ? (
                         <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
                           <span className="flex items-center gap-1">
-                            П1: <strong className="text-slate-200">@{match.odds?.home !== undefined ? match.odds.home.toFixed(2) : '-'}</strong> | П2: <strong className="text-slate-200">@{match.odds?.away !== undefined ? match.odds.away.toFixed(2) : '-'}</strong>
+                            1: <strong className="text-slate-200">@{match.odds?.home !== undefined ? match.odds.home.toFixed(2) : '-'}</strong> | 2: <strong className="text-slate-200">@{match.odds?.away !== undefined ? match.odds.away.toFixed(2) : '-'}</strong>
                           </span>
                           <span className="flex items-center gap-1">
-                            ТБ 2.5: <strong className="text-emerald-400 font-mono">@{match.odds?.over25 !== undefined ? match.odds.over25.toFixed(2) : '-'}</strong>
+                            {t('statOddsOver25')} <strong className="text-emerald-400 font-mono">@{match.odds?.over25 !== undefined ? match.odds.over25.toFixed(2) : '-'}</strong>
                           </span>
                           <span className="flex items-center gap-1">
                             IPT: <strong className="text-sky-300 font-mono">{calculateMatchIPT(match).toFixed(2)}</strong>
@@ -5418,13 +5460,13 @@ export default function App() {
                       ) : (
                         <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
                           <span className="flex items-center gap-1">
-                            Оп. атаки: <strong className="text-slate-200">{match.stats.dangerousAttacks[0]} - {match.stats.dangerousAttacks[1]}</strong>
+                            {t('quickDangAttacks')} <strong className="text-slate-200">{match.stats.dangerousAttacks[0]} - {match.stats.dangerousAttacks[1]}</strong>
                           </span>
                           <span className="flex items-center gap-1">
-                            Удары: <strong className="text-slate-200">{match.stats.shotsOnTarget[0] + match.stats.shotsOffTarget[0]} - {match.stats.shotsOnTarget[1] + match.stats.shotsOffTarget[1]}</strong>
+                            {t('quickShots')} <strong className="text-slate-200">{match.stats.shotsOnTarget[0] + match.stats.shotsOffTarget[0]} - {match.stats.shotsOnTarget[1] + match.stats.shotsOffTarget[1]}</strong>
                           </span>
                           <span className="flex items-center gap-1">
-                            Углы: <strong className="text-slate-200">{match.stats.corners[0]} - {match.stats.corners[1]}</strong>
+                            {t('quickCorners')} <strong className="text-slate-200">{match.stats.corners[0]} - {match.stats.corners[1]}</strong>
                           </span>
                         </div>
                       )}
@@ -5434,15 +5476,15 @@ export default function App() {
                         <div className="mt-2 pt-2 border-t border-slate-800/80 flex flex-wrap gap-1.5 items-center">
                           <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
                             <Zap className="h-3 w-3" />
-                            Сработали ({matchingRules.length}):
+                            {t('triggeredFiltersOnMatch', { n: matchingRules.length })}
                           </span>
                           {matchingRules.map((rule) => (
                             <span
                               key={rule.id}
                               className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold flex items-center gap-1"
-                              title={rule.isPreset && !isDeveloper ? getStrategyCardDisplayName(rule, isDeveloper, filters) : rule.name}
+                              title={rule.isPreset && !isDeveloper ? getStrategyCardDisplayName(rule, isDeveloper, filters, language) : rule.name}
                             >
-                              {getStrategyCardDisplayName(rule, isDeveloper, filters)}
+                              {getStrategyCardDisplayName(rule, isDeveloper, filters, language)}
                               {rule.targetMarket && <span className="text-emerald-400/80 font-mono font-normal">[{rule.targetMarket}]</span>}
                             </span>
                           ))}
@@ -5454,7 +5496,7 @@ export default function App() {
                         <div className="mt-2 pt-2 border-t border-amber-500/25 flex items-center justify-between text-[11px] bg-amber-500/5 -mx-4 -mb-4 px-4 py-2 rounded-b-2xl">
                           <span className="flex items-center gap-1 text-amber-400 font-semibold truncate">
                             <TrendingDown className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                            <span className="truncate">Прогруз: {match.oddsDrop.marketName}</span>
+                            <span className="truncate">{t('oddsDropLabel')} {match.oddsDrop.marketName}</span>
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px]">
                             <span className="text-rose-400 font-bold bg-rose-500/10 px-1 py-0.5 rounded border border-rose-500/20">
@@ -5505,29 +5547,24 @@ export default function App() {
                     </div>
                     <div className="text-sm font-bold text-white">
                       {filterTrackedOnly
-                        ? 'Нет выбранных матчей на отслеживании'
+                        ? t('noTrackedMatches')
                         : selectedSport === 'all'
-                        ? 'Нет активных матчей по вашему поисковому запросу'
-                        : `Сейчас в фиде нет активных матчей для вида спорта «${
-                            selectedSport === 'hockey' ? 'Хоккей' :
-                            selectedSport === 'basketball' ? 'Баскетбол' :
-                            selectedSport === 'tennis' ? 'Большой теннис' :
-                            selectedSport === 'volleyball' ? 'Волейбол' :
-                            selectedSport === 'table_tennis' ? 'Настольный теннис' : 'Футбол'
-                          }»`}
+                        ? t('noMatchesSearch')
+                        : `${t('noMatchesSearch')} (${
+                            selectedSport === 'hockey' ? t('sportHockey') :
+                            selectedSport === 'basketball' ? t('sportBasketball') :
+                            selectedSport === 'tennis' ? t('sportTennis') :
+                            selectedSport === 'volleyball' ? t('sportVolleyball') :
+                            selectedSport === 'table_tennis' ? t('sportTableTennis') : t('sportFootball')
+                          })`}
                     </div>
-                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                      {filterTrackedOnly
-                        ? 'Вы включили режим «Сигналы только для отслеживаемых матчей». Нажмите кнопку «Следить ⭐» на карточке любого матча, чтобы начать персональный мониторинг.'
-                        : 'Нажмите кнопку ниже для загрузки актуальной линии матчей из Flashscore / Global Feed.'}
-                    </p>
                     {filterTrackedOnly ? (
                       <button
                         type="button"
                         onClick={() => setFilterTrackedOnly(false)}
                         className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition"
                       >
-                        Показать все матчи
+                        {t('showAllMatches')}
                       </button>
                     ) : (
                       <button
@@ -5535,7 +5572,7 @@ export default function App() {
                         onClick={() => fetchLiveMatchesFromSource(dataSourceConfig.activeSource, selectedSport)}
                         className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition"
                       >
-                        🔄 Загрузить матчи из Flashscore
+                        🔄 {t('refreshMatches')}
                       </button>
                     )}
                   </div>
@@ -5572,7 +5609,7 @@ export default function App() {
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-slate-200 font-bold hover:bg-slate-700 active:scale-95 transition"
                     >
                       <ArrowLeft className="h-4 w-4 text-emerald-400" />
-                      <span>← К списку матчей</span>
+                      <span>{t('backToMatches')}</span>
                     </button>
 
                     <div className="flex items-center gap-2">
@@ -5683,42 +5720,38 @@ export default function App() {
                               ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50 shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700'
                           }`}
-                          title={
-                            trackedMatchIds.includes(selectedMatch.id)
-                              ? 'Матч в избранном на отслеживание (кликните чтобы снять)'
-                              : 'Отслеживать этот матч по фильтрам (в избранное)'
-                          }
+                          title="Favorites"
                         >
                           <Star className={`h-3.5 w-3.5 ${trackedMatchIds.includes(selectedMatch.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                          <span className="truncate">{trackedMatchIds.includes(selectedMatch.id) ? 'В избранном' : 'Следить'}</span>
+                          <span className="truncate">{trackedMatchIds.includes(selectedMatch.id) ? t('inFavorites') : t('favoriteTrack')}</span>
                         </button>
 
                         <button
                           id="match-inspector-create-filter-btn"
                           onClick={() => handleCreateFilterFromMatch(selectedMatch)}
                           className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 hover:border-emerald-500/50 transition active:scale-[0.98]"
-                          title="Создать собственный фильтр по текущим показателям этого матча"
+                          title="Create filter"
                         >
                           <Sliders className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          <span className="truncate">Фильтр по матчу</span>
+                          <span className="truncate">{t('createFilterFromMatch')}</span>
                         </button>
 
                         <button
                           id="match-inspector-ai-btn"
                           onClick={() => handleOpenAIAnalyst(selectedMatch)}
                           className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-950/60 border border-indigo-400/30 transition hover:scale-[1.02] active:scale-[0.98]"
-                          title="Запустить глубокий AI-анализ матча и расчет вероятностей"
+                          title="AI Analyst"
                         >
                           <Sparkles className="h-3.5 w-3.5 text-indigo-200 animate-pulse shrink-0" />
-                          <span className="truncate">AI-Аналитик</span>
+                          <span className="truncate">{t('matchAiAnalyst')}</span>
                         </button>
 
                         <div className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-mono font-bold">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                          {selectedMatch.minute} МИНУТА
+                          {selectedMatch.minute} {t('minute')}
                         </div>
                       </div>
-                      <div className="hidden sm:block text-[11px] text-slate-400">Синхронизация: {selectedMatch.source} API</div>
+                      <div className="hidden sm:block text-[11px] text-slate-400">{t('activeProvider')}: {selectedMatch.source}</div>
                     </div>
                   </div>
 
@@ -5729,7 +5762,7 @@ export default function App() {
                         <Zap className="h-4 w-4" />
                       </div>
                       <div>
-                        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Последнее ключевое событие</div>
+                        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">{t('lastKeyEvent')}</div>
                         <div className="text-xs text-slate-200 font-medium">{selectedMatch.lastEvent}</div>
                       </div>
                     </div>
@@ -5765,7 +5798,7 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <h3 className="text-xs uppercase tracking-wider text-slate-300 font-bold flex items-center gap-2">
                             <Cpu className="h-4 w-4 text-emerald-400" />
-                            Алгоритмический анализ давления и вероятность гола ({sportLabel})
+                            {t('pressureAnalysisTitle')} ({sportLabel})
                           </h3>
                           <span
                             className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
@@ -5778,14 +5811,14 @@ export default function App() {
                                 : 'bg-slate-800 text-slate-400 border-slate-700'
                             }`}
                           >
-                            Вероятность гола: {analysis.goalProbability} ({analysis.pressureIndex}/100)
+                            {t('pressureGoalProbability')} {analysis.goalProbability} ({analysis.pressureIndex}/100)
                           </span>
                         </div>
 
                         {/* Pressure progress bar */}
                         <div className="space-y-1.5">
                           <div className="flex justify-between text-xs font-mono">
-                            <span className="text-slate-400">Индекс штурма (Pressure Index)</span>
+                            <span className="text-slate-400">{t('stormIndex')}</span>
                             <span className="font-bold text-white">{analysis.pressureIndex}%</span>
                           </div>
                           <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -6823,18 +6856,18 @@ export default function App() {
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
-                    { id: 'all', label: 'Все', icon: '⚡' },
-                    { id: 'top_stable', label: '🏆 ТОП-5 Стабильных', icon: '🏆' },
-                    { id: 'active', label: 'Запущенные', icon: '🟢' },
-                    { id: 'stopped', label: 'Остановленные', icon: '⚪' },
-                    { id: 'goals', label: 'Голы', icon: '⚽' },
-                    { id: 'corners', label: 'Угловые', icon: '🚩' },
-                    { id: 'comeback', label: 'Камбэк', icon: '🎯' },
-                    { id: 'halftime', label: '1-й тайм', icon: '⏱️' },
-                    { id: 'pressure', label: 'Давление', icon: '🔥' },
-                    { id: 'odds_drop', label: 'Прогрузы & Дроп', icon: '📉' },
-                    { id: 'cards', label: 'Карточки', icon: '🟥' },
-                    { id: 'custom', label: 'Мои фильтры', icon: '🛠️' },
+                    { id: 'all', label: t('catAll'), icon: '⚡' },
+                    { id: 'top_stable', label: t('catTopStable'), icon: '🏆' },
+                    { id: 'active', label: t('catActive'), icon: '🟢' },
+                    { id: 'stopped', label: t('catStopped'), icon: '⚪' },
+                    { id: 'goals', label: t('catGoals'), icon: '⚽' },
+                    { id: 'corners', label: t('catCorners'), icon: '🚩' },
+                    { id: 'comeback', label: t('catComeback'), icon: '🎯' },
+                    { id: 'halftime', label: t('catHalftime'), icon: '⏱️' },
+                    { id: 'pressure', label: t('catPressure'), icon: '🔥' },
+                    { id: 'odds_drop', label: t('catOddsDrop'), icon: '📉' },
+                    { id: 'cards', label: t('catCards'), icon: '🟥' },
+                    { id: 'custom', label: t('catCustom'), icon: '🛠️' },
                   ] as Array<{ id: FilterCategory | 'top_stable'; label: string; icon: string }>
                 ).map((cat) => {
                   const count =
@@ -6885,7 +6918,7 @@ export default function App() {
                   type="text"
                   value={filterSearchQuery}
                   onChange={(e) => setFilterSearchQuery(e.target.value)}
-                  placeholder="Поиск по фильтрам и рынкам..."
+                  placeholder={t('searchFiltersPlaceholder')}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -6925,7 +6958,7 @@ export default function App() {
                 return (
                   <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
                     <Filter className="h-8 w-8 text-slate-600 mx-auto" />
-                    <p className="text-sm text-slate-400">В этой категории или по вашему запросу нет фильтров.</p>
+                    <p className="text-sm text-slate-400">{t('noFiltersInCategory')}</p>
                     <button
                       onClick={() => {
                         setActiveFilterCategory('all');
@@ -6933,7 +6966,7 @@ export default function App() {
                       }}
                       className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
                     >
-                      Показать все стратегии
+                      {t('allStrategiesBtn')}
                     </button>
                   </div>
                 );
@@ -6968,7 +7001,7 @@ export default function App() {
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {filter.sport && filter.sport !== 'football' && (
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                                  {filter.sport === 'hockey' ? '🏒 Хоккей' : filter.sport === 'basketball' ? '🏀 Баскетбол' : filter.sport === 'tennis' ? '🎾 Теннис' : filter.sport === 'volleyball' ? '🏐 Волейбол' : '🏓 Настольный теннис'}
+                                  {filter.sport === 'hockey' ? `🏒 ${t('sportHockey')}` : filter.sport === 'basketball' ? `🏀 ${t('sportBasketball')}` : filter.sport === 'tennis' ? `🎾 ${t('sportTennis')}` : filter.sport === 'volleyball' ? `🏐 ${t('sportVolleyball')}` : `🏓 ${t('sportTableTennis')}`}
                                 </span>
                               )}
                               {filter.category && (
@@ -6979,11 +7012,11 @@ export default function App() {
                               {(!filter.isPreset || isDeveloper) ? (
                                 <>
                                   <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                                    {filter.ruleType === 'PREMATCH' ? 'ПРЕМАТЧ' : `${filter.minMinute}' - ${filter.maxMinute}'`}
+                                    {filter.ruleType === 'PREMATCH' ? 'PREMATCH' : `${filter.minMinute}' - ${filter.maxMinute}'`}
                                   </span>
                                   {filter.exactScore && (
                                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                      Счёт {filter.exactScore}
+                                      {t('exactScoreLabel', { score: filter.exactScore })}
                                     </span>
                                   )}
                                   {filter.exactTotalGoals !== undefined && (
@@ -7012,7 +7045,7 @@ export default function App() {
                                         👨‍💻 Dev Пресет
                                       </span>
                                       <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                        Проход: {filter.verifiedPassRate || '94–100%'}
+                                        {t('passRateLabel')} {filter.verifiedPassRate || '94–100%'}
                                       </span>
                                     </>
                                   ) : (
@@ -7025,10 +7058,10 @@ export default function App() {
                                 <>
                                   <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
                                     <Lock className="h-2.5 w-2.5 text-amber-400" />
-                                    Вшитый алгоритм
+                                    {t('embeddedPlatformAlgorithm')}
                                   </span>
                                   <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                    Проход: {filter.verifiedPassRate || '94–100%'}
+                                    {t('passRateLabel')} {filter.verifiedPassRate || '94–100%'}
                                   </span>
                                 </>
                               )}
@@ -7045,17 +7078,16 @@ export default function App() {
                                   ? 'bg-emerald-500 text-slate-950 border border-emerald-400 hover:bg-emerald-400 shadow-md shadow-emerald-950/40'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700'
                               }`}
-                              title={filter.enabled ? 'Нажмите, чтобы остановить этот фильтр' : 'Нажмите, чтобы запустить этот фильтр в работу'}
                             >
                               {filter.enabled ? (
                                 <>
                                   <span className="h-2 w-2 rounded-full bg-slate-950 animate-pulse" />
-                                  ЗАПУЩЕН
+                                  {t('statusRunning')}
                                 </>
                               ) : (
                                 <>
                                   <Play className="h-3 w-3 text-emerald-400 fill-emerald-400" />
-                                  ЗАПУСТИТЬ
+                                  {t('statusStart')}
                                 </>
                               )}
                             </button>
@@ -7076,12 +7108,12 @@ export default function App() {
                             )}
                             <div>
                               <h3 className="text-base font-black text-white leading-tight tracking-wide">
-                                {getStrategyCardDisplayName(filter, isDeveloper, filters)}
+                                {getStrategyCardDisplayName(filter, isDeveloper, filters, language)}
                               </h3>
                               {filter.isPreset && !isDeveloper && (
                                 <span className="text-[10px] text-amber-300 font-semibold flex items-center gap-1 mt-0.5">
                                   <ShieldCheck className="h-3 w-3 text-amber-400" />
-                                  Вшитый алгоритм платформы
+                                  {t('embeddedPlatformAlgorithm')}
                                 </span>
                               )}
                             </div>
@@ -7091,19 +7123,19 @@ export default function App() {
                               ) : null
                             ) : null}
 
-                            {/* Какой прогноз ожидается по данной карточке */}
+                            {/* Expected forecast pick */}
                             <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
                               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
                                 <Target className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                                <span>Ожидаемый прогноз по карточке:</span>
+                                <span>{t('expectedForecast')}</span>
                               </div>
                               <div className="text-xs sm:text-sm font-black text-amber-200">
-                                {filter.targetMarket || 'Live исход / Тотал'}
+                                {filter.targetMarket || 'Live Pick'}
                               </div>
                             </div>
                           </div>
 
-                          {/* Live match indicator (По каким карточкам отработала карточка как сейчас) */}
+                          {/* Live match indicator */}
                           <div className="pt-1 space-y-1.5">
                             {filter.enabled ? (
                               hasLiveMatches ? (
@@ -7111,10 +7143,10 @@ export default function App() {
                                   <div className="flex items-center justify-between">
                                     <span className="flex items-center gap-1.5 font-bold">
                                       <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                                      Отработала прямо сейчас ({matchingLiveMatches.length}):
+                                      {t('triggeredJustNow', { n: matchingLiveMatches.length })}
                                     </span>
                                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/25 text-emerald-200 border border-emerald-500/40 font-bold">
-                                      LIVE СИГНАЛ
+                                      {t('liveSignalBadge')}
                                     </span>
                                   </div>
                                   <div className="font-mono text-white text-xs pl-3.5 border-l-2 border-emerald-500/40">
@@ -7125,9 +7157,9 @@ export default function App() {
                                 <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-500 flex items-center justify-between">
                                   <span className="flex items-center gap-1.5">
                                     <Clock className="h-3 w-3 text-slate-400" />
-                                    В работе • Ожидание критериев в live
+                                    {t('waitingLiveCriteria')}
                                   </span>
-                                  <span className="text-emerald-400 font-mono text-[9px]">Активна</span>
+                                  <span className="text-emerald-400 font-mono text-[9px]">{t('statusActiveBadge')}</span>
                                 </div>
                               )
                             ) : (
@@ -7136,24 +7168,24 @@ export default function App() {
                                   <span className={`h-1.5 w-1.5 rounded-full ${hasLiveMatches ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}`} />
                                   {hasLiveMatches ? (
                                     <span className="text-amber-300 font-bold">
-                                      ⚡ Отрабатывает в {matchingLiveMatches.length} live-матчах! Включите для алертов
+                                      {t('triggeredInLiveMatches', { n: matchingLiveMatches.length })}
                                     </span>
                                   ) : (
-                                    'Остановлен пользователем'
+                                    t('userStoppedStatus')
                                   )}
                                 </span>
                                 <span className="text-slate-500 font-mono text-[9px]">
-                                  {hasLiveMatches ? 'Готов к сигналу' : 'Сигналы отключены'}
+                                  {hasLiveMatches ? t('readyForSignalStatus') : t('signalsDisabledStatus')}
                                 </span>
                               </div>
                             )}
 
-                            {/* Ранее отработанные сигналы этой карточки */}
+                            {/* Triggered signals history */}
                             {signals.filter((s) => s.ruleId === filter.id).length > 0 && (
                               <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-[11px] text-slate-300 flex items-center justify-between">
                                 <span className="flex items-center gap-1.5 truncate">
                                   <Zap className="h-3 w-3 text-emerald-400 shrink-0" />
-                                  <span className="text-slate-400">Отработала в сигналах:</span>
+                                  <span className="text-slate-400">{t('triggeredSignalsHistory')}</span>
                                   <span className="text-white font-medium truncate">
                                     {signals
                                       .filter((s) => s.ruleId === filter.id)
@@ -7163,7 +7195,7 @@ export default function App() {
                                   </span>
                                 </span>
                                 <span className="text-emerald-400 font-mono text-[10px] shrink-0 font-bold ml-1">
-                                  {signals.filter((s) => s.ruleId === filter.id).length} шт.
+                                  {signals.filter((s) => s.ruleId === filter.id).length}
                                 </span>
                               </div>
                             )}
@@ -7176,11 +7208,11 @@ export default function App() {
                                 <div className="grid grid-cols-2 gap-2 text-[11px]">
                                   <div className="flex items-center gap-1 text-slate-400 truncate">
                                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                    <span className="truncate">Проход: <strong className="text-emerald-300 font-mono">{filter.verifiedPassRate || '96–100%'}</strong></span>
+                                    <span className="truncate">{t('passRateLabel')} <strong className="text-emerald-300 font-mono">{filter.verifiedPassRate || '96–100%'}</strong></span>
                                   </div>
                                   <div className="flex items-center gap-1 text-slate-400 truncate">
                                     <ShieldCheck className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                                    <span className="truncate">Статус: <strong className="text-amber-300">Вшитый VIP</strong></span>
+                                    <span className="truncate">{t('vipBuiltin')}</span>
                                   </div>
                                 </div>
                               </div>
@@ -7189,104 +7221,103 @@ export default function App() {
                             <div className="pt-2 space-y-1.5 text-xs text-slate-300 font-mono bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
                               {filter.isPreset && isDeveloper && (
                                 <div className="mb-1 p-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-between text-[11px] text-purple-300">
-                                  <span className="font-bold flex items-center gap-1">👨‍💻 Режим разработчика</span>
-                                  <span className="text-[10px] text-purple-400">Формула открыта</span>
+                                  <span className="font-bold flex items-center gap-1">{t('devFormulaOpen')}</span>
                                 </div>
                               )}
                               <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Минуты:</span>
+                                <span className="text-slate-500 font-sans">{t('statMinutes')}</span>
                                 <span className="font-bold text-sky-300">{filter.minMinute}' – {filter.maxMinute}'</span>
                               </div>
-                            <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                              <span className="text-slate-500 font-sans">Счёт:</span>
-                              <span className="font-bold text-slate-200">
-                                {filter.scoreCondition === '0-0'
-                                  ? '0:0'
-                                  : filter.scoreCondition === 'DRAW'
-                                  ? 'Любая ничья'
-                                  : filter.scoreCondition === 'HOME_LEAD'
-                                  ? 'Хозяева ведут'
-                                  : filter.scoreCondition === 'AWAY_LEAD'
-                                  ? 'Гости ведут'
-                                  : filter.scoreCondition === 'ONE_GOAL_DIFF'
-                                  ? 'Разница в 1 гол'
-                                  : filter.scoreCondition === 'TOTAL_UNDER_25'
-                                  ? 'ТБ 2.5 не пробит (≤ 2)'
-                                  : filter.scoreCondition === 'TOTAL_UNDER_2'
-                                  ? 'ТМ 2.5 (≤ 2)'
-                                  : filter.scoreCondition === 'TOTAL_OVER_2'
-                                  ? 'ТБ 2.5'
-                                  : 'Любой'}
-                              </span>
-                            </div>
-
-                            {filter.minDangerousAttacksDiff && (
                               <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Разница оп. атак:</span>
-                                <span>≥ {filter.minDangerousAttacksDiff}</span>
-                              </div>
-                            )}
-                            {filter.minTotalShots && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Всего ударов:</span>
-                                <span>≥ {filter.minTotalShots}</span>
-                              </div>
-                            )}
-                            {filter.minShotsOnTargetTotal && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Удары в створ:</span>
-                                <span>≥ {filter.minShotsOnTargetTotal}</span>
-                              </div>
-                            )}
-                            {filter.minTotalCorners && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Всего угловых:</span>
-                                <span>≥ {filter.minTotalCorners}</span>
-                              </div>
-                            )}
-                            {filter.minPressureIndex && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Индекс давления:</span>
-                                <span className="text-rose-400 font-bold">≥ {filter.minPressureIndex}%</span>
-                              </div>
-                            )}
-                            {filter.minXgTotal && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Суммарный xG:</span>
-                                <span>≥ {filter.minXgTotal}</span>
-                              </div>
-                            )}
-                            {filter.minXgOverScoreDiff && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">xG перевес над счётом:</span>
-                                <span className="text-amber-400 font-bold">≥ +{filter.minXgOverScoreDiff.toFixed(1)}</span>
-                              </div>
-                            )}
-                            {filter.minAttacksDiff && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Разница атак:</span>
-                                <span>≥ {filter.minAttacksDiff}</span>
-                              </div>
-                            )}
-                            {filter.minShotsDiff && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Разница ударов:</span>
-                                <span>≥ {filter.minShotsDiff}</span>
-                              </div>
-                            )}
-                            {filter.maxOddsFavorite && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                                <span className="text-slate-500 font-sans">Кэф фаворита:</span>
-                                <span className="text-emerald-400 font-bold">≤ {filter.maxOddsFavorite.toFixed(2)}</span>
-                              </div>
-                            )}
-                            {filter.minOddsDropPercent && (
-                              <div className="flex justify-between border-b border-slate-800/60 pb-1 bg-amber-500/10 -mx-1 px-1 rounded">
-                                <span className="text-amber-400 font-sans flex items-center gap-1">
-                                  <TrendingDown className="h-3 w-3" />
-                                  Падение кэфа:
+                                <span className="text-slate-500 font-sans">{t('statScore')}</span>
+                                <span className="font-bold text-slate-200">
+                                  {filter.scoreCondition === '0-0'
+                                    ? '0:0'
+                                    : filter.scoreCondition === 'DRAW'
+                                    ? t('scoreAnyDraw')
+                                    : filter.scoreCondition === 'HOME_LEAD'
+                                    ? t('scoreHomeLead')
+                                    : filter.scoreCondition === 'AWAY_LEAD'
+                                    ? t('scoreAwayLead')
+                                    : filter.scoreCondition === 'ONE_GOAL_DIFF'
+                                    ? t('scoreOneGoalDiff')
+                                    : filter.scoreCondition === 'TOTAL_UNDER_25'
+                                    ? t('scoreUnder25')
+                                    : filter.scoreCondition === 'TOTAL_UNDER_2'
+                                    ? t('scoreUnder2')
+                                    : filter.scoreCondition === 'TOTAL_OVER_2'
+                                    ? t('scoreOver2')
+                                    : t('scoreAny')}
                                 </span>
-                                <span className="text-rose-400 font-bold">≥ {filter.minOddsDropPercent}%</span>
+                              </div>
+
+                              {filter.minDangerousAttacksDiff && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statDangAttacksDiff')}</span>
+                                  <span>≥ {filter.minDangerousAttacksDiff}</span>
+                                </div>
+                              )}
+                              {filter.minTotalShots && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statTotalShots')}</span>
+                                  <span>≥ {filter.minTotalShots}</span>
+                                </div>
+                              )}
+                              {filter.minShotsOnTargetTotal && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statShotsOnTarget')}</span>
+                                  <span>≥ {filter.minShotsOnTargetTotal}</span>
+                                </div>
+                              )}
+                              {filter.minTotalCorners && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statTotalCorners')}</span>
+                                  <span>≥ {filter.minTotalCorners}</span>
+                                </div>
+                              )}
+                              {filter.minPressureIndex && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statPressure')}</span>
+                                  <span className="text-rose-400 font-bold">≥ {filter.minPressureIndex}%</span>
+                                </div>
+                              )}
+                              {filter.minXgTotal && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statXgTotal')}</span>
+                                  <span>≥ {filter.minXgTotal}</span>
+                                </div>
+                              )}
+                              {filter.minXgOverScoreDiff && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statXgAdvantage')}</span>
+                                  <span className="text-amber-400 font-bold">≥ +{filter.minXgOverScoreDiff.toFixed(1)}</span>
+                                </div>
+                              )}
+                              {filter.minAttacksDiff && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statAttacksDiff')}</span>
+                                  <span>≥ {filter.minAttacksDiff}</span>
+                                </div>
+                              )}
+                              {filter.minShotsDiff && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statShotsDiff')}</span>
+                                  <span>≥ {filter.minShotsDiff}</span>
+                                </div>
+                              )}
+                              {filter.maxOddsFavorite && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                  <span className="text-slate-500 font-sans">{t('statOddsFavorite')}</span>
+                                  <span className="text-emerald-400 font-bold">≤ {filter.maxOddsFavorite.toFixed(2)}</span>
+                                </div>
+                              )}
+                              {filter.minOddsDropPercent && (
+                                <div className="flex justify-between border-b border-slate-800/60 pb-1 bg-amber-500/10 -mx-1 px-1 rounded">
+                                  <span className="text-amber-400 font-sans flex items-center gap-1">
+                                    <TrendingDown className="h-3 w-3" />
+                                    {t('statOddsDrop')}
+                                  </span>
+                                  <span className="text-rose-400 font-bold">≥ {filter.minOddsDropPercent}%</span>
                               </div>
                             )}
                             {filter.minMoneyVolumePercent && (
@@ -7381,7 +7412,7 @@ export default function App() {
                         <div className="pt-2.5 pb-1 border-t border-slate-800/80 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5 text-xs text-slate-400">
                             <Bot className="h-3.5 w-3.5 text-cyan-400" />
-                            <span className="text-[11px] font-medium">Бот:</span>
+                            <span className="text-[11px] font-medium">{t('botLabel')}</span>
                           </div>
                           <select
                             value={filter.customBotToken ? 'custom' : (filter.botId || '')}
@@ -7402,13 +7433,13 @@ export default function App() {
                             }}
                             className="bg-slate-950 border border-slate-700 hover:border-cyan-500 rounded-lg px-2 py-1 text-[11px] text-cyan-300 focus:outline-none focus:border-cyan-500 max-w-[170px] truncate font-medium"
                           >
-                            <option value="">🤖 По умолчанию</option>
+                            <option value="">{t('defaultBot')}</option>
                             {currentUser.telegramBots.map((bot) => (
                               <option key={bot.id} value={bot.id}>
                                 🤖 {bot.name}
                               </option>
                             ))}
-                            {filter.customBotToken && <option value="custom">⚙️ Кастомный бот</option>}
+                            {filter.customBotToken && <option value="custom">{t('customBot')}</option>}
                           </select>
                         </div>
 
@@ -7417,7 +7448,7 @@ export default function App() {
                           {/* Telegram Switch */}
                           <div className="flex items-center gap-1.5">
                             <Send className="h-3.5 w-3.5 text-blue-400" />
-                            <span className="text-slate-400">Telegram:</span>
+                            <span className="text-slate-400">{t('telegramLabel')}</span>
                             <button
                               onClick={() =>
                                 setFilters((prev) =>
@@ -7428,7 +7459,7 @@ export default function App() {
                                 filter.telegramEnabled ? 'text-emerald-400' : 'text-slate-500'
                               }`}
                             >
-                              {filter.telegramEnabled ? 'ВКЛ' : 'ВЫКЛ'}
+                              {filter.telegramEnabled ? t('switchOn') : t('switchOff')}
                             </button>
                           </div>
 
@@ -7440,10 +7471,9 @@ export default function App() {
                                 setIsBacktestModalOpen(true);
                               }}
                               className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white font-medium text-xs flex items-center gap-1 border border-emerald-500/30 hover:border-emerald-500/60 transition shadow-sm"
-                              title="Индивидуальный тест стратегии на базе 1 000+ матчей"
                             >
                               <BarChart3 className="h-3 w-3 text-emerald-400" />
-                              <span>Тест (1 000+)</span>
+                              <span>{t('test1000Btn')}</span>
                             </button>
 
                             {(!filter.isPreset || isDeveloper) ? (
@@ -7453,20 +7483,18 @@ export default function App() {
                                   setIsFilterModalOpen(true);
                                 }}
                                 className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs flex items-center gap-1 border border-slate-700 hover:border-emerald-500/40 transition"
-                                title="Настроить критерии фильтра"
                               >
                                 <Sliders className="h-3 w-3 text-emerald-400" />
-                                <span>Настроить</span>
+                                <span>{t('tuneBtn')}</span>
                               </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => setLockedPresetNotice(filter)}
                                 className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-amber-300 font-medium text-xs flex items-center gap-1 border border-slate-800 hover:border-amber-500/40 transition"
-                                title="Параметры скрыты разработчиком от копирования"
                               >
                                 <Lock className="h-3 w-3 text-amber-400" />
-                                <span>Параметры скрыты</span>
+                                <span>{t('paramsProtected')}</span>
                               </button>
                             )}
 
@@ -9170,6 +9198,26 @@ export default function App() {
           }}
         />
 
+        {/* Innovation 1: AI Real-Time Momentum Radar & 10-Minute Goal Probability Modal */}
+        <MatchMomentumRadarModal
+          isOpen={isMomentumRadarOpen}
+          onClose={() => setIsMomentumRadarOpen(false)}
+          matches={matches}
+          selectedMatch={selectedMatch}
+          onSelectMatch={(m) => setSelectedMatchId(m.id)}
+          filters={filters}
+          onTriggerFilterAlert={async (filter, match) => {
+            const analysis = calculatePressureAnalysis(match);
+            const alertText = formatExtendedTelegramAlert(match, filter, analysis, undefined, isDeveloper);
+            const res = await sendTelegramMessage(alertText, false);
+            if (res.ok) {
+              alert('Сигнал успешно отправлен в Telegram!');
+            } else {
+              alert(`Ошибка отправки: ${res.error}`);
+            }
+          }}
+        />
+
         {/* PWA Paywall for Standalone Mode: "Pwa приложения могут пользоваться только подписчики у которых оплачена подписка" */}
         {isInPwaStandalone && !isPaidUser && !isDeveloper && (
           <PwaSubscriptionPaywall
@@ -9299,7 +9347,7 @@ export default function App() {
           }`}
         >
           <Activity className="h-5 w-5" />
-          <span className="text-[10px] mt-1 tracking-tight">Лайв</span>
+          <span className="text-[10px] mt-1 tracking-tight">{t('statusLive')}</span>
           {matches.length > 0 && (
             <span className="absolute top-1 right-2 px-1.5 py-0.2 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black font-mono">
               {matches.length}
@@ -9315,7 +9363,7 @@ export default function App() {
           }`}
         >
           <Sliders className="h-5 w-5" />
-          <span className="text-[10px] mt-1 tracking-tight">Стратегии</span>
+          <span className="text-[10px] mt-1 tracking-tight">{t('navStrategies')}</span>
           <span className="absolute top-1 right-2 px-1.5 py-0.2 rounded-full bg-slate-800 text-emerald-300 text-[9px] font-mono">
             {filters.filter((f) => f.enabled).length}
           </span>
@@ -9329,7 +9377,7 @@ export default function App() {
           }`}
         >
           <Bell className="h-5 w-5" />
-          <span className="text-[10px] mt-1 tracking-tight">Сигналы</span>
+          <span className="text-[10px] mt-1 tracking-tight">{t('navSignals')}</span>
           {signals.length > 0 && (
             <span className="absolute top-1 right-2 px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-emerald-300 text-[9px] font-bold">
               {signals.length}
@@ -9345,7 +9393,7 @@ export default function App() {
           }`}
         >
           <Bot className="h-5 w-5" />
-          <span className="text-[10px] mt-1 tracking-tight">TG Бот</span>
+          <span className="text-[10px] mt-1 tracking-tight">{t('telegramBot')}</span>
         </button>
 
         <button
@@ -9354,7 +9402,7 @@ export default function App() {
           className="flex flex-col items-center justify-center py-1 transition-colors min-h-[48px] text-slate-400 hover:text-emerald-400"
         >
           <Menu className="h-5 w-5" />
-          <span className="text-[10px] mt-1 tracking-tight">Меню</span>
+          <span className="text-[10px] mt-1 tracking-tight">Menu</span>
         </button>
       </div>
     </nav>
@@ -9399,6 +9447,21 @@ export default function App() {
               </div>
             </button>
 
+            {/* Innovation 1: AI Match Momentum & Goal Radar */}
+            <button
+              onClick={() => {
+                setIsMobileToolsDrawerOpen(false);
+                setIsMomentumRadarOpen(true);
+              }}
+              className="p-3 rounded-2xl bg-slate-950/80 border border-emerald-500/40 flex items-center gap-2.5 text-emerald-300 text-left active:scale-95 transition"
+            >
+              <Activity className="h-4 w-4 text-emerald-400 shrink-0 animate-pulse" />
+              <div className="truncate">
+                <div className="font-bold text-white text-xs">{t('navMomentumRadar')}</div>
+                <div className="text-[10px] text-emerald-400 truncate">10m Goal Radar</div>
+              </div>
+            </button>
+
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
@@ -9408,8 +9471,8 @@ export default function App() {
             >
               <BarChart3 className="h-4 w-4 text-blue-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Суточный отчёт</div>
-                <div className="text-[10px] text-blue-400 truncate">Отправить в TG</div>
+                <div className="font-bold text-white text-xs">{t('sendDailyReport')}</div>
+                <div className="text-[10px] text-blue-400 truncate">Telegram</div>
               </div>
             </button>
 
@@ -9422,8 +9485,8 @@ export default function App() {
             >
               <Sparkles className="h-4 w-4 text-amber-300 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">ИИ-Синтезатор</div>
-                <div className="text-[10px] text-emerald-400 truncate">С фото / заметок</div>
+                <div className="font-bold text-white text-xs">{t('navAiSynthesizer')}</div>
+                <div className="text-[10px] text-emerald-400 truncate">AI Prompt / Photo</div>
               </div>
             </button>
 
@@ -9436,8 +9499,8 @@ export default function App() {
             >
               <ShoppingBag className="h-4 w-4 text-amber-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Маркетплейс</div>
-                <div className="text-[10px] text-amber-400 truncate">Стратегии капперов</div>
+                <div className="font-bold text-white text-xs">{t('navMarketplace')}</div>
+                <div className="text-[10px] text-amber-400 truncate">Marketplace</div>
               </div>
             </button>
 
@@ -9450,8 +9513,8 @@ export default function App() {
             >
               <Wallet className="h-4 w-4 text-emerald-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Банкролл-трекер</div>
-                <div className="text-[10px] text-slate-400 truncate">Виртуальный баланс</div>
+                <div className="font-bold text-white text-xs">{t('navBankroll')}</div>
+                <div className="text-[10px] text-slate-400 truncate">Bankroll Tracker</div>
               </div>
             </button>
 
@@ -9464,8 +9527,8 @@ export default function App() {
             >
               <TrendingDown className="h-4 w-4 text-rose-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Радар прогрузов</div>
-                <div className="text-[10px] text-slate-400 truncate">Падение кэфов</div>
+                <div className="font-bold text-white text-xs">{t('navOddsRadar')}</div>
+                <div className="text-[10px] text-slate-400 truncate">Odds Drop Radar</div>
               </div>
             </button>
 
@@ -9478,8 +9541,8 @@ export default function App() {
             >
               <TrendingUp className="h-4 w-4 text-emerald-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Бэктест</div>
-                <div className="text-[10px] text-slate-400 truncate">Тест на истории</div>
+                <div className="font-bold text-white text-xs">{t('navBacktest')}</div>
+                <div className="text-[10px] text-slate-400 truncate">Backtesting Lab</div>
               </div>
             </button>
 
@@ -9492,8 +9555,8 @@ export default function App() {
             >
               <GraduationCap className="h-4 w-4 text-amber-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Обучение</div>
-                <div className="text-[10px] text-amber-400 truncate">Гид и песочница</div>
+                <div className="font-bold text-white text-xs">{t('navEducation')}</div>
+                <div className="text-[10px] text-amber-400 truncate">Guide & Sandbox</div>
               </div>
             </button>
 
@@ -9506,7 +9569,7 @@ export default function App() {
             >
               <User className="h-4 w-4 text-purple-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Кабинет & Тариф</div>
+                <div className="font-bold text-white text-xs">{t('navCabinet')}</div>
                 <div className="text-[10px] text-purple-300 truncate">{currentUser.displayName}</div>
               </div>
             </button>
@@ -9520,8 +9583,8 @@ export default function App() {
             >
               <Trophy className="h-4 w-4 text-amber-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Proof-of-Win</div>
-                <div className="text-[10px] text-amber-300 truncate">Чекер заходов</div>
+                <div className="font-bold text-white text-xs">{t('navProofOfWin')}</div>
+                <div className="text-[10px] text-amber-300 truncate">Proof-of-Win</div>
               </div>
             </button>
 
@@ -9534,8 +9597,8 @@ export default function App() {
             >
               <Crown className="h-4 w-4 text-purple-400 shrink-0" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">Рейтинг авторов</div>
-                <div className="text-[10px] text-purple-300 truncate">Топ капперов месяца</div>
+                <div className="font-bold text-white text-xs">{t('navLeaderboard')}</div>
+                <div className="text-[10px] text-purple-300 truncate">Creators</div>
               </div>
             </button>
 
@@ -9548,8 +9611,8 @@ export default function App() {
             >
               <Sparkles className="h-4 w-4 text-amber-300 shrink-0 animate-pulse" />
               <div className="truncate">
-                <div className="font-bold text-white text-xs">ТОП-3 Новичку</div>
-                <div className="text-[10px] text-emerald-300 truncate">1-клик безопасный пуск</div>
+                <div className="font-bold text-white text-xs">{t('noviceSafeTop3Btn')}</div>
+                <div className="text-[10px] text-emerald-300 truncate">1-Click Top 3</div>
               </div>
             </button>
 
