@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SignalAlert, Match, SignalOutcome } from '../types';
+import { SignalAlert, Match, SignalOutcome, SportType } from '../types';
 import {
   Play,
   Square,
@@ -45,12 +45,18 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [periodFilter, setPeriodFilter] = useState<'ALL' | '1H' | '2H' | 'HT'>('ALL');
+  const [sportFilter, setSportFilter] = useState<SportType | 'ALL'>('ALL');
   const [filterNameChoice, setFilterNameChoice] = useState<string>('ALL');
 
   // Distinct filter names for quick filtering
   const distinctFilterNames = Array.from(new Set(signals.map((s) => s.ruleName).filter(Boolean)));
 
   const filteredSignals = signals.filter((sig) => {
+    // Sport match
+    if (sportFilter !== 'ALL' && (sig.sport || 'football') !== sportFilter) {
+      return false;
+    }
+
     // Search query match
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -139,6 +145,32 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
 
         {/* Search and Period Filter */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Sport selector */}
+          <div className="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-xs">
+            {[
+              { id: 'ALL', label: 'Все виды' },
+              { id: 'football', label: '⚽' },
+              { id: 'hockey', label: '🏒' },
+              { id: 'basketball', label: '🏀' },
+              { id: 'tennis', label: '🎾' },
+              { id: 'volleyball', label: '🏐' },
+              { id: 'table_tennis', label: '🏓' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setSportFilter(item.id as any)}
+                className={`px-2 py-1 rounded text-[11px] font-semibold transition ${
+                  sportFilter === item.id
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title={item.id}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           {/* Period selector */}
           <div className="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-xs">
             {[

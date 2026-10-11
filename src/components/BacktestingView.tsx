@@ -26,13 +26,15 @@ import { FilterRule, BacktestResult, HistoricalMatch } from '../types';
 import { LARGE_HISTORICAL_MATCHES, getHistoricalMatchesByDatasetSize } from '../data/largeHistoricalDatabase';
 import { loadAccumulatedLiveMatches, clearAccumulatedLiveDB } from '../services/liveMatchesDatabase';
 import { runBacktest } from '../backtestEngine';
+import { getStrategyCardDisplayName } from '../utils/filterDefaults';
 
 interface BacktestingViewProps {
   filters: FilterRule[];
   onSelectFilterToEdit?: (filter: FilterRule) => void;
+  isDeveloper?: boolean;
 }
 
-export const BacktestingView: React.FC<BacktestingViewProps> = ({ filters, onSelectFilterToEdit }) => {
+export const BacktestingView: React.FC<BacktestingViewProps> = ({ filters, onSelectFilterToEdit, isDeveloper = false }) => {
   const [selectedFilterId, setSelectedFilterId] = useState<string>(filters[0]?.id || 'f1');
   const [dataMode, setDataMode] = useState<'archive' | 'live_accumulated'>('archive');
   const [datasetSize, setDatasetSize] = useState<'quick50' | 'standard1200' | 'deep2500'>('standard1200');
@@ -290,7 +292,7 @@ export const BacktestingView: React.FC<BacktestingViewProps> = ({ filters, onSel
             >
               {filters.map((f) => (
                 <option key={f.id} value={f.id}>
-                  {f.name} {f.targetMarket ? `(${f.targetMarket})` : ''}
+                  {f.isPreset && !isDeveloper ? getStrategyCardDisplayName(f, isDeveloper, filters) : f.name} {f.targetMarket ? `(${f.targetMarket})` : ''}
                 </option>
               ))}
             </select>
@@ -636,7 +638,7 @@ export const BacktestingView: React.FC<BacktestingViewProps> = ({ filters, onSel
           {activeSubTab === 'leagues' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Ранжирование лиг: где прогноз по стратегии <strong>«{activeRule.name}»</strong> имеет наивысший процент захода</span>
+                <span>Ранжирование лиг: где прогноз по стратегии <strong>«{activeRule.isPreset && !isDeveloper ? getStrategyCardDisplayName(activeRule, isDeveloper, filters) : activeRule.name}»</strong> имеет наивысший процент захода</span>
                 <span className="font-mono text-emerald-400">Сортировка: Win Rate % ↓</span>
               </div>
 
@@ -843,7 +845,7 @@ export const BacktestingView: React.FC<BacktestingViewProps> = ({ filters, onSel
                       </span>
                       <div>
                         <div className="font-semibold text-xs text-white leading-tight">
-                          {filter.name}
+                          {filter.isPreset && !isDeveloper ? getStrategyCardDisplayName(filter, isDeveloper, filters) : filter.name}
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
                           {filter.targetMarket || 'Рынок голов'}

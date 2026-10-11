@@ -68,6 +68,8 @@ import {
   createCleanBlankMatrix,
   createDefaultStatRow,
   createDefaultHistoryConfig,
+  cleanPresetTitle,
+  getStrategyCardDisplayName,
 } from '../utils/filterDefaults';
 
 interface ScannerMatrixFilterViewProps {
@@ -84,6 +86,7 @@ interface ScannerMatrixFilterViewProps {
   selectedSport?: SportType | 'all';
   onOpenEducation?: () => void;
   isPaidUser?: boolean;
+  isDeveloper?: boolean;
   onUpgradePlan?: () => void;
 }
 
@@ -129,6 +132,7 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
   selectedSport = 'football',
   onOpenEducation,
   isPaidUser = false,
+  isDeveloper = false,
   onUpgradePlan,
 }) => {
   // Split custom filters vs ready-made presets
@@ -382,6 +386,8 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
 
   // Is the currently selected rule a preset on a free account?
   const isPresetSelectedByFreeUser = !isPaidUser && !!selectedRule?.isPreset;
+  // Is the currently selected rule a preset on a paid account for non-developers (parameters hidden from copy)?
+  const isPresetProtectedForUser = isPaidUser && !!selectedRule?.isPreset && !isDeveloper;
 
   // Filtered lists for left sidebar: split custom vs preset for clean separation
   const filteredCustomList = useMemo(() => {
@@ -727,7 +733,7 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="font-bold text-white text-xs leading-snug line-clamp-2">
-                          {f.name}
+                          {f.isPreset && !isDeveloper ? getStrategyCardDisplayName(f, isDeveloper, filters) : f.name}
                         </div>
                         {isPaidUser ? (
                           <button
@@ -763,9 +769,16 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                       )}
 
                       <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
-                        <span className="font-mono">
-                          {f.minMinute ?? 0}' – {f.maxMinute ?? 90}' мин
-                        </span>
+                        {f.isPreset && !isDeveloper ? (
+                          <span className="text-amber-300 font-medium flex items-center gap-1">
+                            <Lock className="h-2.5 w-2.5 text-amber-400" />
+                            <span>Вшитый VIP</span>
+                          </span>
+                        ) : (
+                          <span className="font-mono">
+                            {f.minMinute ?? 0}' – {f.maxMinute ?? 90}' мин
+                          </span>
+                        )}
                         {matchesCount > 0 ? (
                           <span className="font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
                             🔥 {matchesCount} LIVE
@@ -815,10 +828,10 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                   Готовая стратегия тарифов PRO & VIP
                 </span>
                 <h3 className="text-xl sm:text-2xl font-black text-white">
-                  {selectedRule?.name}
+                  {selectedRule ? (selectedRule.isPreset && !isDeveloper ? getStrategyCardDisplayName(selectedRule, isDeveloper, filters) : selectedRule.name) : ''}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-                  {selectedRule?.description || 'Готовый авторский алгоритм с рассчитанной математической моделью.'}
+                  Вшитый алгоритм платформы. Формула и параметры защищены разработчиком от копирования. Доступен для запуска в тарифах PRO и VIP.
                 </p>
               </div>
 
@@ -858,8 +871,139 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                 )}
               </div>
             </div>
+          ) : isPresetProtectedForUser && selectedRule ? (
+            /* Protected Screen for Ready-Made Presets on Paid Accounts (Parameters hidden from non-developers) */
+            <div className="p-6 sm:p-8 space-y-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-xl shadow-amber-950/40">
+                <Lock className="h-8 w-8" />
+              </div>
+
+              <div className="space-y-2 max-w-lg mx-auto">
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Вшитый алгоритм защищён разработчиком
+                </span>
+                <h3 className="text-xl sm:text-2xl font-black text-white">
+                  {selectedRule.isPreset && !isDeveloper ? getStrategyCardDisplayName(selectedRule, isDeveloper, filters) : selectedRule.name}
+                </h3>
+                <div className="mt-2 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left space-y-1">
+                  <div className="text-[10px] uppercase font-bold text-amber-400 tracking-wider flex items-center gap-1.5">
+                    <Target className="h-3.5 w-3.5" />
+                    <span>Ожидаемый прогноз по карточке:</span>
+                  </div>
+                  <div className="text-sm font-black text-amber-200">
+                    {selectedRule.targetMarket || 'Live исход / Тотал'}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed pt-1">
+                  Вшитый алгоритм платформы. Формула и параметры защищены разработчиком от копирования. Алгоритм активен для мониторинга в вашей подписке.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl mx-auto text-left">
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase block">Статистика прохода</span>
+                  <span className="text-sm font-black text-emerald-400 font-mono">
+                    {selectedRule.verifiedPassRate || '96–100%'}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase block">Целевой исход</span>
+                  <span className="text-xs font-black text-amber-300 truncate block mt-0.5">
+                    {selectedRule.targetMarket || 'Live рынок'}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase block">Статус работы</span>
+                  <span className={`text-xs font-bold block mt-0.5 ${selectedRule.enabled ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {selectedRule.enabled ? '🟢 Запущен в Live' : '⚪ Остановлен'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-left text-xs text-amber-200/90 max-w-xl mx-auto space-y-2 leading-relaxed">
+                <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5" />
+                  Защита параметров от копирования
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  Числовые пороги атак, коэффициенты, xG и веса тактической матрицы скрыты разработчиком для предотвращения копирования стратегии. Алгоритм полностью доступен для использования по вашей подписке: запускайте его в мониторинг, получайте мгновенные push-сигналы и подключайте Telegram-бота.
+                </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-amber-500/20">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400">Telegram-бот:</span>
+                    <select
+                      value={selectedRule.botId || ''}
+                      onChange={(e) => onSaveFilter({ ...selectedRule, botId: e.target.value || undefined })}
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none"
+                    >
+                      <option value="">По умолчанию</option>
+                      {userBots.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          🤖 {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSaveFilter({ ...selectedRule, telegramEnabled: !selectedRule.telegramEnabled })}
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition ${
+                      selectedRule.telegramEnabled
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    Telegram: {selectedRule.telegramEnabled ? 'ВКЛ' : 'ВЫКЛ'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => onSaveFilter({ ...selectedRule, enabled: !selectedRule.enabled })}
+                  className={`px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition active:scale-95 shadow-lg ${
+                    selectedRule.enabled
+                      ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
+                  }`}
+                >
+                  {selectedRule.enabled ? (
+                    <>
+                      <PowerOff className="h-4 w-4 text-rose-400" />
+                      <span>Остановить мониторинг</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 fill-white" />
+                      <span>Запустить в мониторинг</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCleanBlank}
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-semibold flex items-center gap-2 transition"
+                >
+                  <FileText className="h-4 w-4 text-emerald-400" />
+                  <span>Создать свой фильтр (Чистый бланк)</span>
+                </button>
+              </div>
+            </div>
           ) : (
             <>
+              {selectedRule?.isPreset && isDeveloper && (
+                <div className="mb-3 p-3 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-between text-xs font-mono text-purple-300">
+                  <span className="font-bold flex items-center gap-1.5">
+                    <span>👨‍💻 Режим разработчика (GOD MODE)</span>
+                  </span>
+                  <span className="text-[11px] text-purple-400">
+                    Вшитая стратегия: формулы и матричные веса открыты для калибровки
+                  </span>
+                </div>
+              )}
               {/* Editor Header: Name & Target Market with Clean Blank button */}
               <div className="space-y-3 pb-4 border-b border-slate-800">
                 <div className="flex items-center justify-between gap-3">
@@ -880,14 +1024,16 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                       <FileText className="h-3.5 w-3.5 text-teal-400" />
                       <span className="hidden sm:inline">Чистый бланк</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={handleDuplicate}
-                      className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition"
-                      title="Клонировать эту стратегию"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </button>
+                    {(!selectedRule?.isPreset || isDeveloper) && (
+                      <button
+                        type="button"
+                        onClick={handleDuplicate}
+                        className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition"
+                        title="Клонировать эту стратегию"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {selectedFilterId && (
                       <button
                         type="button"

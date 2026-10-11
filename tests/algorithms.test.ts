@@ -208,6 +208,78 @@ const homeFlow = flows.find((f) => f.marketName.includes('П1'));
 assert(Boolean(homeFlow && Math.abs(homeFlow.dropPercent) > 0), `Home win drop detected: ${homeFlow?.dropPercent}%`);
 
 // ----------------------------------------------------
+// TEST GROUP 6: Strict Sport Demarcation (Разграничение по видам спорта)
+// ----------------------------------------------------
+console.log('\n--- Test Group 6: Strict Sport Demarcation ---');
+
+const footballMatch: Match = {
+  ...minimalMatch,
+  sport: 'football',
+  minute: 55,
+  score: [1, 0],
+};
+
+const hockeyMatch: Match = {
+  ...minimalMatch,
+  id: 'fs-hockey-12345',
+  sport: 'hockey',
+  league: 'NHL Regular Season',
+  minute: 56,
+  score: [3, 2],
+};
+
+const hockeyRule: FilterRule = {
+  id: 'strat-hockey-late',
+  name: '🏒 Хоккей: Снятый вратарь в 3-м периоде (ТБ 5.5)',
+  category: 'goals',
+  ruleType: 'LIVE',
+  sport: 'hockey',
+  enabled: true,
+  minMinute: 54,
+  maxMinute: 59,
+  scoreCondition: 'ANY',
+  targetMarket: 'ТБ 5.5',
+};
+
+const footballRule: FilterRule = {
+  id: 'strat-football-fav',
+  name: '⚽ Футбол: Гол фаворита',
+  category: 'goals',
+  ruleType: 'LIVE',
+  sport: 'football',
+  enabled: true,
+  minMinute: 50,
+  maxMinute: 70,
+  scoreCondition: 'ANY',
+  targetMarket: 'ТБ 1.5',
+};
+
+// 1. Hockey rule must NEVER trigger on a football match
+const hockeyOnFootball = evaluateFilterRule(footballMatch, hockeyRule);
+assert(
+  !hockeyOnFootball.matches,
+  'Hockey rule correctly rejected on Football match (Strict Sport Isolation)'
+);
+assert(
+  hockeyOnFootball.unmetCriteria.some((u) => u.includes('Вид спорта')),
+  'Unmet criteria explains sport mismatch between hockey strategy and football match'
+);
+
+// 2. Football rule must NEVER trigger on a hockey match
+const footballOnHockey = evaluateFilterRule(hockeyMatch, footballRule);
+assert(
+  !footballOnHockey.matches,
+  'Football rule correctly rejected on Hockey match (Strict Sport Isolation)'
+);
+
+// 3. Hockey rule triggers on matching hockey match
+const hockeyOnHockey = evaluateFilterRule(hockeyMatch, hockeyRule);
+assert(
+  hockeyOnHockey.matches,
+  'Hockey rule successfully matches on valid Hockey match'
+);
+
+// ----------------------------------------------------
 // SUMMARY
 // ----------------------------------------------------
 console.log('\n========================================');

@@ -17,6 +17,7 @@ import {
   Flame,
   ArrowUpRight,
   Zap,
+  Trophy,
 } from 'lucide-react';
 import { FilterRule, StrategyMarketplaceItem } from '../types';
 import { createCleanBlankFilter } from '../utils/filterDefaults';
@@ -27,6 +28,7 @@ interface StrategyMarketplaceModalProps {
   userFilters: FilterRule[];
   onImportStrategy: (filter: FilterRule) => void;
   currentUserId: string;
+  onOpenLeaderboard?: () => void;
 }
 
 export const INITIAL_MARKETPLACE_ITEMS: StrategyMarketplaceItem[] = [
@@ -193,6 +195,7 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
   userFilters,
   onImportStrategy,
   currentUserId,
+  onOpenLeaderboard,
 }) => {
   const [items, setItems] = useState<StrategyMarketplaceItem[]>(() => {
     try {
@@ -317,6 +320,17 @@ export const StrategyMarketplaceModal: React.FC<StrategyMarketplaceModalProps> =
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {onOpenLeaderboard && (
+              <button
+                type="button"
+                onClick={onOpenLeaderboard}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition shadow-sm"
+                title="Открыть лидерборд и рейтинг создателей месяца"
+              >
+                <Trophy className="h-4 w-4 text-amber-400" />
+                <span className="hidden sm:inline">Рейтинг авторов</span>
+              </button>
+            )}
             <button
               onClick={() => setIsPublishOpen(!isPublishOpen)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-sm"

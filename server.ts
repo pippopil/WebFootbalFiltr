@@ -1810,6 +1810,7 @@ async function startServer() {
   // 2. Fetch live matches from specified external data source (with resilient cascade fallback)
   app.get('/api/datasources/live', async (req, res) => {
     const source = (req.query.source as string) || 'flashscore';
+    const sport = (req.query.sport as SportType | 'all') || 'all';
     const apiKey = (req.query.api_key as string) || process.env.API_FOOTBALL_KEY || '';
     const provider = ((req.query.provider as string) || process.env.API_FOOTBALL_PROVIDER || 'api-sports') as 'api-sports' | 'rapidapi';
     const leagues = (req.query.leagues as string) || '';
@@ -1826,6 +1827,7 @@ async function startServer() {
           leagues,
           footballToken,
           sstatsKey,
+          sport,
         });
 
         if (cascadeResult.ok && cascadeResult.matches.length > 0) {
@@ -1833,6 +1835,7 @@ async function startServer() {
             ok: true,
             source: cascadeResult.source,
             actualSource: cascadeResult.actualSource,
+            sport,
             fallbackUsed: cascadeResult.fallbackUsed,
             fallbackReason: cascadeResult.fallbackReason,
             count: cascadeResult.matches.length,
@@ -1844,7 +1847,7 @@ async function startServer() {
 
       // Direct source fallback if cascade disabled or direct webhook
       if (source === 'flashscore') {
-        const result = await fetchFlashscoreLiveMatches();
+        const result = await fetchFlashscoreLiveMatches({ sport });
         if (!result.ok && result.matches.length === 0) {
           return res.status(400).json(result);
         }
@@ -1852,6 +1855,7 @@ async function startServer() {
           ok: true,
           source: 'Flashscore',
           actualSource: 'Flashscore',
+          sport,
           fallbackUsed: Boolean(result.fallbackUsed),
           count: result.matches.length,
           matches: result.matches,
@@ -1860,7 +1864,7 @@ async function startServer() {
       }
 
       if (source === 'fonbet') {
-        const result = await fetchFonbetLiveMatches();
+        const result = await fetchFonbetLiveMatches({ sport });
         if (!result.ok && result.matches.length === 0) {
           return res.status(400).json(result);
         }
@@ -1868,6 +1872,7 @@ async function startServer() {
           ok: true,
           source: 'Fonbet',
           actualSource: 'Fonbet',
+          sport,
           fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
@@ -1876,7 +1881,7 @@ async function startServer() {
       }
 
       if (source === '1xbet') {
-        const result = await fetch1xBetLiveMatches();
+        const result = await fetch1xBetLiveMatches({ sport });
         if (!result.ok && result.matches.length === 0) {
           return res.status(400).json(result);
         }
@@ -1884,6 +1889,7 @@ async function startServer() {
           ok: true,
           source: '1xBet',
           actualSource: '1xBet',
+          sport,
           fallbackUsed: false,
           count: result.matches.length,
           matches: result.matches,
@@ -2006,11 +2012,12 @@ async function startServer() {
       }
 
       if (source === 'public-feed') {
-        const publicResult = await fetchPublicLiveMatches();
+        const publicResult = await fetchPublicLiveMatches({ sport });
         return res.json({
           ok: true,
           source: 'Public-Feed',
           actualSource: 'Public-Feed',
+          sport,
           fallbackUsed: false,
           count: publicResult.matches.length,
           matches: publicResult.matches,
@@ -2019,11 +2026,12 @@ async function startServer() {
       }
 
       // Default fallback: Flashscore Live
-      const defaultResult = await fetchFlashscoreLiveMatches();
+      const defaultResult = await fetchFlashscoreLiveMatches({ sport });
       return res.json({
         ok: true,
         source: 'Flashscore',
         actualSource: 'Flashscore',
+        sport,
         fallbackUsed: false,
         count: defaultResult.matches.length,
         matches: defaultResult.matches,

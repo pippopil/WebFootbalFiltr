@@ -1,6 +1,6 @@
-import { FilterRule } from '../types';
+import { FilterRule, SportType } from '../types';
 
-export const EXPANDED_DEFAULT_FILTERS: FilterRule[] = [
+const RAW_DEFAULT_FILTERS: FilterRule[] = [
   {
     id: 'f-1',
     name: '🔥 Доминирование при ничьей 0:0 (60-85 мин)',
@@ -1028,3 +1028,8 @@ export const EXPANDED_DEFAULT_FILTERS: FilterRule[] = [
     isPreset: true,
   },
 ];
+
+export const EXPANDED_DEFAULT_FILTERS: FilterRule[] = RAW_DEFAULT_FILTERS.map((f) => ({
+  ...f,
+  sport: (f.sport || 'football') as SportType,
+}));

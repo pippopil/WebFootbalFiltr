@@ -165,14 +165,14 @@ export interface FilterRule {
   id: string;
   name: string;
   description: string;
-  category?: FilterCategory;
-  ruleType?: 'LIVE' | 'PREMATCH' | 'HYBRID'; // Тип стратегии: Лайв или Предматчевый отбор
+  category?: FilterCategory | string;
+  ruleType?: 'LIVE' | 'PREMATCH' | 'HYBRID' | string; // Тип стратегии: Лайв или Предматчевый отбор
   sport?: SportType; // Вид спорта (football, hockey, basketball, volleyball, tennis, table_tennis)
   prematchTimingMinutes?: number; // За сколько минут до матча проводить анализ (по умолчанию 60 мин / 1 час)
   enabled: boolean;
   minMinute: number;
   maxMinute: number;
-  scoreCondition: ScoreCondition;
+  scoreCondition: ScoreCondition | string;
 
   // Топовые стабильные стратегии по реальным матчам
   isTopStable?: boolean;
@@ -431,6 +431,7 @@ export interface SignalAlert {
   matchName: string;
   league: string;
   country: string;
+  sport?: SportType;
   minute: number;
   score: string;
   period?: string; // 1-й тайм, 2-й тайм, Перерыв
@@ -491,6 +492,8 @@ export interface TelegramBotProfile {
   createdAt: string;
 }
 
+export type UserPlan = 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -498,7 +501,7 @@ export interface UserProfile {
   email: string;
   avatarUrl?: string;
   role: 'user' | 'pro' | 'admin' | 'vip' | 'god';
-  plan: 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
+  plan: UserPlan;
   planExpiresAt?: string;
   registeredAt: string;
   balanceRub: number;

@@ -115,6 +115,7 @@ def parse_flashscore_live():
                 "score": [score_home, score_away],
                 "minute": minute,
                 "status": status,
+                "sport": "football",
                 "country": country,
                 "league": league,
                 "source": "Flashscore-Parser",

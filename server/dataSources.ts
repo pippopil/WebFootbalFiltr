@@ -1,4 +1,4 @@
-import { Match, MatchStats } from '../src/types';
+import { Match, MatchStats, SportType, MatchOdds } from '../src/types';
 
 // In-memory store for webhook ingested matches
 interface IngestedStore {
@@ -199,31 +199,303 @@ export function estimateOddsFromScoreAndTime(
 }
 
 // -------------------------------------------------------------
-// 1. FLASHSCORE LIVE PARSER (flashscore.mobi live feed)
+// 1. FLASHSCORE MULTI-SPORT PARSER & GENERATORS
 // -------------------------------------------------------------
-export async function fetchFlashscoreLiveMatches(options?: {
-  maxMatches?: number;
-}): Promise<{ ok: boolean; matches: Match[]; error?: string; fallbackUsed?: boolean }> {
-  const cacheKey = 'flashscore_live_matches';
-  const cached = getCached<Match[]>(cacheKey);
-  if (cached && cached.length > 0) {
-    return { ok: true, matches: cached };
+export function generateLiveStatsForSport(
+  sport: SportType,
+  minute: number,
+  scoreHome: number,
+  scoreAway: number
+): MatchStats {
+  if (sport === 'football') {
+    return generateLiveStatsForMatch(minute, scoreHome, scoreAway);
   }
 
-  // Multi-mirror list to avoid regional blocks and 301 redirect latency
-  const mirrors = [
-    'https://www.flashscore.mobi/?s=2',
-    'https://m.flashscore.com/?s=2',
-    'https://flashscore.mobi/?s=2',
+  const diff = scoreHome - scoreAway;
+  const m = Math.max(1, minute || 20);
+
+  if (sport === 'hockey') {
+    // Hockey: 3 periods of 20 min (total 60 min). Realistic SOT ~ 25-38, attacks ~ 40-60
+    const sotH = Math.max(scoreHome, Math.round(m * 0.55 + scoreHome * 2 + ((m % 5))));
+    const sotA = Math.max(scoreAway, Math.round(m * 0.52 + scoreAway * 2 + ((m % 7))));
+    const attH = Math.round(sotH * 1.6);
+    const attA = Math.round(sotA * 1.6);
+    const dangH = Math.round(sotH * 0.85);
+    const dangA = Math.round(sotA * 0.85);
+    const possH = Math.min(65, Math.max(35, 50 + diff * 3));
+    return {
+      possession: [possH, 100 - possH],
+      dangerousAttacks: [dangH, dangA],
+      attacks: [attH, attA],
+      shotsOnTarget: [sotH, sotA],
+      shotsOffTarget: [Math.round(sotH * 0.4), Math.round(sotA * 0.4)],
+      corners: [0, 0],
+      yellowCards: [Math.min(5, Math.floor(m * 0.05)), Math.min(5, Math.floor(m * 0.05))], // 2-min penalties
+      redCards: [0, 0],
+      xg: [Number((scoreHome * 0.85 + sotH * 0.08).toFixed(2)), Number((scoreAway * 0.85 + sotA * 0.08).toFixed(2))],
+    };
+  }
+
+  if (sport === 'basketball') {
+    // Basketball: 4 quarters of 10-12 min (total 40-48 min). High scoring (70-110 pts)
+    const possH = Math.min(60, Math.max(40, 50 + Math.sign(diff) * 2));
+    const fgMadeH = Math.max(5, Math.round(scoreHome / 2.3));
+    const fgMadeA = Math.max(5, Math.round(scoreAway / 2.3));
+    const attH = Math.round(scoreHome + 15);
+    const attA = Math.round(scoreAway + 15);
+    return {
+      possession: [possH, 100 - possH],
+      dangerousAttacks: [Math.round(scoreHome * 0.6), Math.round(scoreAway * 0.6)], // Paint touches & 3-pt attempts
+      attacks: [attH, attA], // Total possessions
+      shotsOnTarget: [fgMadeH, fgMadeA], // FG made
+      shotsOffTarget: [Math.round(fgMadeH * 0.8), Math.round(fgMadeA * 0.8)], // FG missed
+      corners: [0, 0],
+      yellowCards: [Math.min(25, Math.floor(m * 0.35)), Math.min(25, Math.floor(m * 0.35))], // Fouls
+      redCards: [0, 0],
+      xg: [Number((scoreHome / 60).toFixed(2)), Number((scoreAway / 60).toFixed(2))],
+    };
+  }
+
+  if (sport === 'tennis') {
+    // Tennis: sets and games
+    const possH = Math.min(65, Math.max(35, 50 + diff * 8));
+    const acesH = Math.max(1, Math.round(m * 0.12));
+    const acesA = Math.max(1, Math.round(m * 0.10));
+    return {
+      possession: [possH, 100 - possH],
+      dangerousAttacks: [Math.max(2, Math.round(m * 0.15 + (diff > 0 ? 3 : 0))), Math.max(2, Math.round(m * 0.15 + (diff < 0 ? 3 : 0)))], // Break points
+      attacks: [Math.round(m * 0.8), Math.round(m * 0.75)], // Total points won
+      shotsOnTarget: [acesH + 8, acesA + 8], // Winners
+      shotsOffTarget: [Math.round(m * 0.2), Math.round(m * 0.22)], // Unforced errors
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [1.0, 1.0],
+    };
+  }
+
+  if (sport === 'volleyball') {
+    const possH = Math.min(60, Math.max(40, 50 + diff * 5));
+    return {
+      possession: [possH, 100 - possH],
+      dangerousAttacks: [Math.round(m * 0.4), Math.round(m * 0.38)],
+      attacks: [Math.round(m * 0.9), Math.round(m * 0.85)],
+      shotsOnTarget: [Math.round(m * 0.35), Math.round(m * 0.32)],
+      shotsOffTarget: [Math.round(m * 0.15), Math.round(m * 0.15)],
+      corners: [0, 0],
+      yellowCards: [0, 1],
+      redCards: [0, 0],
+      xg: [1.0, 1.0],
+    };
+  }
+
+  if (sport === 'table_tennis') {
+    const possH = Math.min(60, Math.max(40, 50 + diff * 5));
+    return {
+      possession: [possH, 100 - possH],
+      dangerousAttacks: [Math.round(m * 0.6), Math.round(m * 0.55)],
+      attacks: [Math.round(m * 1.2), Math.round(m * 1.15)],
+      shotsOnTarget: [Math.round(m * 0.7), Math.round(m * 0.65)],
+      shotsOffTarget: [Math.round(m * 0.3), Math.round(m * 0.3)],
+      corners: [0, 0],
+      yellowCards: [0, 0],
+      redCards: [0, 0],
+      xg: [1.0, 1.0],
+    };
+  }
+
+  return generateLiveStatsForMatch(minute, scoreHome, scoreAway);
+}
+
+export function estimateOddsForSport(
+  sport: SportType,
+  scoreHome: number,
+  scoreAway: number,
+  minute: number
+): MatchOdds {
+  const diff = scoreHome - scoreAway;
+  if (sport === 'hockey') {
+    let p1 = 2.10, px = 4.10, p2 = 2.80;
+    if (diff > 0) { p1 = 1.45; px = 4.80; p2 = 5.20; }
+    else if (diff < 0) { p1 = 5.20; px = 4.80; p2 = 1.45; }
+    return { home: p1, draw: px, away: p2, over25: 1.15, over45: 1.78, under45: 2.05 };
+  }
+  if (sport === 'basketball') {
+    let p1 = 1.85, p2 = 1.95;
+    if (diff > 5) { p1 = 1.25; p2 = 3.80; }
+    else if (diff < -5) { p1 = 3.80; p2 = 1.25; }
+    return { home: p1, draw: 15.0, away: p2, over25: 1.85 };
+  }
+  if (sport === 'tennis') {
+    let p1 = 1.80, p2 = 2.00;
+    if (diff > 0) { p1 = 1.28; p2 = 3.60; }
+    else if (diff < 0) { p1 = 3.60; p2 = 1.28; }
+    return { home: p1, draw: 1.0, away: p2, over25: 1.75 };
+  }
+  if (sport === 'volleyball') {
+    let p1 = 1.75, p2 = 2.05;
+    if (diff > 0) { p1 = 1.30; p2 = 3.40; }
+    else if (diff < 0) { p1 = 3.40; p2 = 1.30; }
+    return { home: p1, draw: 1.0, away: p2, over25: 1.80 };
+  }
+  if (sport === 'table_tennis') {
+    let p1 = 1.70, p2 = 2.15;
+    if (diff > 0) { p1 = 1.25; p2 = 3.75; }
+    else if (diff < 0) { p1 = 3.75; p2 = 1.25; }
+    return { home: p1, draw: 1.0, away: p2, over25: 1.75 };
+  }
+  return estimateOddsFromScoreAndTime(scoreHome, scoreAway, minute);
+}
+
+// Parses HTML for any sport from Flashscore mobi
+export function parseFlashscoreSportHtml(html: string, sport: SportType): Match[] {
+  const matches: Match[] = [];
+  const sections = html.split('<h4>');
+  for (const sec of sections.slice(1)) {
+    const headerEnd = sec.indexOf('</h4>');
+    if (headerEnd === -1) continue;
+
+    const rawHeader = sec.slice(0, headerEnd).replace(/<[^>]+>/g, '').trim();
+    const parts = rawHeader.split(':', 2);
+    const countryRaw = parts[0]?.trim() || 'World';
+    const leagueRaw = (parts[1] || rawHeader).replace(/Standings/gi, '').trim();
+    const flag = getCountryFlag(countryRaw);
+
+    const body = sec.slice(headerEnd + 5);
+    const regex = /<span(?:\s+class="([^"]*)")?>(.*?)<\/span>(.*?)\s*<a\s+href="\/match\/([A-Za-z0-9]+)\/[^"]*"\s+class="([^"]*)">(.*?)<\/a>(?:\s*\((.*?)\))?/g;
+    let m;
+    while ((m = regex.exec(body)) !== null) {
+      const timeOrMin = m[2]?.replace(/<[^>]+>/g, '').trim() || '';
+      const rawTeams = m[3]?.replace(/<[^>]+>/g, '').trim() || '';
+      const matchId = m[4]?.trim();
+      const aClass = m[5]?.trim();
+      const rawScore = m[6]?.replace(/&nbsp;/g, '').replace(/<[^>]+>/g, '').trim();
+      const setScores = m[7]?.trim();
+
+      const teamParts = rawTeams.split(' - ');
+      const homeTeam = teamParts[0]?.trim() || 'Хозяева';
+      const awayTeam = teamParts[1]?.trim() || 'Гости';
+
+      const scoreParts = rawScore.split('-');
+      const scoreHome = parseInt(scoreParts[0]?.trim() || '0', 10) || 0;
+      const scoreAway = parseInt(scoreParts[1]?.trim() || '0', 10) || 0;
+
+      let status: 'LIVE' | 'PREMATCH' | 'FT' | 'HT' = 'LIVE';
+      let minute = 1;
+      let startTime: string | undefined = undefined;
+      let startsInMinutes: number | undefined = undefined;
+
+      if (aClass === 'sched' || rawScore === '' || /^\s*-\s*$/.test(rawScore)) {
+        status = 'PREMATCH';
+        minute = 0;
+        startTime = timeOrMin ? `Сегодня в ${timeOrMin}` : 'Сегодня';
+        const timeMatch = timeOrMin.match(/(\d{1,2}):(\d{2})/);
+        if (timeMatch) {
+          const matchH = parseInt(timeMatch[1], 10);
+          const matchM = parseInt(timeMatch[2], 10);
+          const now = new Date();
+          const target = new Date();
+          target.setHours(matchH, matchM, 0, 0);
+          const diffMs = target.getTime() - now.getTime();
+          startsInMinutes = Math.max(5, Math.round(diffMs / 60000));
+        } else {
+          startsInMinutes = 60;
+        }
+      } else if (aClass === 'fin' || /fin|ft|заверш/i.test(timeOrMin)) {
+        status = 'FT';
+        minute = sport === 'hockey' ? 60 : sport === 'basketball' ? 40 : 90;
+      } else if (/half\s*time|ht|перерыв/i.test(timeOrMin)) {
+        status = 'HT';
+        minute = 45;
+      } else {
+        status = 'LIVE';
+        if (sport === 'football') {
+          const mMatch = timeOrMin.match(/(\d+)/);
+          minute = mMatch ? Math.min(90, parseInt(mMatch[1], 10)) : 25;
+        } else if (sport === 'hockey') {
+          if (/1st|1-й/i.test(timeOrMin)) minute = 14;
+          else if (/2nd|2-й/i.test(timeOrMin)) minute = 34;
+          else if (/3rd|3-й/i.test(timeOrMin)) minute = 52;
+          else {
+            const mMatch = timeOrMin.match(/(\d+)/);
+            minute = mMatch ? Math.min(60, parseInt(mMatch[1], 10)) : 30;
+          }
+        } else if (sport === 'basketball') {
+          if (/1st/i.test(timeOrMin)) minute = 8;
+          else if (/2nd/i.test(timeOrMin)) minute = 18;
+          else if (/3rd/i.test(timeOrMin)) minute = 28;
+          else if (/4th/i.test(timeOrMin)) minute = 38;
+          else minute = 20;
+        } else if (sport === 'tennis') {
+          if (/set 1/i.test(timeOrMin)) minute = 25;
+          else if (/set 2/i.test(timeOrMin)) minute = 50;
+          else if (/set 3/i.test(timeOrMin)) minute = 75;
+          else minute = 40;
+        } else if (sport === 'volleyball') {
+          if (/set 1/i.test(timeOrMin)) minute = 18;
+          else if (/set 2/i.test(timeOrMin)) minute = 38;
+          else if (/set 3/i.test(timeOrMin)) minute = 58;
+          else minute = 30;
+        } else if (sport === 'table_tennis') {
+          if (/set 1|set 2/i.test(timeOrMin)) minute = 10;
+          else if (/set 3|set 4/i.test(timeOrMin)) minute = 20;
+          else minute = 15;
+        }
+      }
+
+      const stats = generateLiveStatsForSport(sport, minute, scoreHome, scoreAway);
+      const odds = estimateOddsForSport(sport, scoreHome, scoreAway, minute);
+
+      let lastEventStr = `${timeOrMin || minute + "'"} [Flashscore] ${homeTeam} ${scoreHome}:${scoreAway} ${awayTeam}`;
+      if (setScores) {
+        lastEventStr += ` (${setScores})`;
+      }
+
+      matches.push({
+        id: `fs-${sport}-${matchId}`,
+        country: countryRaw,
+        countryCode: flag,
+        league: leagueRaw || `${sport.toUpperCase()} League`,
+        homeTeam,
+        awayTeam,
+        score: [scoreHome, scoreAway],
+        minute,
+        status,
+        sport,
+        source: 'Flashscore',
+        startTime,
+        startsInMinutes,
+        stats,
+        momentum: [
+          Math.floor(stats.dangerousAttacks[0] * 0.3),
+          Math.floor(stats.dangerousAttacks[0] * 0.6),
+          Math.floor(stats.dangerousAttacks[0] * 0.8),
+          stats.dangerousAttacks[0] - stats.dangerousAttacks[1],
+        ],
+        lastEvent: lastEventStr,
+        odds,
+      });
+    }
+  }
+  return matches;
+}
+
+// Fetch matches for a specific sport from Flashscore mobi
+async function fetchFlashscoreMatchesForSingleSport(sport: SportType): Promise<Match[]> {
+  const sportPath = sport === 'football' ? '' : sport === 'table_tennis' ? 'table-tennis/' : `${sport}/`;
+  const urls = [
+    `https://www.flashscore.mobi/${sportPath}?s=2`, // Live matches in progress
+    `https://www.flashscore.mobi/${sportPath}?s=1`, // Today matches (scheduled & finished)
   ];
 
-  let lastError = '';
+  const results: Match[] = [];
+  const seenIds = new Set<string>();
 
-  for (const mirrorUrl of mirrors) {
+  for (const url of urls) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000);
-      const res = await fetch(mirrorUrl, {
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(url, {
         signal: controller.signal,
         redirect: 'follow',
         headers: {
@@ -236,322 +508,81 @@ export async function fetchFlashscoreLiveMatches(options?: {
       });
       clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        lastError = `Flashscore mirror ${mirrorUrl} вернул HTTP ${res.status}`;
-        continue;
-      }
-
+      if (!res.ok) continue;
       const html = await res.text();
-      const matches: Match[] = [];
-
-      // Sections are separated by <h4>...</h4>
-      const sections = html.split('<h4>');
-      for (const sec of sections.slice(1)) {
-        const headerEnd = sec.indexOf('</h4>');
-        if (headerEnd === -1) continue;
-
-        const rawHeader = sec.slice(0, headerEnd).replace(/<[^>]+>/g, '').trim();
-        const parts = rawHeader.split(':', 2);
-        const countryRaw = parts[0]?.trim() || 'World';
-        const leagueRaw = (parts[1] || rawHeader).replace(/Standings/gi, '').trim();
-        const flag = getCountryFlag(countryRaw);
-
-        const body = sec.slice(headerEnd + 5);
-        // Pattern: <span class="live">31'</span>TeamA - TeamB <a href="/match/x031Kvfe/?s=2" class="live">0-0</a>
-        const matchRegex = /<span class="live">(.*?)<\/span>(.*?)\s*<a href="\/match\/([A-Za-z0-9]+)\/[^"]*" class="live">(.*?)<\/a>/gs;
-        let matchExec;
-
-        while ((matchExec = matchRegex.exec(body)) !== null) {
-          const rawMinute = matchExec[1].replace(/<[^>]+>/g, '').trim();
-          const rawTeams = matchExec[2].replace(/<[^>]+>/g, '').trim();
-          const matchId = matchExec[3].trim();
-          const rawScore = matchExec[4].replace(/<[^>]+>/g, '').trim();
-
-          const teamParts = rawTeams.split(' - ');
-          const homeTeam = teamParts[0]?.trim() || 'Хозяева';
-          const awayTeam = teamParts[1]?.trim() || 'Гости';
-
-          const scoreParts = rawScore.split('-');
-          const scoreHome = parseInt(scoreParts[0]?.trim() || '0', 10) || 0;
-          const scoreAway = parseInt(scoreParts[1]?.trim() || '0', 10) || 0;
-
-          let minute = 1;
-          let status: 'LIVE' | 'HT' | 'FT' = 'LIVE';
-
-          if (/half\s*time|ht|перерыв/i.test(rawMinute)) {
-            minute = 45;
-            status = 'HT';
-          } else if (/fin|ft|заверш/i.test(rawMinute)) {
-            minute = 90;
-            status = 'FT';
-          } else {
-            const mMatch = rawMinute.match(/(\d+)/);
-            minute = mMatch ? Math.min(90, parseInt(mMatch[1], 10)) : 1;
-          }
-
-          const stats = generateLiveStatsForMatch(minute, scoreHome, scoreAway);
-          const odds = estimateOddsFromScoreAndTime(scoreHome, scoreAway, minute);
-
-          matches.push({
-            id: `fs-${matchId}`,
-            country: countryRaw,
-            countryCode: flag,
-            league: leagueRaw || 'League',
-            homeTeam,
-            awayTeam,
-            score: [scoreHome, scoreAway],
-            minute,
-            status,
-            source: 'Flashscore',
-            stats,
-            momentum: [
-              Math.floor(stats.dangerousAttacks[0] * 0.3),
-              Math.floor(stats.dangerousAttacks[0] * 0.6),
-              Math.floor(stats.dangerousAttacks[0] * 0.8),
-              stats.dangerousAttacks[0] - stats.dangerousAttacks[1],
-            ],
-            lastEvent: `${minute}' [Flashscore Live] ${homeTeam} ${scoreHome}:${scoreAway} ${awayTeam}`,
-            odds,
-          });
-
-          if (options?.maxMatches && matches.length >= options.maxMatches) {
-            break;
-          }
-        }
-
-        if (options?.maxMatches && matches.length >= options.maxMatches) {
-          break;
+      const parsed = parseFlashscoreSportHtml(html, sport);
+      for (const m of parsed) {
+        if (!seenIds.has(m.id)) {
+          seenIds.add(m.id);
+          results.push(m);
         }
       }
-
-      if (matches.length > 0) {
-        const multiSport = getMultiSportOngoingMatches();
-        const combined = [...matches, ...multiSport];
-        const enriched = combined.map(enrichMatchWithHistory);
-        setCached(cacheKey, enriched);
-        return { ok: true, matches: enriched };
-      }
-    } catch (err: any) {
-      lastError = err?.message || 'Сетевой сбой при опросе зеркала Flashscore';
+    } catch {
+      // Continue to next URL
     }
   }
 
-  // --- RESILIENT FALLBACK: Seamlessly switch to Public Live Feed so local app NEVER crashes ---
+  return results;
+}
+
+// -------------------------------------------------------------
+// 1. FLASHSCORE LIVE & MULTI-SPORT PARSER
+// -------------------------------------------------------------
+export async function fetchFlashscoreLiveMatches(options?: {
+  sport?: SportType | 'all';
+  maxMatches?: number;
+}): Promise<{ ok: boolean; matches: Match[]; error?: string; fallbackUsed?: boolean }> {
+  const targetSport = options?.sport || 'all';
+  const cacheKey = `flashscore_matches_${targetSport}`;
+  const cached = getCached<Match[]>(cacheKey);
+  if (cached && cached.length > 0) {
+    return { ok: true, matches: cached };
+  }
+
+  const allSportsToFetch: SportType[] =
+    targetSport === 'all'
+      ? ['football', 'hockey', 'basketball', 'tennis', 'volleyball', 'table_tennis']
+      : [targetSport];
+
   try {
-    const pf = await fetchPublicLiveMatches();
-    const multiSport = getMultiSportOngoingMatches();
-    const allMatches = [...pf.matches, ...multiSport];
-    if (allMatches.length > 0) {
-      const fallbackMatches = allMatches.map((m) => ({
-        ...m,
-        id: `fs-fallback-${m.id}`,
-        source: 'Flashscore',
-        sport: m.sport || 'football',
-        lastEvent: `${m.minute}' [Flashscore Mirror] ${m.homeTeam} ${m.score[0]}:${m.score[1]} ${m.awayTeam}`,
-      }));
-      setCached(cacheKey, fallbackMatches, 30);
-      return { ok: true, matches: fallbackMatches, fallbackUsed: true };
+    const promises = allSportsToFetch.map((sp) => fetchFlashscoreMatchesForSingleSport(sp));
+    const settleResults = await Promise.allSettled(promises);
+
+    const combined: Match[] = [];
+    for (const r of settleResults) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        combined.push(...r.value);
+      }
+    }
+
+    if (combined.length > 0) {
+      // Prioritize LIVE matches first, then PREMATCH, then FT
+      const statusOrder: Record<string, number> = { LIVE: 0, HT: 1, PREMATCH: 2, FT: 3 };
+      combined.sort((a, b) => (statusOrder[a.status] ?? 2) - (statusOrder[b.status] ?? 2));
+
+      const enriched = combined.map(enrichMatchWithHistory);
+      const sliced = options?.maxMatches ? enriched.slice(0, options.maxMatches) : enriched;
+      setCached(cacheKey, sliced, 15);
+      return { ok: true, matches: sliced };
+    }
+  } catch (err: any) {
+    // Continue to fallback
+  }
+
+  // Fallback to Public Feed if Flashscore is blocked
+  try {
+    const pf = await fetchPublicLiveMatches({ sport: targetSport });
+    if (pf.matches.length > 0) {
+      setCached(cacheKey, pf.matches, 20);
+      return { ok: true, matches: pf.matches, fallbackUsed: true };
     }
   } catch {}
 
-  return { ok: false, matches: [], error: `Flashscore временно недоступен (${lastError || 'Ограничение провайдера / РКН'}). Активируйте Fonbet Live или Public Feed.` };
-}
-
-// Helper to generate real multi-sport matches (Hockey KHL/NHL, Basketball VTB/NBA, Tennis ATP/WTA, Volleyball, Table Tennis)
-function getMultiSportOngoingMatches(): Match[] {
-  const now = new Date();
-  const min = (now.getMinutes() * 2) % 60 + 10;
-  return [
-    {
-      id: `live-hockey-cska-${now.getHours()}`,
-      country: 'Россия',
-      countryCode: '🇷🇺',
-      league: 'КХЛ (Регулярный чемпионат)',
-      homeTeam: 'ЦСКА Москва',
-      awayTeam: 'СКА Санкт-Петербург',
-      score: [2, 1],
-      minute: Math.min(58, min),
-      status: 'LIVE',
-      sport: 'hockey',
-      source: 'Fonbet',
-      stats: {
-        possession: [53, 47],
-        dangerousAttacks: [26, 21],
-        attacks: [45, 38],
-        shotsOnTarget: [31, 26],
-        shotsOffTarget: [12, 10],
-        corners: [0, 0],
-        yellowCards: [2, 4],
-        redCards: [0, 0],
-        xg: [2.35, 1.62],
-      },
-      momentum: [25, 35, 55, 45, 60, 70],
-      lastEvent: `${Math.min(58, min)}' КХЛ: 3-й период. Плотный бросок ЦСКА от синей линии`,
-      odds: { home: 1.85, draw: 4.10, away: 3.50, over25: 1.35, over45: 1.82 },
-    },
-    {
-      id: `live-hockey-nhl-caps-${now.getHours()}`,
-      country: 'США / Канада',
-      countryCode: '🇺🇸',
-      league: 'НХЛ (NHL Regular Season)',
-      homeTeam: 'Washington Capitals',
-      awayTeam: 'Pittsburgh Penguins',
-      score: [3, 2],
-      minute: 49,
-      status: 'LIVE',
-      sport: 'hockey',
-      source: 'Fonbet',
-      stats: {
-        possession: [51, 49],
-        dangerousAttacks: [29, 27],
-        attacks: [52, 48],
-        shotsOnTarget: [35, 32],
-        shotsOffTarget: [14, 11],
-        corners: [0, 0],
-        yellowCards: [2, 2],
-        redCards: [0, 0],
-        xg: [3.20, 2.95],
-      },
-      momentum: [40, 50, 65, 75, 80],
-      lastEvent: "49' 3-й период. Гол Овечкина в большинстве! Перевес Caps",
-      odds: { home: 2.10, draw: 4.20, away: 2.85, over55: 1.78 },
-    },
-    {
-      id: `live-bball-vtb-${now.getHours()}`,
-      country: 'Россия',
-      countryCode: '🇷🇺',
-      league: 'Единая Лига ВТБ',
-      homeTeam: 'ЦСКА',
-      awayTeam: 'УНИКС Казань',
-      score: [82, 79],
-      minute: 36,
-      status: 'LIVE',
-      sport: 'basketball',
-      source: 'Fonbet',
-      stats: {
-        possession: [52, 48],
-        dangerousAttacks: [50, 46],
-        attacks: [86, 82],
-        shotsOnTarget: [30, 28],
-        shotsOffTarget: [24, 21],
-        corners: [0, 0],
-        yellowCards: [15, 17],
-        redCards: [0, 0],
-        xg: [1.3, 1.2],
-      },
-      momentum: [30, 45, 55, 65, 75],
-      lastEvent: "36' 4-я четверть. Трёхочковое попадание! Счёт 82:79",
-      odds: { home: 1.42, draw: 15.0, away: 2.85 },
-    },
-    {
-      id: `live-bball-nba-${now.getHours()}`,
-      country: 'США',
-      countryCode: '🇺🇸',
-      league: 'NBA (National Basketball Association)',
-      homeTeam: 'Boston Celtics',
-      awayTeam: 'Los Angeles Lakers',
-      score: [96, 91],
-      minute: 39,
-      status: 'LIVE',
-      sport: 'basketball',
-      source: 'Fonbet',
-      stats: {
-        possession: [53, 47],
-        dangerousAttacks: [56, 51],
-        attacks: [102, 95],
-        shotsOnTarget: [36, 33],
-        shotsOffTarget: [26, 24],
-        corners: [0, 0],
-        yellowCards: [13, 15],
-        redCards: [0, 0],
-        xg: [1.6, 1.4],
-      },
-      momentum: [45, 60, 70, 80],
-      lastEvent: "39' 4-я четверть. Прогруз на фору Celtics (-4.5) при темпе атак 112%",
-      odds: { home: 1.30, draw: 16.0, away: 3.50 },
-    },
-    {
-      id: `live-tennis-atp-${now.getHours()}`,
-      country: 'Международный',
-      countryCode: '🌐',
-      league: 'ATP Masters 1000',
-      homeTeam: 'Даниил Медведев',
-      awayTeam: 'Карлос Алькарас',
-      score: [1, 1],
-      minute: 88,
-      status: 'LIVE',
-      sport: 'tennis',
-      source: 'Fonbet',
-      stats: {
-        possession: [50, 50],
-        dangerousAttacks: [15, 17],
-        attacks: [38, 41],
-        shotsOnTarget: [9, 10],
-        shotsOffTarget: [6, 5],
-        corners: [0, 0],
-        yellowCards: [0, 0],
-        redCards: [0, 0],
-        xg: [1.0, 1.0],
-      },
-      momentum: [25, 40, 55, 65, 75],
-      lastEvent: "88' 3-й сет (5:4). Медведев подаёт на матч",
-      odds: { home: 1.95, draw: 1.0, away: 1.85 },
-    },
-    {
-      id: `live-vball-superliga-${now.getHours()}`,
-      country: 'Россия',
-      countryCode: '🇷🇺',
-      league: 'Волейбол. Суперлига РФ',
-      homeTeam: 'Зенит-Казань',
-      awayTeam: 'Динамо Москва',
-      score: [2, 1],
-      minute: 68,
-      status: 'LIVE',
-      sport: 'volleyball',
-      source: 'Fonbet',
-      stats: {
-        possession: [54, 46],
-        dangerousAttacks: [30, 24],
-        attacks: [65, 57],
-        shotsOnTarget: [24, 20],
-        shotsOffTarget: [9, 10],
-        corners: [0, 0],
-        yellowCards: [1, 2],
-        redCards: [0, 0],
-        xg: [1.0, 1.0],
-      },
-      momentum: [35, 50, 65, 75, 80],
-      lastEvent: "68' 4-я партия (21:18). Зенит увеличивает отрыв",
-      odds: { home: 1.32, draw: 1.0, away: 3.25 },
-    },
-    {
-      id: `live-tt-ligapro-${now.getHours()}`,
-      country: 'Россия',
-      countryCode: '🇷🇺',
-      league: 'Настольный теннис. Лига Про РФ',
-      homeTeam: 'Алексей Смирнов',
-      awayTeam: 'Дмитрий Федоров',
-      score: [2, 2],
-      minute: 24,
-      status: 'LIVE',
-      sport: 'table_tennis',
-      source: 'Fonbet',
-      stats: {
-        possession: [50, 50],
-        dangerousAttacks: [19, 18],
-        attacks: [36, 34],
-        shotsOnTarget: [16, 15],
-        shotsOffTarget: [5, 6],
-        corners: [0, 0],
-        yellowCards: [0, 0],
-        redCards: [0, 0],
-        xg: [1.0, 1.0],
-      },
-      momentum: [15, 30, 45, 60],
-      lastEvent: "24' 5-я партия (9:8). Тайм-аут перед матчболом",
-      odds: { home: 1.68, draw: 1.0, away: 2.10 },
-    },
-  ];
+  return {
+    ok: false,
+    matches: [],
+    error: 'Матчи из Flashscore временно недоступны. Подключите Public Feed или Fonbet.',
+  };
 }
 
 // Helper to deduplicate list of matches by unique id
@@ -568,51 +599,43 @@ function deduplicateMatchesById(items: Match[]): Match[] {
 }
 
 // Helper to obtain REAL currently ongoing live matches from the best available live feed
-async function getRealActiveLiveMatches(): Promise<Match[]> {
-  const multiSport = getMultiSportOngoingMatches();
-
-  // 1. Try Flashscore live parser (has all real worldwide games in progress)
+async function getRealActiveLiveMatches(sport?: SportType | 'all'): Promise<Match[]> {
+  // 1. Try Flashscore parser (all real live & today matches)
   try {
-    const fs = await fetchFlashscoreLiveMatches();
+    const fs = await fetchFlashscoreLiveMatches({ sport });
     if (fs.ok && fs.matches.length > 0) {
-      return deduplicateMatchesById([...fs.matches, ...multiSport]);
+      return deduplicateMatchesById(fs.matches);
     }
   } catch {}
 
-  // 2. Try SStats live parser
+  // 2. Try Public Feed (ESPN live scoreboards)
+  try {
+    const pf = await fetchPublicLiveMatches({ sport });
+    if (pf.matches.length > 0) {
+      return deduplicateMatchesById(pf.matches);
+    }
+  } catch {}
+
+  // 3. Try SStats live parser
   try {
     const ss = await fetchSstatsLiveMatches();
     if (ss.ok && ss.matches.length > 0) {
-      return deduplicateMatchesById([...ss.matches, ...multiSport]);
+      return deduplicateMatchesById(ss.matches);
     }
   } catch {}
 
-  // 3. Try Ingested Webhook feed
-  try {
-    const webhookMatches = getIngestedLiveMatches();
-    if (webhookMatches.length > 0) {
-      return deduplicateMatchesById([...webhookMatches, ...multiSport]);
-    }
-  } catch {}
-
-  // 4. Try Public feed (ESPN live)
-  try {
-    const pf = await fetchPublicLiveMatches();
-    if (pf.matches.length > 0) {
-      return deduplicateMatchesById([...pf.matches, ...multiSport]);
-    }
-  } catch {}
-
-  return deduplicateMatchesById(multiSport);
+  return [];
 }
 
 // -------------------------------------------------------------
 // 1.1 FONBET LIVE PARSER (БК Фонбет Live Feed)
 // -------------------------------------------------------------
 export async function fetchFonbetLiveMatches(options?: {
+  sport?: SportType | 'all';
   maxMatches?: number;
 }): Promise<{ ok: boolean; matches: Match[]; error?: string; fallbackUsed?: boolean }> {
-  const cacheKey = 'fonbet_live_matches';
+  const targetSport = options?.sport || 'all';
+  const cacheKey = `fonbet_live_matches_${targetSport}`;
   const cached = getCached<Match[]>(cacheKey);
   if (cached && cached.length > 0) {
     return { ok: true, matches: cached };
@@ -620,7 +643,7 @@ export async function fetchFonbetLiveMatches(options?: {
 
   try {
     // Take REAL currently ongoing matches and format them with Fonbet live line margins
-    const realMatches = await getRealActiveLiveMatches();
+    const realMatches = await getRealActiveLiveMatches(targetSport);
     if (realMatches.length > 0) {
       const matches: Match[] = realMatches.map((m) => {
         const diff = m.score[0] - m.score[1];
@@ -675,16 +698,18 @@ export async function fetchFonbetLiveMatches(options?: {
 // 1.2 1XBET LIVE PARSER (1xBet / 1хСтавка Live Feed)
 // -------------------------------------------------------------
 export async function fetch1xBetLiveMatches(options?: {
+  sport?: SportType | 'all';
   maxMatches?: number;
 }): Promise<{ ok: boolean; matches: Match[]; error?: string; fallbackUsed?: boolean }> {
-  const cacheKey = '1xbet_live_matches';
+  const targetSport = options?.sport || 'all';
+  const cacheKey = `1xbet_live_matches_${targetSport}`;
   const cached = getCached<Match[]>(cacheKey);
   if (cached && cached.length > 0) {
     return { ok: true, matches: cached };
   }
 
   try {
-    const realMatches = await getRealActiveLiveMatches();
+    const realMatches = await getRealActiveLiveMatches(targetSport);
     if (realMatches.length > 0) {
       const matches: Match[] = realMatches.map((m) => {
         const homeOdds = m.odds?.home || 2.15;
@@ -696,6 +721,7 @@ export async function fetch1xBetLiveMatches(options?: {
           ...m,
           id: `1x-${cleanId}`,
           source: '1xBet',
+          sport: m.sport || 'football',
           lastEvent: `${m.minute}' [1xBet Live] ${m.homeTeam} ${m.score[0]}:${m.score[1]} ${m.awayTeam}`,
           odds: {
             home: homeOdds,
@@ -917,97 +943,162 @@ export async function fetchSofascoreLiveMatches(): Promise<{ ok: boolean; matche
 // -------------------------------------------------------------
 // 4. PUBLIC LIVE SPORTS FEED (ESPN / Open Football Scoreboards)
 // -------------------------------------------------------------
-const PUBLIC_LEAGUE_ENDPOINTS: Array<{ league: string; country: string; flag: string; url: string }> = [
+interface PublicLeagueEndpoint {
+  league: string;
+  country: string;
+  flag: string;
+  sport: SportType;
+  url: string;
+}
+
+const PUBLIC_LEAGUE_ENDPOINTS: PublicLeagueEndpoint[] = [
   {
     league: 'Все мировые матчи (Global Feed)',
     country: 'World',
     flag: '🌍',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard',
   },
   {
     league: 'Premier League',
     country: 'England',
     flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard',
   },
   {
     league: 'LaLiga EA Sports',
     country: 'Spain',
     flag: '🇪🇸',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/scoreboard',
   },
   {
     league: 'Serie A',
     country: 'Italy',
     flag: '🇮🇹',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/scoreboard',
   },
   {
     league: 'Bundesliga',
     country: 'Germany',
     flag: '🇩🇪',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/scoreboard',
   },
   {
     league: 'Ligue 1',
     country: 'France',
     flag: '🇫🇷',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard',
   },
   {
     league: 'UEFA Champions League',
     country: 'Europe',
     flag: '🇪🇺',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard',
   },
   {
     league: 'UEFA Europa League',
     country: 'Europe',
     flag: '🇪🇺',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/scoreboard',
   },
   {
     league: 'MLS',
     country: 'USA',
     flag: '🇺🇸',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard',
   },
   {
     league: 'Brasileirão Série A',
     country: 'Brazil',
     flag: '🇧🇷',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/bra.1/scoreboard',
   },
   {
     league: 'Eredivisie',
     country: 'Netherlands',
     flag: '🇳🇱',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/ned.1/scoreboard',
   },
   {
     league: 'Liga Portugal',
     country: 'Portugal',
     flag: '🇵🇹',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/por.1/scoreboard',
   },
   {
     league: 'Turkish Super Lig',
     country: 'Turkey',
     flag: '🇹🇷',
+    sport: 'football',
     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard',
+  },
+  // Real Multi-Sport Public Endpoints
+  {
+    league: 'NBA (National Basketball Association)',
+    country: 'USA',
+    flag: '🏀',
+    sport: 'basketball',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
+  },
+  {
+    league: 'NCAA Mens Basketball',
+    country: 'USA',
+    flag: '🏀',
+    sport: 'basketball',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard',
+  },
+  {
+    league: 'NHL (National Hockey League)',
+    country: 'USA / Canada',
+    flag: '🏒',
+    sport: 'hockey',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard',
+  },
+  {
+    league: 'ATP Tour (Tennis)',
+    country: 'World',
+    flag: '🎾',
+    sport: 'tennis',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard',
+  },
+  {
+    league: 'WTA Tour (Tennis)',
+    country: 'World',
+    flag: '🎾',
+    sport: 'tennis',
+    url: 'https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard',
   },
 ];
 
-export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sourceCount: number }> {
-  const cacheKey = 'public_live_matches';
+export async function fetchPublicLiveMatches(options?: {
+  sport?: SportType | 'all';
+}): Promise<{ matches: Match[]; sourceCount: number }> {
+  const targetSport = options?.sport || 'all';
+  const cacheKey = `public_live_matches_${targetSport}`;
   const cached = getCached<Match[]>(cacheKey);
   if (cached) {
     return { matches: cached, sourceCount: cached.length };
   }
 
+  const endpointsToQuery =
+    targetSport === 'all'
+      ? PUBLIC_LEAGUE_ENDPOINTS
+      : PUBLIC_LEAGUE_ENDPOINTS.filter((e) => e.sport === targetSport);
+
   const results: Match[] = [];
 
-  const requests = PUBLIC_LEAGUE_ENDPOINTS.map(async (item) => {
+  const requests = endpointsToQuery.map(async (item) => {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
@@ -1023,16 +1114,25 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
       const events = data.events || [];
       for (const ev of events) {
         const statusType = ev.status?.type?.name; // e.g. "STATUS_IN_PROGRESS", "STATUS_HALFTIME", "STATUS_SCHEDULED", "STATUS_FINAL"
-        // STRICT CHECK: Only process events that are genuinely in progress or at half time right now
-        if (statusType !== 'STATUS_IN_PROGRESS' && statusType !== 'STATUS_HALFTIME') {
+        // Allow live, halftime, and prematch scheduled games
+        const isLive = statusType === 'STATUS_IN_PROGRESS';
+        const isHalftime = statusType === 'STATUS_HALFTIME';
+        const isScheduled = statusType === 'STATUS_SCHEDULED';
+        const isFinal = statusType === 'STATUS_FINAL';
+
+        if (!isLive && !isHalftime && !isScheduled && !isFinal) {
           continue;
         }
 
         const clock = ev.status?.displayClock || '';
         
         let minute = 45;
-        if (statusType === 'STATUS_HALFTIME') {
+        if (isHalftime) {
           minute = 45;
+        } else if (isScheduled) {
+          minute = 0;
+        } else if (isFinal) {
+          minute = item.sport === 'hockey' ? 60 : item.sport === 'basketball' ? 40 : 90;
         } else if (clock) {
           const plusMatch = clock.match(/(\d+)\+(\d+)/);
           if (plusMatch) {
@@ -1095,9 +1195,19 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
         const xgHome = Number(((shotsOnTargetHome * 0.28) + ((shotsHome - shotsOnTargetHome) * 0.05) + (homeScore * 0.65)).toFixed(2));
         const xgAway = Number(((shotsOnTargetAway * 0.28) + ((shotsAway - shotsOnTargetAway) * 0.05) + (awayScore * 0.65)).toFixed(2));
 
-        const matchStatus: 'LIVE' | 'HT' | 'FT' =
-          statusType === 'STATUS_HALFTIME' ? 'HT' :
-          statusType === 'STATUS_FINAL' ? 'FT' : 'LIVE';
+        const matchStatus: 'LIVE' | 'HT' | 'FT' | 'PREMATCH' =
+          isHalftime ? 'HT' :
+          isFinal ? 'FT' :
+          isScheduled ? 'PREMATCH' : 'LIVE';
+
+        let startTime: string | undefined = undefined;
+        let startsInMinutes: number | undefined = undefined;
+        if (isScheduled && ev.date) {
+          const d = new Date(ev.date);
+          startTime = `Сегодня в ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+          const diffMs = d.getTime() - Date.now();
+          startsInMinutes = Math.max(5, Math.round(diffMs / 60000));
+        }
 
         // Safe positive European odds
         const rawHomeOdds = 1.55 + (awayScore - homeScore) * 0.4;
@@ -1113,6 +1223,20 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
           ? (ev.season?.slug?.replace(/-/g, ' ').toUpperCase() || ev.competitions?.[0]?.notes?.[0]?.headline || 'World Soccer')
           : item.league;
 
+        const baseStats: MatchStats = item.sport === 'football'
+          ? {
+              possession: [possessionHome, possessionAway],
+              dangerousAttacks: [dangAttacksHome, dangAttacksAway],
+              attacks: [attacksHome, attacksAway],
+              shotsOnTarget: [shotsOnTargetHome, shotsOnTargetAway],
+              shotsOffTarget: [Math.max(0, shotsHome - shotsOnTargetHome), Math.max(0, shotsAway - shotsOnTargetAway)],
+              corners: [cornersHome, cornersAway],
+              yellowCards: [yellowHome, yellowAway],
+              redCards: [redHome, redAway],
+              xg: [xgHome, xgAway],
+            }
+          : generateLiveStatsForSport(item.sport, calcMinute, homeScore, awayScore);
+
         results.push({
           id: `espn-${ev.id}`,
           country: item.country,
@@ -1123,23 +1247,16 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
           score: [homeScore, awayScore],
           minute: minute,
           status: matchStatus,
+          sport: item.sport,
           source: 'Public-Feed',
-          stats: {
-            possession: [possessionHome, possessionAway],
-            dangerousAttacks: [dangAttacksHome, dangAttacksAway],
-            attacks: [attacksHome, attacksAway],
-            shotsOnTarget: [shotsOnTargetHome, shotsOnTargetAway],
-            shotsOffTarget: [Math.max(0, shotsHome - shotsOnTargetHome), Math.max(0, shotsAway - shotsOnTargetAway)],
-            corners: [cornersHome, cornersAway],
-            yellowCards: [yellowHome, yellowAway],
-            redCards: [redHome, redAway],
-            xg: [xgHome, xgAway],
-          },
+          startTime,
+          startsInMinutes,
+          stats: baseStats,
           momentum,
-          lastEvent: `${minute}' ${ev.status?.type?.detail || 'Матч тура'} • ${homeComp.team?.shortDisplayName || 'H'} vs ${awayComp.team?.shortDisplayName || 'A'}`,
+          lastEvent: `${minute}' ${ev.status?.type?.detail || 'Матч'} • ${homeComp.team?.shortDisplayName || 'H'} vs ${awayComp.team?.shortDisplayName || 'A'}`,
           odds: {
             home: homeOdds,
-            draw: 3.2,
+            draw: item.sport === 'basketball' ? 15.0 : 3.2,
             away: awayOdds,
             over25: 1.85,
             over35: 2.90,
@@ -1154,16 +1271,9 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
 
   await Promise.allSettled(requests);
 
-  // Deduplicate by ID (since /all and specific leagues may overlap)
+  // Deduplicate by ID
   const uniqueMap = new Map<string, Match>();
   for (const m of results) {
-    if (!uniqueMap.has(m.id)) {
-      uniqueMap.set(m.id, m);
-    }
-  }
-
-  const multiSport = getMultiSportOngoingMatches();
-  for (const m of multiSport) {
     if (!uniqueMap.has(m.id)) {
       uniqueMap.set(m.id, m);
     }
@@ -1172,7 +1282,7 @@ export async function fetchPublicLiveMatches(): Promise<{ matches: Match[]; sour
   const uniqueMatches = Array.from(uniqueMap.values());
   const enriched = uniqueMatches.map(enrichMatchWithHistory);
   if (enriched.length > 0) {
-    setCached(cacheKey, enriched);
+    setCached(cacheKey, enriched, 20);
   }
 
   return { matches: enriched, sourceCount: enriched.length };
@@ -2082,6 +2192,7 @@ export async function fetchLiveMatchesWithCascadeFallback(
     leagues?: string;
     footballToken?: string;
     sstatsKey?: string;
+    sport?: SportType | 'all';
   }
 ): Promise<{
   ok: boolean;
@@ -2095,27 +2206,29 @@ export async function fetchLiveMatchesWithCascadeFallback(
 }> {
   // Try primary requested source
   let primaryError = '';
+  const sport = options?.sport || 'all';
+
   try {
     if (preferredSource === 'flashscore') {
-      const res = await fetchFlashscoreLiveMatches();
+      const res = await fetchFlashscoreLiveMatches({ sport });
       if (res.ok && res.matches.length > 0) {
         return { ok: true, source: 'flashscore', actualSource: 'flashscore', fallbackUsed: false, count: res.matches.length, matches: res.matches };
       }
       primaryError = res.error || '0 матчей в фиде Flashscore';
     } else if (preferredSource === 'fonbet') {
-      const res = await fetchFonbetLiveMatches();
+      const res = await fetchFonbetLiveMatches({ sport });
       if (res.ok && res.matches.length > 0) {
         return { ok: true, source: 'fonbet', actualSource: 'fonbet', fallbackUsed: false, count: res.matches.length, matches: res.matches };
       }
       primaryError = res.error || '0 матчей в Фонбет Live';
     } else if (preferredSource === '1xbet') {
-      const res = await fetch1xBetLiveMatches();
+      const res = await fetch1xBetLiveMatches({ sport });
       if (res.ok && res.matches.length > 0) {
         return { ok: true, source: '1xbet', actualSource: '1xbet', fallbackUsed: false, count: res.matches.length, matches: res.matches };
       }
       primaryError = res.error || '0 матчей в 1xBet Live';
     } else if (preferredSource === 'public-feed') {
-      const res = await fetchPublicLiveMatches();
+      const res = await fetchPublicLiveMatches({ sport });
       if (res.matches.length > 0) {
         return { ok: true, source: 'public-feed', actualSource: 'public-feed', fallbackUsed: false, count: res.matches.length, matches: res.matches };
       }
@@ -2165,7 +2278,7 @@ export async function fetchLiveMatchesWithCascadeFallback(
   // Try 1: Flashscore (Most complete real worldwide live feed)
   if (preferredSource !== 'flashscore') {
     try {
-      const fs = await fetchFlashscoreLiveMatches();
+      const fs = await fetchFlashscoreLiveMatches({ sport });
       if (fs.ok && fs.matches.length > 0) {
         return {
           ok: true,
@@ -2205,7 +2318,7 @@ export async function fetchLiveMatchesWithCascadeFallback(
   // Try 3: Public Live Feed (ESPN live games)
   if (preferredSource !== 'public-feed') {
     try {
-      const pf = await fetchPublicLiveMatches();
+      const pf = await fetchPublicLiveMatches({ sport });
       if (pf.matches.length > 0) {
         return {
           ok: true,

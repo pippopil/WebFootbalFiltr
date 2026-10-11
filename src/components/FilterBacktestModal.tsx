@@ -26,6 +26,7 @@ import { FilterRule, BacktestResult, HistoricalMatch } from '../types';
 import { LARGE_HISTORICAL_MATCHES, getHistoricalMatchesByDatasetSize } from '../data/largeHistoricalDatabase';
 import { loadAccumulatedLiveMatches, clearAccumulatedLiveDB } from '../services/liveMatchesDatabase';
 import { runBacktest } from '../backtestEngine';
+import { cleanPresetTitle, getStrategyCardDisplayName } from '../utils/filterDefaults';
 
 interface FilterBacktestModalProps {
   filter: FilterRule | null;
@@ -34,6 +35,7 @@ interface FilterBacktestModalProps {
   onToggleEnableFilter?: (filterId: string) => void;
   onOpenEditFilter?: (filter: FilterRule) => void;
   liveMatchesCount?: number;
+  isDeveloper?: boolean;
 }
 
 export const FilterBacktestModal: React.FC<FilterBacktestModalProps> = ({
@@ -43,6 +45,7 @@ export const FilterBacktestModal: React.FC<FilterBacktestModalProps> = ({
   onToggleEnableFilter,
   onOpenEditFilter,
   liveMatchesCount = 0,
+  isDeveloper = false,
 }) => {
   // Mode: 'archive' (1000+ historical dataset) or 'live_accumulated' (accumulated from scratch on current matches)
   const [dataMode, setDataMode] = useState<'archive' | 'live_accumulated'>('archive');
@@ -137,7 +140,9 @@ export const FilterBacktestModal: React.FC<FilterBacktestModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-bold text-white truncate">{filter.name}</h2>
+                <h2 className="text-base font-bold text-white truncate">
+                  {filter.isPreset && !isDeveloper ? getStrategyCardDisplayName(filter, isDeveloper) : filter.name}
+                </h2>
                 {isHighPerformance && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                     <ShieldCheck className="h-3 w-3" />
@@ -419,7 +424,7 @@ export const FilterBacktestModal: React.FC<FilterBacktestModalProps> = ({
             {activeSubTab === 'leagues' && (
               <div className="space-y-3">
                 <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs text-slate-300 flex items-center justify-between">
-                  <span>🏆 Рейтинг лиг по лучшей проходимости прогнозов для <strong>«{filter.name}»</strong></span>
+                  <span>🏆 Рейтинг лиг по лучшей проходимости прогнозов для <strong>«{filter.isPreset && !isDeveloper ? getStrategyCardDisplayName(filter, isDeveloper) : filter.name}»</strong></span>
                   <span className="text-[11px] text-slate-400">Сортировка: Win Rate % ↓</span>
                 </div>
 
@@ -578,7 +583,7 @@ export const FilterBacktestModal: React.FC<FilterBacktestModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {onOpenEditFilter && (
+            {onOpenEditFilter && (!filter.isPreset || isDeveloper) && (
               <button
                 onClick={() => {
                   onClose();

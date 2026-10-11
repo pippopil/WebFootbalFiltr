@@ -167,3 +167,80 @@ export const isUserPaid = (user?: UserProfile | null): boolean => {
     user.role === 'vip'
   );
 };
+
+/**
+ * Проверка прав разработчика / создателя платформы
+ * Только разработчик имеет доступ к просмотру внутренних формул, порогов и редактированию вшитых алгоритмов.
+ * Для всех обычных пользователей параметры скрыты для защиты от копирования.
+ */
+export const isUserDeveloper = (user?: UserProfile | null): boolean => {
+  if (!user) return false;
+  return (
+    user.role === 'god' ||
+    user.role === 'admin' ||
+    user.plan === 'GOD_MODE' ||
+    user.username === 'developer_god'
+  );
+};
+
+/**
+ * Очищает название вшитой стратегии от раскрытия внутренних параметров
+ * (минуты, точный счёт, пороги атак/кэфов в скобках), чтобы пользователи видели чистое название алгоритма.
+ */
+export const cleanPresetTitle = (name: string): string => {
+  if (!name) return '';
+  return name
+    // Убираем скобки с минутами или условиями, например: (60-85 мин), (55-88 мин), (HT Over 0.5 / 18-38 мин), (0:0 на 50-68'), (Деньги ≥ 65%)
+    .replace(/\s*\([^)]*(?:мин|'|секунд|\d+:\d+|≥|<=|>=|%|кэф|коридор|прогруз|счёт|тотал|падение)[^)]*\)/gi, '')
+    // Убираем указания минут прямо в тексте (на 50-68', на 17-й минуте, на 70' и т.д.)
+    .replace(/\s+на\s+\d+[-–]\d+['мин]*/gi, '')
+    .replace(/\s+на\s+\d+[-–]?й?\s+минуте/gi, '')
+    .replace(/\s+после\s+\d+[-–]?й?\s+минуты/gi, '')
+    // Убираем счёт в скобках или тексте типа 0:0
+    .replace(/\s+при\s+ничьей\s+0:0/gi, ' при ничьей')
+    .replace(/\s+при\s+0:0/gi, '')
+    .replace(/\s+при\s+0:1/gi, '')
+    .replace(/\s+при\s+1:1/gi, '')
+    .replace(/\s*≥\s*\d+%?/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+/**
+ * Возвращает отображаемое название карточки:
+ * Для разработчика (isDeveloper) — полное оригинальное название алгоритма со всеми деталями.
+ * Для обычных пользователей (пользователи видят только "Стратегия 1", "Стратегия 2", "Стратегия 3"...) — строго номер стратегии.
+ * Для авторских карточек пользователя (!rule.isPreset) — их собственное название.
+ */
+export const getStrategyCardDisplayName = (
+  rule: FilterRule,
+  isDeveloper: boolean = false,
+  allFilters?: FilterRule[]
+): string => {
+  if (!rule) return '';
+  // Пользовательские авторские фильтры сохраняют свое название
+  if (!rule.isPreset) return rule.name;
+
+  // Разработчик видит стратегию полностью со всеми формулами и метками
+  if (isDeveloper) return rule.name;
+
+  // Обычные пользователи видят строго "Стратегия 1", "Стратегия 2", "Стратегия 3"...
+  const matchF = rule.id.match(/^f-(\d+)$/i);
+  if (matchF) {
+    return `Стратегия ${matchF[1]}`;
+  }
+
+  const matchPresetNum = rule.name.match(/Стратегия\s+(\d+)/i);
+  if (matchPresetNum) {
+    return `Стратегия ${matchPresetNum[1]}`;
+  }
+
+  if (allFilters) {
+    const presetIndex = allFilters.filter((f) => f.isPreset).findIndex((f) => f.id === rule.id);
+    if (presetIndex !== -1) {
+      return `Стратегия ${presetIndex + 1}`;
+    }
+  }
+
+  return 'Стратегия';
+};

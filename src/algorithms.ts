@@ -1,4 +1,5 @@
-import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats } from './types';
+import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats, SportType } from './types';
+import { getStrategyCardDisplayName } from './utils/filterDefaults';
 
 /**
  * Calculates real-time odds movements (Odds Flow) and smart money volume distribution.
@@ -445,6 +446,58 @@ export function checkMarketAlreadyPassed(
   return { isPassed: false };
 }
 
+export function inferSportFromRule(rule: FilterRule): SportType {
+  if (rule.sport) return rule.sport;
+  const text = `${rule.name || ''} ${rule.description || ''} ${rule.targetMarket || ''}`.toLowerCase();
+  if (/\b(?:хоккей|кхл|нхл|nhl|khl|шайб\w*|буллит\w*|период\w*|броск\w*|пустые\s+ворот\w*|овертайм\w*|hockey|ice)\b|🏒/i.test(text)) {
+    return 'hockey';
+  }
+  if (/\b(?:баскетбол|nba|нба|четверт\w*|очков|очки|штрафн\w*|vtb|втб|fiba|фиба|euroleague|basketball|quarter|points)\b|🏀/i.test(text)) {
+    return 'basketball';
+  }
+  if (/\b(?:теннис|tennis|гейм\w*|брейк\w*|atp|wta|тай-?брейк|эйс\w*|сет\b|сета|сетов|подач\w*|itf|challenger)\b|🎾/i.test(text)) {
+    return 'tennis';
+  }
+  if (/\b(?:волейбол|volleyball|партия|партий|партии|блок\w*|cev|плюслига|плюс-?лига)\b|🏐/i.test(text)) {
+    return 'volleyball';
+  }
+  if (/\b(?:настольный\s+теннис|table\s+tennis|пинг-?понг|лига\s+про|tt\s+cup|wtt)\b|🏓/i.test(text)) {
+    return 'table_tennis';
+  }
+  return 'football';
+}
+
+export function inferSportFromMatch(match: Match): SportType {
+  if (match.sport) return match.sport;
+  
+  // Fast ID-based sport detection
+  const idLower = (match.id || '').toLowerCase();
+  if (idLower.includes('-hockey-') || idLower.startsWith('hockey-') || idLower.startsWith('fs-hockey-') || idLower.startsWith('espn-hockey-')) return 'hockey';
+  if (idLower.includes('-bball-') || idLower.includes('-basketball-') || idLower.startsWith('basketball-') || idLower.startsWith('fs-basketball-') || idLower.startsWith('espn-basketball-')) return 'basketball';
+  if ((idLower.includes('-tennis-') || idLower.startsWith('tennis-') || idLower.startsWith('fs-tennis-') || idLower.startsWith('espn-tennis-')) && !idLower.includes('tabletennis') && !idLower.includes('table_tennis') && !idLower.includes('-tt-')) return 'tennis';
+  if (idLower.includes('-vball-') || idLower.includes('-volleyball-') || idLower.startsWith('volleyball-') || idLower.startsWith('fs-volleyball-')) return 'volleyball';
+  if (idLower.includes('-tabletennis-') || idLower.includes('-table_tennis-') || idLower.includes('-tt-') || idLower.startsWith('tabletennis-') || idLower.startsWith('fs-table_tennis-')) return 'table_tennis';
+
+  const text = `${match.league || ''} ${match.country || ''} ${match.homeTeam || ''} ${match.awayTeam || ''} ${match.lastEvent || ''}`.toLowerCase();
+  
+  if (/\b(?:khl|nhl|кхл|нхл|хоккей|hockey|шайб\w*|extraliga|shl|liiga|vhl|mhl|del\b|ice\s*hockey)\b|🏒/i.test(text)) {
+    return 'hockey';
+  }
+  if (/\b(?:nba|нба|баскетбол|basketball|четверт\w*|vtb|втб|euroleague|cba|nbl|bbl\b|lnb|fiba)\b|🏀/i.test(text)) {
+    return 'basketball';
+  }
+  if (/\b(?:atp|wta|itf|challenger|теннис|tennis|roland\s+garros|wimbledon|us\s+open|australian\s+open|grand\s+slam|shanghai|china\s+open)\b|🎾/i.test(text)) {
+    return 'tennis';
+  }
+  if (/\b(?:волейбол|volleyball|superliga|cev\b|plusliga|serie\s+a1)\b|🏐/i.test(text)) {
+    return 'volleyball';
+  }
+  if (/\b(?:table\s+tennis|настольный\s+теннис|лига\s+про|tt\s+cup|china\s+smash|wtt\b|ping\s+pong)\b|🏓/i.test(text)) {
+    return 'table_tennis';
+  }
+  return 'football';
+}
+
 /**
  * Checks whether a match matches a filter rule.
  * Also returns progress percentage and list of missing criteria for UI hints.
@@ -456,6 +509,18 @@ export function evaluateFilterRule(
   let passedCount = 0;
   let totalCriteria = 0;
   const unmetCriteria: string[] = [];
+
+  // 0. Strict Sport Isolation (Разграничение по видам спорта)
+  // Football filters must NEVER trigger on Hockey/Basketball/Tennis/Volleyball/Table Tennis, and vice versa!
+  const ruleSport = rule.sport || inferSportFromRule(rule);
+  const matchSport = match.sport || inferSportFromMatch(match);
+  if (ruleSport !== matchSport) {
+    return {
+      matches: false,
+      progressPercent: 0,
+      unmetCriteria: [`Вид спорта матча (${matchSport}) не соответствует стратегии (${ruleSport})`],
+    };
+  }
 
   // 1. Minute Range / Prematch Timing Window
   totalCriteria++;
@@ -617,12 +682,6 @@ export function evaluateFilterRule(
     } else {
       unmetCriteria.push(`Суммарно голов в матче (${totalGoals}) не равно точно ${rule.exactTotalGoals}`);
     }
-  }
-
-  // 2b-3. Sport Check (Мульти-спорт архитектура)
-  if (rule.sport && match.sport && rule.sport !== match.sport) {
-    totalCriteria++;
-    unmetCriteria.push(`Вид спорта матча (${match.sport}) не соответствует фильтру (${rule.sport})`);
   }
 
   // 2c. Require BTTS not hit yet (Обе команды ещё не забили)
@@ -1841,7 +1900,8 @@ export function formatExtendedTelegramAlert(
   match: Match,
   rule: FilterRule,
   analysis: PressureAnalysis,
-  forcedBetType?: BetType
+  forcedBetType?: BetType,
+  isDeveloper: boolean = false
 ): string {
   const betType = forcedBetType || getBetTypeForSignal(rule, match.minute, match);
   const isPrematch = betType === 'PREMATCH';
@@ -1850,7 +1910,9 @@ export function formatExtendedTelegramAlert(
   const awayTeam = escapeTelegramHtml(match.awayTeam);
   const league = escapeTelegramHtml(match.league);
   const country = escapeTelegramHtml(match.country);
-  const ruleName = escapeTelegramHtml(rule.name);
+  const ruleName = escapeTelegramHtml(
+    rule.isPreset && !isDeveloper ? getStrategyCardDisplayName(rule, isDeveloper) : rule.name
+  );
   const targetMarket = escapeTelegramHtml(rule.targetMarket || '');
 
   const diffDang = match.stats.dangerousAttacks[0] - match.stats.dangerousAttacks[1];
@@ -1883,11 +1945,15 @@ export function formatExtendedTelegramAlert(
   );
 
   const quickGoalsPatternLine = (rule.requireGuestTwoQuickGoals1H || rule.requireNoGoalsSinceQuickGoals)
-    ? `⚡ <b>Паттерн:</b> 2 быстрых гола в 1-м тайме (≤15 мин между голами) + без голов до 75'\n⏱ <b>Точка входа:</b> 75-я минута матча — ожидание гола (ТБ) по повышенному кэфу\n\n`
+    ? (rule.isPreset && !isDeveloper
+        ? `⚡ <b>Паттерн:</b> Всплеск результативности в 1-м тайме — ставка на повышенный кэф!\n\n`
+        : `⚡ <b>Паттерн:</b> 2 быстрых гола в 1-м тайме (≤15 мин между голами) + без голов до 75'\n⏱ <b>Точка входа:</b> 75-я минута матча — ожидание гола (ТБ) по повышенному кэфу\n\n`)
     : '';
 
   const strat7PatternLine = (rule.id === 'strat-7' || rule.name.includes('Стратегия 7') || rule.scoreCondition === 'TOTAL_UNDER_25')
-    ? `📐 <b>Стратегия 7 (ТБ 2.5 на 70'):</b> 70-я минута матча при тотале ≤ 2 (счёт: <code>${match.score[0]}:${match.score[1]}</code>)\n⏱ <b>Точка входа:</b> 70-я минута — ставка на ТБ 2.5 / гол в концовке по повышенному кэфу!\n\n`
+    ? (rule.isPreset && !isDeveloper
+        ? `📐 <b>Стратегия 7 (ТБ 2.5):</b> Ставка на гол в концовке матча по выгодному кэфу!\n\n`
+        : `📐 <b>Стратегия 7 (ТБ 2.5 на 70'):</b> 70-я минута матча при тотале ≤ 2 (счёт: <code>${match.score[0]}:${match.score[1]}</code>)\n⏱ <b>Точка входа:</b> 70-я минута — ставка на ТБ 2.5 / гол в концовке по повышенному кэфу!\n\n`)
     : '';
 
   const activeDrop = match.oddsDrop || (match.marketFlows && match.marketFlows[0]);

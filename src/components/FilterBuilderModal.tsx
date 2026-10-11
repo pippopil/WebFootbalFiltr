@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { FilterRule, Match, ScoreCondition, FilterCategory, TelegramBotProfile } from '../types';
 import { evaluateFilterRule } from '../algorithms';
+import { cleanPresetTitle, getStrategyCardDisplayName } from '../utils/filterDefaults';
 
 interface FilterBuilderModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ interface FilterBuilderModalProps {
   userBots?: TelegramBotProfile[];
   onOpenAISynthesizer?: () => void;
   isPaidUser?: boolean;
+  isDeveloper?: boolean;
   onUpgradePlan?: () => void;
 }
 
@@ -503,6 +505,7 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
   userBots = [],
   onOpenAISynthesizer,
   isPaidUser = false,
+  isDeveloper = false,
   onUpgradePlan,
 }) => {
   const [formData, setFormData] = useState<Partial<FilterRule>>(() => {
@@ -524,6 +527,66 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
   }, [isOpen, initialFilter]);
 
   if (!isOpen) return null;
+
+  // 🔒 Защита от копирования параметров вшитых стратегий обычными пользователями
+  if (initialFilter?.isPreset && !isDeveloper) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-xl shadow-amber-950/40">
+            <Lock className="h-8 w-8" />
+          </div>
+          <div className="space-y-2">
+            <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5">
+              <Lock className="h-3.5 w-3.5" />
+              Вшитый алгоритм защищён разработчиком
+            </span>
+            <h3 className="text-xl font-black text-white">
+              {getStrategyCardDisplayName(initialFilter, isDeveloper)}
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Параметры и формулы данной вшитой стратегии скрыты разработчиком для предотвращения копирования. Вы можете полноценно запускать её в мониторинге, получать push-сигналы и уведомления в Telegram по вашей подписке.
+            </p>
+          </div>
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-left text-xs space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Статистика прохода:</span>
+              <span className="font-mono font-bold text-emerald-400">
+                {initialFilter.verifiedPassRate || '96–100% реальных матчей'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Целевой рынок:</span>
+              <span className="font-bold text-amber-300">{initialFilter.targetMarket || 'Live исходы'}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Доступ к мониторингу:</span>
+              <span className="text-emerald-400 font-semibold">Активен по подписке</span>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setFormData(createCleanBlankModalFormData());
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition"
+            >
+              <FileText className="h-4 w-4" />
+              <span>Создать свой фильтр (Чистый бланк)</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Live test against current matches
   const testRule = formData as FilterRule;

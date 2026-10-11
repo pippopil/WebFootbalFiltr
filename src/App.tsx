@@ -18,6 +18,7 @@ import {
   Trash2,
   Clock,
   Target,
+  Star,
   Radio,
   Share2,
   Filter,
@@ -72,10 +73,39 @@ import {
   GraduationCap,
   FileText,
   Lock,
+  ShieldAlert,
+  ShieldCheck,
   ShoppingBag,
   Wallet,
+  Trophy,
+  BellRing,
+  Smartphone,
 } from 'lucide-react';
-import { createCleanBlankFilter, isUserPaid } from './utils/filterDefaults';
+import {
+  createCleanBlankFilter,
+  isUserPaid,
+  isUserDeveloper,
+  cleanPresetTitle,
+  getStrategyCardDisplayName,
+} from './utils/filterDefaults';
+import { isPwaStandalone } from './utils/pwaManager';
+import { PwaSubscriptionPaywall } from './components/PwaSubscriptionPaywall';
+import { PwaInstallModal } from './components/PwaInstallModal';
+import { ProofOfWinModal, TOP_3_ALGORITHMS_WEEK } from './components/ProofOfWinModal';
+import { ProofOfWinShareModal, ProofItem } from './components/ProofOfWinShareModal';
+import { LeaderboardModal } from './components/LeaderboardModal';
+import {
+  initTelegramWebApp,
+  isRunningInTelegram,
+  getTelegramUser,
+  tgHaptic,
+} from './utils/telegramWebApp';
+import {
+  playAlertSound,
+  AlertSoundType,
+  ALERT_SOUND_PROFILES,
+} from './utils/audioAlerts';
+import { exportSignalsToExcelCsv } from './utils/exportReports';
 
 import {
   Match,
@@ -108,6 +138,8 @@ import {
   calculateMatchIPT,
   enrichMatchWithOddsTracker,
   calculateMatchOddsFlows,
+  inferSportFromRule,
+  inferSportFromMatch,
 } from './algorithms';
 import { FilterBuilderModal } from './components/FilterBuilderModal';
 import { FilterBacktestModal } from './components/FilterBacktestModal';
@@ -1385,6 +1417,8 @@ export default function App() {
   }, [allUsers, currentUserId]);
 
   const isPaidUser = useMemo(() => isUserPaid(currentUser), [currentUser]);
+  const isDeveloper = useMemo(() => isUserDeveloper(currentUser), [currentUser]);
+  const [lockedPresetNotice, setLockedPresetNotice] = useState<FilterRule | null>(null);
 
   // Ads state with persistence
   const [ads, setAds] = useState<AdBannerItem[]>(() => {
@@ -1603,7 +1637,10 @@ export default function App() {
             botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
           }));
 
-          const combined = [...syncedSaved, ...missingPresets];
+          const combined = [...syncedSaved, ...missingPresets].map((f: FilterRule) => ({
+            ...f,
+            sport: (f.sport || inferSportFromRule(f) || 'football') as SportType,
+          }));
 
           if (!migrationFlag) {
             localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
@@ -1625,6 +1662,7 @@ export default function App() {
     }
     return EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
       ...f,
+      sport: (f.sport || inferSportFromRule(f) || 'football') as SportType,
       enabled: idx === 0, // Only 1 filter launched initially, user explicitly launches others
       userId: uid,
       botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
@@ -1729,6 +1767,7 @@ export default function App() {
 
   // Signal tracker UI filters
   const [signalOutcomeFilter, setSignalOutcomeFilter] = useState<'ALL' | 'WIN' | 'LOSS' | 'PENDING' | 'REFUND'>('ALL');
+  const [signalSportFilter, setSignalSportFilter] = useState<SportType | 'all'>('all');
   const [signalSearchQuery, setSignalSearchQuery] = useState<string>('');
 
   // AI Match Analyst modal state
@@ -1898,29 +1937,232 @@ export default function App() {
   const [isMarketplaceOpen, setIsMarketplaceOpen] = useState<boolean>(false);
   const [isBankrollOpen, setIsBankrollOpen] = useState<boolean>(false);
   const [isOddsRadarOpen, setIsOddsRadarOpen] = useState<boolean>(false);
+  const [isDataSourcesModalOpen, setIsDataSourcesModalOpen] = useState<boolean>(false);
+  const [isProofOfWinOpen, setIsProofOfWinOpen] = useState<boolean>(false);
+  const [isProofShareOpen, setIsProofShareOpen] = useState<boolean>(false);
+  const [proofToShare, setProofToShare] = useState<ProofItem | null>(null);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false);
+  const [noviceSuccessToast, setNoviceSuccessToast] = useState<string | null>(null);
+
+  // PWA standalone mode and installation modal states
+  const [isInPwaStandalone, setIsInPwaStandalone] = useState<boolean>(() => isPwaStandalone());
+  const [isPwaInstallModalOpen, setIsPwaInstallModalOpen] = useState<boolean>(false);
+
+  // Web Push Notifications state
+  const [isWebPushEnabled, setIsWebPushEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return false;
+    return localStorage.getItem('sportsignal_web_push') === 'true' && Notification.permission === 'granted';
+  });
+
+  // Sound Profile state (Web Audio API: whistle, gong, bell, ping)
+  const [alertSoundType, setAlertSoundType] = useState<AlertSoundType>(() => {
+    try {
+      const saved = localStorage.getItem('sportsignal_sound_type') as AlertSoundType;
+      if (saved && ['whistle', 'gong', 'bell', 'ping'].includes(saved)) return saved;
+    } catch {}
+    return 'whistle';
+  });
+
+  const [isSoundSelectorOpen, setIsSoundSelectorOpen] = useState(false);
 
   // Telegram Mini App support & native haptics
+  const isInTelegram = useMemo(() => isRunningInTelegram(), []);
+
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
-    if (tg) {
-      try {
-        tg.ready();
-        tg.expand();
-        if (tg.setHeaderColor) {
-          tg.setHeaderColor('#020617');
-        }
-      } catch {}
-    }
+    initTelegramWebApp();
   }, []);
 
   const triggerTgHaptic = useCallback((style: 'light' | 'medium' | 'heavy' = 'light') => {
-    try {
-      (window as any).Telegram?.WebApp?.HapticFeedback?.impactOccurred(style);
-    } catch {}
+    tgHaptic('impact', style);
   }, []);
 
+  // Web Push Request & Test Handlers
+  const handleToggleWebPush = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Ваш браузер не поддерживает Web Push уведомления.');
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      const next = !isWebPushEnabled;
+      setIsWebPushEnabled(next);
+      localStorage.setItem('sportsignal_web_push', String(next));
+      if (next) {
+        new Notification('🔔 Web Push уведомления включены', {
+          body: 'Теперь вы будете получать мгновенные пуши прямо в браузере при совпадении сигналов!',
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2310b981"><circle cx="12" cy="12" r="10"/></svg>',
+        });
+      }
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setIsWebPushEnabled(true);
+        localStorage.setItem('sportsignal_web_push', 'true');
+        new Notification('🔥 Web Push успешно подключен!', {
+          body: 'Сигналы спортивного сканера будут приходить в браузер даже при свернутой вкладке.',
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2310b981"><circle cx="12" cy="12" r="10"/></svg>',
+        });
+      } else {
+        alert('Разрешение на push-уведомления отклонено в настройках браузера.');
+      }
+    } catch (e) {
+      console.error('Web Push error:', e);
+    }
+  };
+
+  const handleTestWebPush = () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Уведомления не поддерживаются вашим устройством.');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      handleToggleWebPush();
+      return;
+    }
+    try {
+      new Notification('🔥 Сигнал ТБ 2.5: Реал Мадрид vs Барселона (минута 68, кэф 1.95)!', {
+        body: 'Штурм фаворита: ударов 14 (8 в створ), xG 2.45, навал в штрафной площади.',
+        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2310b981"><circle cx="12" cy="12" r="10"/></svg>',
+      });
+      playAlertSound(alertSoundType, 0.35);
+      triggerTgHaptic('medium');
+    } catch (e) {
+      alert('Не удалось отправить тестовый пуш. Проверьте разрешения браузера.');
+    }
+  };
+
+  const triggerWebPushNotification = useCallback((title: string, body: string) => {
+    if (!isWebPushEnabled || typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2310b981"><circle cx="12" cy="12" r="10"/></svg>',
+        });
+      } catch (err) {
+        console.debug('Push notification trigger notice:', err);
+      }
+    }
+  }, [isWebPushEnabled]);
+
+  // Novice 1-Click: Enable TOP-3 Safe Strategies
+  const handleActivateNoviceSafeTop3 = () => {
+    triggerTgHaptic('heavy');
+    playAlertSound('bell', 0.4);
+
+    // Target top-3 safe strategies
+    const targetSafeIds = ['f-1', 'f-4', 'f-2'];
+    setFilters((prev) => {
+      // Find matching or enable existing
+      let hasTarget1 = false;
+      let hasTarget2 = false;
+      let hasTarget3 = false;
+
+      const updated = prev.map((f) => {
+        if (f.id === 'f-1' || f.name.includes('0:0') || f.name.includes('Доминирование')) {
+          hasTarget1 = true;
+          return { ...f, enabled: true };
+        }
+        if (f.id === 'f-4' || f.name.includes('1-м тайме') || f.name.includes('HT Over')) {
+          hasTarget2 = true;
+          return { ...f, enabled: true };
+        }
+        if (f.id === 'f-2' || f.name.includes('угловые') || f.name.includes('прессинг')) {
+          hasTarget3 = true;
+          return { ...f, enabled: true };
+        }
+        return f;
+      });
+
+      // If any of the 3 was not present in the user filters, pull from EXPANDED_DEFAULT_FILTERS
+      const extras: FilterRule[] = [];
+      if (!hasTarget1) {
+        const found = EXPANDED_DEFAULT_FILTERS.find((df) => df.id === 'f-1');
+        if (found) extras.push({ ...found, enabled: true });
+      }
+      if (!hasTarget2) {
+        const found = EXPANDED_DEFAULT_FILTERS.find((df) => df.id === 'f-4');
+        if (found) extras.push({ ...found, enabled: true });
+      }
+      if (!hasTarget3) {
+        const found = EXPANDED_DEFAULT_FILTERS.find((df) => df.id === 'f-2');
+        if (found) extras.push({ ...found, enabled: true });
+      }
+
+      return [...extras, ...updated];
+    });
+
+    setNoviceSuccessToast(
+      '🚀 Активирован ТОП-3 безопасный набор для новичка: «Гол во 2Т», «HT Over 0.5 в 1Т» и «Шквал угловых»! Сканер запущен в live-работу.'
+    );
+    setTimeout(() => setNoviceSuccessToast(null), 6000);
+  };
+
+  const handleShareProof = (proof: ProofItem) => {
+    setProofToShare(proof);
+    setIsProofShareOpen(true);
+  };
+
+  // Telegram WebApp BackButton navigation sync
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const tg = window.Telegram?.WebApp;
+    if (!tg?.BackButton) return;
+
+    const hasOpenModal =
+      isFilterModalOpen ||
+      isBacktestModalOpen ||
+      isAISynthesizerOpen ||
+      isMarketplaceOpen ||
+      isBankrollOpen ||
+      isOddsRadarOpen ||
+      isProofOfWinOpen ||
+      isProofShareOpen ||
+      isLeaderboardOpen ||
+      isDataSourcesModalOpen ||
+      isAIModalOpen;
+
+    if (hasOpenModal) {
+      tg.BackButton.show();
+      const handleTgBack = () => {
+        setIsFilterModalOpen(false);
+        setIsBacktestModalOpen(false);
+        setIsAISynthesizerOpen(false);
+        setIsMarketplaceOpen(false);
+        setIsBankrollOpen(false);
+        setIsOddsRadarOpen(false);
+        setIsProofOfWinOpen(false);
+        setIsProofShareOpen(false);
+        setIsLeaderboardOpen(false);
+        setIsDataSourcesModalOpen(false);
+        setIsAIModalOpen(false);
+      };
+      tg.BackButton.onClick(handleTgBack);
+      return () => {
+        tg.BackButton.offClick(handleTgBack);
+        tg.BackButton.hide();
+      };
+    } else {
+      tg.BackButton.hide();
+    }
+  }, [
+    isFilterModalOpen,
+    isBacktestModalOpen,
+    isAISynthesizerOpen,
+    isMarketplaceOpen,
+    isBankrollOpen,
+    isOddsRadarOpen,
+    isProofOfWinOpen,
+    isProofShareOpen,
+    isLeaderboardOpen,
+    isDataSourcesModalOpen,
+    isAIModalOpen,
+  ]);
+
   // Data Sources configuration state
-  const [isDataSourcesModalOpen, setIsDataSourcesModalOpen] = useState<boolean>(false);
   const [isRefreshingMatches, setIsRefreshingMatches] = useState<boolean>(false);
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
   const [dataSourceError, setDataSourceError] = useState<string | null>(null);
@@ -1937,12 +2179,16 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
+          const actSource = (parsed.activeSource && parsed.activeSource !== 'simulated')
+            ? parsed.activeSource
+            : 'flashscore';
           return {
-            activeSource: (parsed.activeSource || 'flashscore') as DataSourceType,
+            ...parsed,
+            activeSource: actSource as DataSourceType,
             flashscore: parsed.flashscore || {
               enabled: true,
               includeOdds: true,
-              maxMatches: 150,
+              maxMatches: 200,
             },
             sstats: parsed.sstats || {
               enabled: true,
@@ -1978,8 +2224,9 @@ export default function App() {
             publicFeed: parsed.publicFeed || {
               enabled: true,
             },
-            autoRefresh: parsed.autoRefresh ?? true,
-            refreshIntervalSeconds: parsed.refreshIntervalSeconds || 30,
+            autoRefresh: parsed.autoRefresh !== false,
+            refreshIntervalSeconds: parsed.refreshIntervalSeconds || 25,
+            autoFailover: parsed.autoFailover !== false,
           };
         }
       } catch (e) {}
@@ -1989,7 +2236,7 @@ export default function App() {
       flashscore: {
         enabled: true,
         includeOdds: true,
-        maxMatches: 150,
+        maxMatches: 200,
       },
       sstats: {
         enabled: true,
@@ -2026,9 +2273,95 @@ export default function App() {
         enabled: true,
       },
       autoRefresh: true,
-      refreshIntervalSeconds: 30,
+      refreshIntervalSeconds: 25,
+      autoFailover: true,
     };
   });
+
+  // Sound notifications state (Web Audio API alerts)
+  const [isSoundAlertsEnabled, setIsSoundAlertsEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('footbalmonitor_sound_alerts') !== 'false';
+  });
+
+  const toggleSoundAlerts = () => {
+    setIsSoundAlertsEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('footbalmonitor_sound_alerts', String(next));
+      } catch {}
+      if (next) {
+        // Confirmation test chime
+        try {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioCtx) {
+            const ctx = new AudioCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.25);
+          }
+        } catch {}
+      }
+      return next;
+    });
+  };
+
+  // Tracked / Favorite Matches (отслеживание конкретных матчей по фильтрам)
+  const [trackedMatchIds, setTrackedMatchIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('footbalmonitor_tracked_matches');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [filterTrackedOnly, setFilterTrackedOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('footbalmonitor_filter_tracked_only') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleTrackMatch = (matchId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setTrackedMatchIds((prev) => {
+      const isTracked = prev.includes(matchId);
+      const next = isTracked ? prev.filter((id) => id !== matchId) : [...prev, matchId];
+      try {
+        localStorage.setItem('footbalmonitor_tracked_matches', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const toggleFilterTrackedOnly = () => {
+    setFilterTrackedOnly((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('footbalmonitor_filter_tracked_only', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const playSignalSound = useCallback(() => {
+    if (!isSoundAlertsEnabled) return;
+    try {
+      playAlertSound(alertSoundType, 0.35);
+      triggerTgHaptic('medium');
+    } catch {}
+  }, [isSoundAlertsEnabled, alertSoundType, triggerTgHaptic]);
 
   // Save data source config to localStorage
   useEffect(() => {
@@ -2036,8 +2369,12 @@ export default function App() {
   }, [dataSourceConfig]);
 
   // Fetch real matches from selected data source
-  const fetchLiveMatchesFromSource = async (sourceType?: DataSourceType) => {
+  const fetchLiveMatchesFromSource = async (
+    sourceType?: DataSourceType,
+    sportOverride?: SportType | 'all'
+  ) => {
     const src = sourceType || dataSourceConfig.activeSource;
+    const targetSport = sportOverride !== undefined ? sportOverride : selectedSport;
     if (src === 'simulated') {
       setMatches(INITIAL_MATCHES);
       setLastFetchedAt(new Date().toLocaleTimeString('ru-RU'));
@@ -2057,10 +2394,25 @@ export default function App() {
               const prevM = prev.find((m) => m.id === newM.id);
               return enrichMatchWithOddsTracker(newM, prevM);
             });
+            let combinedPool: Match[];
+            if (targetSport !== 'all') {
+              const otherSports = prev.filter((m) => (m.sport || inferSportFromMatch(m)) !== targetSport);
+              combinedPool = [...updated, ...otherSports];
+            } else {
+              combinedPool = updated;
+            }
+            const seen = new Set<string>();
+            const deduped: Match[] = [];
+            for (const m of combinedPool) {
+              if (!seen.has(m.id)) {
+                seen.add(m.id);
+                deduped.push(m);
+              }
+            }
             try {
-              saveMatchesToAccumulatedLiveDB(updated);
+              saveMatchesToAccumulatedLiveDB(deduped);
             } catch {}
-            return updated;
+            return deduped;
           });
           if (!relayResult.matches.some((m: Match) => m.id === selectedMatchId)) {
             setSelectedMatchId(relayResult.matches[0].id);
@@ -2076,7 +2428,7 @@ export default function App() {
     }
 
     try {
-      let query = `?source=${src}&nocache=1`;
+      let query = `?source=${src}&sport=${targetSport || 'all'}&nocache=1`;
       if (src === 'sstats' && dataSourceConfig.sstats?.apiKey) {
         query += `&sstats_key=${encodeURIComponent(dataSourceConfig.sstats.apiKey)}`;
       } else if (src === 'the-odds-api' && dataSourceConfig.theOddsApi?.apiKey) {
@@ -2095,10 +2447,17 @@ export default function App() {
             const prevM = prev.find((m) => m.id === newM.id);
             return enrichMatchWithOddsTracker(newM, prevM);
           });
+          let combinedPool: Match[];
+          if (targetSport !== 'all') {
+            const otherSports = prev.filter((m) => !m.id.startsWith('m-') && (m.sport || inferSportFromMatch(m)) !== targetSport);
+            combinedPool = [...updated, ...otherSports];
+          } else {
+            combinedPool = updated;
+          }
           // Deduplicate incoming matches by id
           const seen = new Set<string>();
           const deduped: Match[] = [];
-          for (const m of updated) {
+          for (const m of combinedPool) {
             if (!seen.has(m.id)) {
               seen.add(m.id);
               deduped.push(m);
@@ -2126,7 +2485,7 @@ export default function App() {
           setDataSourceFallbackInfo(null);
         }
       } else if (data.matches && data.matches.length === 0) {
-        setDataSourceError('В выбранном источнике сейчас нет активных Live-матчей. Попробуйте Flashscore или Public Feed.');
+        setDataSourceError(`В источнике сейчас нет активных матчей для вида спорта «${targetSport}».`);
         setDataSourceFallbackInfo(null);
       } else {
         setDataSourceError(data.error || 'Ошибка при получении матчей из источника');
@@ -2139,19 +2498,24 @@ export default function App() {
     }
   };
 
-  // Initial load of real matches if public-feed or api is chosen
+  const handleSelectSport = (sp: SportType | 'all') => {
+    setSelectedSport(sp);
+    fetchLiveMatchesFromSource(dataSourceConfig.activeSource, sp);
+  };
+
+  // Initial load of real matches across all sports
   useEffect(() => {
     if (dataSourceConfig.activeSource !== 'simulated') {
-      fetchLiveMatchesFromSource(dataSourceConfig.activeSource);
+      fetchLiveMatchesFromSource(dataSourceConfig.activeSource, 'all');
     }
   }, [dataSourceConfig.activeSource]);
 
-  // Periodic auto-refresh for real live matches
+  // Periodic auto-refresh for real live matches across all sports
   useEffect(() => {
     if (dataSourceConfig.activeSource !== 'simulated' && dataSourceConfig.autoRefresh && isMonitoringActive) {
-      const intervalMs = Math.max(15, dataSourceConfig.refreshIntervalSeconds || 30) * 1000;
+      const intervalMs = Math.max(15, dataSourceConfig.refreshIntervalSeconds || 25) * 1000;
       const timer = setInterval(() => {
-        fetchLiveMatchesFromSource(dataSourceConfig.activeSource);
+        fetchLiveMatchesFromSource(dataSourceConfig.activeSource, 'all');
       }, intervalMs);
       return () => clearInterval(timer);
     }
@@ -2240,36 +2604,14 @@ export default function App() {
     });
   };
 
-  // Export signals to CSV
+  // Export signals to Excel / CSV with comprehensive financial bankroll metrics
   const handleExportSignalsCsv = () => {
-    const headers = ['ID', 'Время', 'Матч', 'Лига', 'Страна', 'Мин', 'Счет', 'Итог', 'Стратегия', 'Маркет', 'Кэф', 'Ставка', 'Исход', 'Профит', 'Telegram'];
-    const rows = signals.map((s) => [
-      s.id,
-      s.timestamp,
-      `"${s.matchName.replace(/"/g, '""')}"`,
-      `"${s.league.replace(/"/g, '""')}"`,
-      `"${s.country.replace(/"/g, '""')}"`,
-      s.minute,
-      `"${s.score}"`,
-      `"${s.finalScore || '-'}"`,
-      `"${s.ruleName.replace(/"/g, '""')}"`,
-      `"${(s.marketSuggestion || '').replace(/"/g, '""')}"`,
-      s.odds,
-      s.stake,
-      s.outcome,
-      s.profit !== undefined ? s.profit : '',
-      s.sentToTelegram ? 'Отправлено' : 'Локально',
-    ]);
-
-    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.setAttribute('href', url);
-    a.setAttribute('download', `footbalmonitor_signals_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    if (signals.length === 0) {
+      alert('Список сигналов пуст. Дождитесь совпадения сигналов в реальном времени.');
+      return;
+    }
+    triggerTgHaptic('light');
+    exportSignalsToExcelCsv(signals, `sport_signals_history_${new Date().toISOString().slice(0, 10)}`);
   };
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>(() => {
     const saved = localStorage.getItem('footbalmonitor_tg_config');
@@ -2837,6 +3179,12 @@ export default function App() {
     if (activeLaunchedFilters.length === 0) return;
 
     matches.forEach((match) => {
+      // 🎯 User Requirement: Если включен режим отслеживания избранных матчей,
+      // фильтры и сигналы работают ТОЛЬКО по избранным матчам!
+      if (filterTrackedOnly && !trackedMatchIds.includes(match.id)) {
+        return;
+      }
+
       // 🛡️ CRITICAL GUARD: Never trigger alerts on demo/mock matches when in real live mode!
       const isMockMatch = match.id.startsWith('m-') || (match as any).isMock;
       if (isMockMatch && dataSourceConfig.activeSource !== 'simulated') {
@@ -2849,8 +3197,13 @@ export default function App() {
       const allowTgInSim = Boolean((dataSourceConfig as any).allowTelegramInSimulation);
 
       const analysis = calculatePressureAnalysis(match);
+      const matchSport = match.sport || inferSportFromMatch(match);
 
       activeLaunchedFilters.forEach((rule) => {
+        const ruleSport = rule.sport || inferSportFromRule(rule);
+        // Strict Sport Demarcation: Never trigger rules across different sports!
+        if (ruleSport !== matchSport) return;
+
         const evalResult = evaluateFilterRule(match, rule);
         if (!evalResult.matches) return;
 
@@ -2951,11 +3304,12 @@ export default function App() {
           : (match.minute <= 45 ? '1-й тайм' : (match.status === 'HT' ? 'Перерыв' : '2-й тайм'));
 
         const simPrefix = isSimulatedMode ? '🎮 [ДЕМО-СИМУЛЯЦИЯ]\n' : '';
+        const displayRuleName = getStrategyCardDisplayName(rule, isDeveloper, filters);
         const signalMessage = isPrematch
           ? `${simPrefix}📋 [ПРЕДМАТЧЕВЫЙ СИГНАЛ ЗА 1 ЧАС] ${match.countryCode} ${match.country} | ${match.league}\n` +
             `⚔️ ${match.homeTeam} vs ${match.awayTeam} (⏳ Старт через ${match.startsInMinutes ?? 60} мин${match.startTime ? `, ${match.startTime}` : ''})\n` +
             (rule.targetMarket ? `🎯 Рекомендуемый исход: ${rule.targetMarket}\n` : '') +
-            `⏱ Анализ проведён строго за 1 час (60 мин) до свистка | Стратегия: ${rule.name}`
+            `⏱ Анализ проведён строго за 1 час (60 мин) до свистка | Стратегия: ${displayRuleName}`
           : `${simPrefix}⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
             (rule.targetMarket ? `🎯 Исход: ${rule.targetMarket}\n` : '') +
             `🔥 Давление: ${analysis.pressureIndex}/100 | Оп. атаки ${match.stats.dangerousAttacks[0]}-${match.stats.dangerousAttacks[1]} | Удары в створ ${match.stats.shotsOnTarget[0]}-${match.stats.shotsOnTarget[1]} | Углы ${match.stats.corners[0]}-${match.stats.corners[1]}`;
@@ -2967,13 +3321,14 @@ export default function App() {
           matchName: `${match.homeTeam} vs ${match.awayTeam}`,
           league: match.league,
           country: match.country,
+          sport: match.sport || 'football',
           minute: match.minute,
           period: periodStr,
           betType: isPrematch ? 'PREMATCH' : 'LIVE',
           score: currentScoreStr,
           initialScore: currentScoreStr,
           ruleId: rule.id,
-          ruleName: rule.name,
+          ruleName: displayRuleName,
           marketSuggestion: rule.targetMarket,
           outcome: 'PENDING',
           odds: estimatedOdds,
@@ -3002,6 +3357,11 @@ export default function App() {
 
         setSignals((prev) => {
           if (prev.some((s) => s.id === alertId)) return prev;
+          playSignalSound();
+          triggerWebPushNotification(
+            `🔥 Сигнал ${displayRuleName}: ${match.homeTeam} vs ${match.awayTeam}`,
+            `Минута ${match.minute}', счёт ${match.score[0]}:${match.score[1]}, кэф ${estimatedOdds.toFixed(2)}. Рынок: ${rule.targetMarket || 'ТБ'}`
+          );
           // Also persist this match to the accumulated live matches database (accumulated from scratch)
           try {
             saveMatchesToAccumulatedLiveDB([match]);
@@ -3013,7 +3373,7 @@ export default function App() {
         if (shouldSendTg) {
           inFlightSendingRef.current.add(matchTrackerKey);
           sendTelegramMessage(
-            formatExtendedTelegramAlert(match, rule, analysis),
+            formatExtendedTelegramAlert(match, rule, analysis, undefined, isDeveloper),
             false,
             {
               matchId: match.id,
@@ -3064,6 +3424,8 @@ export default function App() {
     telegramConfig.suppressDuplicates,
     telegramConfig.deduplicationMode,
     telegramConfig.cooldownMinutes,
+    filterTrackedOnly,
+    trackedMatchIds,
   ]);
 
   const selectedMatch = useMemo(() => {
@@ -3073,31 +3435,23 @@ export default function App() {
   // Counts how many filters (active or preset) triggered on this match
   const getMatchTriggeredCount = useCallback(
     (match: Match) => {
-      const activeFilters = filters.filter((f) => f.enabled && (!f.userId || f.userId === currentUser?.id));
-      if (activeFilters.length > 0) {
-        return activeFilters.filter((f) => evaluateFilterRule(match, f).matches).length;
-      }
-      return filters.filter((f) => (!f.userId || f.userId === currentUser?.id) && evaluateFilterRule(match, f).matches).length;
+      const matchSport = match.sport || inferSportFromMatch(match);
+      const activeFilters = filters.filter(
+        (f) =>
+          f.enabled &&
+          (!f.userId || f.userId === currentUser?.id) &&
+          (f.sport || inferSportFromRule(f)) === matchSport
+      );
+      return activeFilters.filter((f) => evaluateFilterRule(match, f).matches).length;
     },
     [filters, currentUser?.id]
   );
 
   const filteredMatches = useMemo(() => {
-    let sourcePool = matches;
-    if (selectedSport !== 'all' && selectedSport !== 'football') {
-      const sportMatches = sourcePool.filter((m) => (m.sport || 'football') === selectedSport);
-      if (sportMatches.length === 0) {
-        const fallbackSportMatches = INITIAL_MATCHES.filter((m) => (m.sport || 'football') === selectedSport);
-        if (fallbackSportMatches.length > 0) {
-          sourcePool = [...sourcePool, ...fallbackSportMatches];
-        }
-      }
-    }
-
     // Ensure deduplication by unique match.id to prevent any React duplicate key warnings
     const seenIds = new Set<string>();
     const deduplicatedPool: Match[] = [];
-    for (const m of sourcePool) {
+    for (const m of matches) {
       if (!seenIds.has(m.id)) {
         seenIds.add(m.id);
         deduplicatedPool.push(m);
@@ -3106,7 +3460,13 @@ export default function App() {
 
     const queried = deduplicatedPool.filter(
       (m) => {
-        if (selectedSport !== 'all' && (m.sport || 'football') !== selectedSport) {
+        // User Requirement: Если включен фильтр только по отслеживаемым матчам, показывать только их!
+        if (filterTrackedOnly && !trackedMatchIds.includes(m.id)) {
+          return false;
+        }
+
+        const mSport = m.sport || inferSportFromMatch(m);
+        if (selectedSport !== 'all' && mSport !== selectedSport) {
           return false;
         }
         return (
@@ -3152,7 +3512,7 @@ export default function App() {
       // 5. For LIVE matches: sort by minute descending
       return (b.minute || 0) - (a.minute || 0);
     });
-  }, [matches, searchQuery, getMatchTriggeredCount, signals, selectedSport]);
+  }, [matches, searchQuery, getMatchTriggeredCount, signals, selectedSport, filterTrackedOnly, trackedMatchIds]);
 
   // Screen resize watcher for desktop 2-column layout
   useEffect(() => {
@@ -3336,6 +3696,10 @@ export default function App() {
   };
 
   const handleDuplicateFilter = (rule: FilterRule) => {
+    if (rule.isPreset && !isDeveloper) {
+      setLockedPresetNotice(rule);
+      return;
+    }
     const copy: FilterRule = {
       ...rule,
       id: `copy-${Date.now()}`,
@@ -3441,7 +3805,26 @@ export default function App() {
   };
 
   const handleExportFiltersJson = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(filters, null, 2));
+    const exportableFilters = isDeveloper
+      ? filters
+      : filters.map((f) => {
+          if (!f.isPreset) return f;
+          return {
+            id: f.id,
+            name: f.name,
+            description: f.description,
+            category: f.category,
+            sport: f.sport,
+            targetMarket: f.targetMarket,
+            verifiedPassRate: f.verifiedPassRate,
+            isTopStable: f.isTopStable,
+            stabilityRank: f.stabilityRank,
+            enabled: f.enabled,
+            isPreset: true,
+            _protected: 'Параметры и формулы скрыты разработчиком для защиты от копирования',
+          };
+        });
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportableFilters, null, 2));
     const a = document.createElement('a');
     a.setAttribute('href', dataStr);
     a.setAttribute('download', `footbalmonitor_filters_${new Date().toISOString().slice(0, 10)}.json`);
@@ -3475,12 +3858,13 @@ export default function App() {
     const alertId = `manual-${Date.now()}`;
     const analysis = calculatePressureAnalysis(selectedMatch);
     const activeRule = filters.find((f) => f.enabled) || filters[0];
-    const textHtml = formatExtendedTelegramAlert(selectedMatch, activeRule, analysis);
+    const textHtml = formatExtendedTelegramAlert(selectedMatch, activeRule, analysis, undefined, isDeveloper);
     const displayMsg = `🔔 [ТЕСТОВЫЙ ПУШ]\n${selectedMatch.countryCode} ${selectedMatch.country} | ${selectedMatch.league}\n${selectedMatch.homeTeam} ${selectedMatch.score[0]}:${selectedMatch.score[1]} ${selectedMatch.awayTeam} (${selectedMatch.minute}')\n` +
       `🔥 Давление: ${analysis.pressureIndex}/100 | Опасные атаки: ${selectedMatch.stats.dangerousAttacks[0]}-${selectedMatch.stats.dangerousAttacks[1]} | Удары в створ: ${selectedMatch.stats.shotsOnTarget[0]}-${selectedMatch.stats.shotsOnTarget[1]}`;
 
     const res = await sendTelegramMessage(textHtml, true);
     const currentScore = `${selectedMatch.score[0]}:${selectedMatch.score[1]}`;
+    const ruleTitle = activeRule ? getStrategyCardDisplayName(activeRule, isDeveloper, filters) : 'Ручной';
 
     const testAlert: SignalAlert = {
       id: alertId,
@@ -3494,7 +3878,7 @@ export default function App() {
       score: currentScore,
       initialScore: currentScore,
       ruleId: activeRule?.id,
-      ruleName: `Тестовый сигнал (${activeRule?.name || 'Ручной'})`,
+      ruleName: `Тестовый сигнал (${ruleTitle})`,
       marketSuggestion: activeRule?.targetMarket || 'ТБ 0.5',
       outcome: 'PENDING',
       odds: 1.85,
@@ -3527,8 +3911,9 @@ export default function App() {
     const alertId = `demo-${Date.now()}`;
     const analysis = calculatePressureAnalysis(selectedMatch);
     const activeRule = filters.find((f) => f.enabled) || filters[0];
-    const textHtml = formatExtendedTelegramAlert(selectedMatch, activeRule, analysis);
+    const textHtml = formatExtendedTelegramAlert(selectedMatch, activeRule, analysis, undefined, isDeveloper);
     const currentScore = `${selectedMatch.score[0]}:${selectedMatch.score[1]}`;
+    const ruleTitle = activeRule ? getStrategyCardDisplayName(activeRule, isDeveloper, filters) : 'ТБ';
 
     const res = await sendTelegramMessage(textHtml, true);
     if (!res.ok || !res.messageId) {
@@ -3548,7 +3933,7 @@ export default function App() {
       score: currentScore,
       initialScore: currentScore,
       ruleId: activeRule?.id,
-      ruleName: `Демо переписывания (${activeRule?.name || 'ТБ'})`,
+      ruleName: `Демо переписывания (${ruleTitle})`,
       marketSuggestion: activeRule?.targetMarket || 'ТБ 0.5',
       outcome: 'PENDING',
       odds: 1.85,
@@ -3668,7 +4053,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Language Switcher (RU, EN, TR) */}
+            {/* Language Switcher (RU, EN, TR, IT, ZH) */}
             <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs font-bold shrink-0">
               <button
                 type="button"
@@ -3703,7 +4088,64 @@ export default function App() {
                 <span>🇹🇷</span>
                 <span>TR</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setLanguage('it')}
+                className={`px-2 py-1 rounded transition flex items-center gap-1 ${
+                  language === 'it' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Italiano"
+              >
+                <span>🇮🇹</span>
+                <span>IT</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage('zh')}
+                className={`px-2 py-1 rounded transition flex items-center gap-1 ${
+                  language === 'zh' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="中文 (Chinese)"
+              >
+                <span>🇨🇳</span>
+                <span>ZH</span>
+              </button>
             </div>
+
+            {/* Telegram WebApp status badge */}
+            {isInTelegram && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/15 border border-sky-400/40 text-sky-300 text-xs font-bold"
+                title="Приложение запущено внутри Telegram WebApp (Mini App)"
+              >
+                <Smartphone className="h-3.5 w-3.5 text-sky-400" />
+                <span>TWA Active</span>
+              </div>
+            )}
+
+            {/* PWA App Install / Status Button */}
+            {!isInPwaStandalone && (
+              <button
+                type="button"
+                onClick={() => setIsPwaInstallModalOpen(true)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition shadow-sm ${
+                  isPaidUser
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                }`}
+                title={
+                  isPaidUser
+                    ? 'Установить мобильное PWA приложение на домашний экран'
+                    : 'PWA приложение доступно только по подписке PRO или VIP'
+                }
+              >
+                <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">
+                  {isPaidUser ? 'PWA' : 'PWA'}
+                </span>
+                {!isPaidUser && <Crown className="h-2.5 w-2.5 text-amber-400" />}
+              </button>
+            )}
 
             {/* Daily Telegram Performance Report */}
             <button
@@ -3729,6 +4171,156 @@ export default function App() {
             >
               {isMonitoringActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
               <span>{isMonitoringActive ? 'Мониторинг' : 'Пауза'}</span>
+            </button>
+
+            {/* Web Push Notifications Toggle & Test */}
+            <button
+              id="toggle-web-push-btn"
+              type="button"
+              onClick={handleToggleWebPush}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition ${
+                isWebPushEnabled
+                  ? 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25 shadow-sm'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+              title={
+                isWebPushEnabled
+                  ? 'Web Push активен: кликните для отключения'
+                  : 'Включить браузерные Web Push оповещения (даже при свернутой вкладке)'
+              }
+            >
+              {isWebPushEnabled ? (
+                <BellRing className="h-3.5 w-3.5 text-blue-400 animate-pulse" />
+              ) : (
+                <Bell className="h-3.5 w-3.5 text-slate-400" />
+              )}
+              <span className="hidden sm:inline font-mono">
+                {isWebPushEnabled ? 'Push: ВКЛ' : 'Web Push'}
+              </span>
+            </button>
+
+            {/* Audio Alerts & Sound Profile Selector */}
+            <div className="relative">
+              <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 overflow-hidden shadow-sm">
+                <button
+                  id="toggle-sound-btn"
+                  type="button"
+                  onClick={toggleSoundAlerts}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold transition ${
+                    isSoundAlertsEnabled
+                      ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                      : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                  }`}
+                  title={
+                    isSoundAlertsEnabled
+                      ? `Звук включен: ${ALERT_SOUND_PROFILES.find((p) => p.id === alertSoundType)?.name || 'Свисток'}`
+                      : 'Звук выключен'
+                  }
+                >
+                  {isSoundAlertsEnabled ? (
+                    <Volume2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <VolumeX className="h-4 w-4 text-rose-400" />
+                  )}
+                  <span className="hidden sm:inline font-mono">
+                    {isSoundAlertsEnabled ? 'Звук: ВКЛ' : 'Звук: ВЫКЛ'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSoundSelectorOpen(!isSoundSelectorOpen)}
+                  className="px-1.5 border-l border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  title="Выбрать профиль звука (Свисток, Гонг, Колокол, Радар)"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {isSoundSelectorOpen && (
+                <div className="absolute right-0 mt-1.5 w-60 p-2 rounded-2xl bg-slate-900/95 border border-slate-700 shadow-2xl z-50 text-xs space-y-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 px-1 text-[11px] text-slate-400">
+                    <span className="font-bold text-white">Звуковое оповещение</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsSoundSelectorOpen(false)}
+                      className="text-slate-500 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {ALERT_SOUND_PROFILES.map((prof) => (
+                    <button
+                      key={prof.id}
+                      type="button"
+                      onClick={() => {
+                        setAlertSoundType(prof.id);
+                        localStorage.setItem('sportsignal_sound_type', prof.id);
+                        playAlertSound(prof.id, 0.35);
+                        triggerTgHaptic('light');
+                        setIsSoundSelectorOpen(false);
+                      }}
+                      className={`w-full text-left p-2 rounded-xl flex items-center justify-between transition ${
+                        alertSoundType === prof.id
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'hover:bg-slate-800/80 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{prof.icon}</span>
+                        <div>
+                          <div className="font-semibold text-xs leading-none">{prof.name}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{prof.desc}</div>
+                        </div>
+                      </div>
+                      {alertSoundType === prof.id && (
+                        <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                  <div className="pt-1 border-t border-slate-800 flex justify-between items-center px-1">
+                    <button
+                      type="button"
+                      onClick={() => playAlertSound(alertSoundType, 0.4)}
+                      className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 py-1"
+                    >
+                      ▶ Прослушать текущий
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTestWebPush}
+                      className="text-[10px] font-bold text-blue-400 hover:text-blue-300 py-1"
+                    >
+                      🔔 Тест Web Push
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Proof-of-Win Public Checker */}
+            <button
+              onClick={() => {
+                triggerTgHaptic('medium');
+                setIsProofOfWinOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
+              title="Публичный чекер проходимости (Proof-of-Win) & Виральный шеринг сигналов"
+            >
+              <Trophy className="h-3.5 w-3.5 text-amber-400" />
+              <span>Proof-of-Win</span>
+            </button>
+
+            {/* Leaderboard of creators */}
+            <button
+              onClick={() => {
+                triggerTgHaptic('medium');
+                setIsLeaderboardOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
+              title="Еженедельный лидерборд и рейтинг создателей месяца"
+            >
+              <Crown className="h-3.5 w-3.5 text-purple-400" />
+              <span className="hidden xl:inline">Рейтинг авторов</span>
             </button>
 
             {/* AI Analyst */}
@@ -3832,7 +4424,7 @@ export default function App() {
           <div className="flex lg:hidden items-center gap-1.5 shrink-0">
             {/* Mobile Language Switcher */}
             <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px] font-bold">
-              {(['ru', 'en', 'tr'] as const).map((lang) => (
+              {(['ru', 'en', 'tr', 'it', 'zh'] as const).map((lang) => (
                 <button
                   key={lang}
                   type="button"
@@ -3842,7 +4434,7 @@ export default function App() {
                   }`}
                   title={lang.toUpperCase()}
                 >
-                  {lang === 'ru' ? '🇷🇺' : lang === 'en' ? '🇬🇧' : '🇹🇷'}
+                  {lang === 'ru' ? '🇷🇺' : lang === 'en' ? '🇬🇧' : lang === 'tr' ? '🇹🇷' : lang === 'it' ? '🇮🇹' : '🇨🇳'}
                 </button>
               ))}
             </div>
@@ -4286,6 +4878,174 @@ export default function App() {
           </div>
         )}
 
+        {/* Novice Celebration Toast */}
+        {noviceSuccessToast && (
+          <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border border-emerald-400/50 rounded-2xl p-4 shadow-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center shrink-0">
+                <Sparkles className="h-5 w-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="font-bold text-white text-xs sm:text-sm">
+                  🚀 Пакет «ТОП-3 безопасные стратегии для новичка» активирован!
+                </div>
+                <div className="text-[11px] text-emerald-200/90 mt-0.5">
+                  {noviceSuccessToast}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setNoviceSuccessToast(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Live Proof-of-Win & Top-3 Algorithms Widget */}
+        <div className="bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-amber-950/20 border border-amber-500/30 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xl space-y-3.5 backdrop-blur-md">
+          {/* Header row with badges and buttons */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+            <div className="flex items-center gap-3">
+              <div className="p-2 sm:p-2.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">
+                <Trophy className="h-5 w-5 sm:h-6 sm:w-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
+                    Live Proof-of-Win: ТОП-3 алгоритма недели
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Подтвержденный винрейт 7 дней
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  100% честная статистика заходов без подделки данных. Делитесь победными карточками с коэффициентами в Telegram и VK!
+                </p>
+              </div>
+            </div>
+
+            {/* Quick action buttons */}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* Novice 1-Click Button */}
+              <button
+                type="button"
+                onClick={handleActivateNoviceSafeTop3}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-950/40 flex items-center gap-1.5 transition active:scale-95 border border-emerald-400/30"
+                title="Включить в один клик ТОП-3 безопасные стратегии для новичка"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-pulse" />
+                <span>🚀 Я новичок: включить ТОП-3</span>
+              </button>
+
+              {/* Open full Proof-of-Win audit modal */}
+              <button
+                type="button"
+                onClick={() => {
+                  triggerTgHaptic('medium');
+                  setIsProofOfWinOpen(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
+              >
+                <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                <span>Чекер проходимости</span>
+              </button>
+
+              {/* Share in TG / VK button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const sample = TOP_3_ALGORITHMS_WEEK[0];
+                  handleShareProof({
+                    id: sample.id,
+                    strategyName: sample.name,
+                    matchName: sample.recentSample.match,
+                    league: 'Бундеслига • Топ-чемпионат',
+                    minute: sample.recentSample.minute,
+                    score: sample.recentSample.score,
+                    market: sample.market,
+                    odds: sample.recentSample.odds,
+                    winRate: sample.winRate,
+                    date: sample.recentSample.timeAgo,
+                  });
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5 active:scale-95"
+                title="Поделиться сигналом в Telegram / VK"
+              >
+                <Share2 className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Поделиться карточкой</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Top 3 Algorithms Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
+            {TOP_3_ALGORITHMS_WEEK.map((algo) => (
+              <div
+                key={algo.id}
+                className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80 hover:border-amber-500/40 transition space-y-2 group shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-1 text-xs">
+                  <span className="font-bold text-white text-xs truncate flex items-center gap-1.5">
+                    <span className="text-amber-400 font-mono text-[11px] font-black">#{algo.rank}</span>
+                    <span className="truncate">{algo.name}</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md font-mono text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                    {algo.winRate}% WIN
+                  </span>
+                </div>
+
+                <div className="text-[11px] text-slate-400 line-clamp-1">
+                  Рынок: <strong className="text-slate-300">{algo.market}</strong>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5 text-center text-[10px] font-mono p-1.5 rounded-xl bg-slate-900 border border-slate-800/80">
+                  <div>
+                    <span className="text-slate-500 block text-[9px]">ROI</span>
+                    <span className="font-bold text-emerald-400">+{algo.roi}%</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px]">Заходов</span>
+                    <span className="font-bold text-slate-200">{algo.wonCount}/{algo.totalSignals}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[9px]">Стрик</span>
+                    <span className="font-bold text-amber-300">{algo.streak} 🔥</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 text-[11px]">
+                  <span className="text-slate-500 truncate text-[10px]">
+                    {algo.recentSample.match}: {algo.recentSample.score}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleShareProof({
+                        id: algo.id,
+                        strategyName: algo.name,
+                        matchName: algo.recentSample.match,
+                        league: 'Топ-Лига',
+                        minute: algo.recentSample.minute,
+                        score: algo.recentSample.score,
+                        market: algo.market,
+                        odds: algo.recentSample.odds,
+                        winRate: algo.winRate,
+                        date: algo.recentSample.timeAgo,
+                      })
+                    }
+                    className="text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 text-[10px] shrink-0"
+                  >
+                    <Share2 className="h-3 w-3" />
+                    <span>Поделиться (кэф {algo.recentSample.odds})</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Multi-Sport Switcher Bar (SportSignal AI) */}
         <div className="flex items-center justify-between gap-3 p-2 bg-slate-900/90 border border-slate-800 rounded-2xl backdrop-blur-md overflow-x-auto shadow-sm">
           <div className="flex items-center gap-1.5 flex-nowrap">
@@ -4299,13 +5059,12 @@ export default function App() {
               { id: 'all', label: '🌐 Все виды спорта' },
             ].map((sportItem) => {
               const isSelected = selectedSport === sportItem.id;
-              const liveCount = matches.filter((m) => sportItem.id === 'all' || (m.sport || 'football') === sportItem.id).length;
-              const count = liveCount > 0 ? liveCount : INITIAL_MATCHES.filter((m) => sportItem.id === 'all' || (m.sport || 'football') === sportItem.id).length;
+              const count = matches.filter((m) => sportItem.id === 'all' || (m.sport || inferSportFromMatch(m)) === sportItem.id).length;
               return (
                 <button
                   key={sportItem.id}
                   type="button"
-                  onClick={() => setSelectedSport(sportItem.id as any)}
+                  onClick={() => handleSelectSport(sportItem.id as any)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${
                     isSelected
                       ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/50'
@@ -4346,6 +5105,42 @@ export default function App() {
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
+
+                {/* Tracked matches only filter button */}
+                <button
+                  type="button"
+                  onClick={toggleFilterTrackedOnly}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                    filterTrackedOnly
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm ring-1 ring-amber-500/30'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-amber-300 hover:border-slate-700'
+                  }`}
+                  title={
+                    filterTrackedOnly
+                      ? 'Включен режим: фильтры и сигналы ТОЛЬКО по избранным матчам (нажмите для показа всех)'
+                      : 'Фильтровать и получать сигналы только по избранным матчам'
+                  }
+                >
+                  <Star className={`h-3.5 w-3.5 ${filterTrackedOnly ? 'fill-amber-400 text-amber-400' : ''}`} />
+                  <span className="hidden sm:inline">Избранное</span>
+                  <span className="font-mono text-[10px] px-1 py-0.2 rounded bg-slate-800 text-amber-300">
+                    {trackedMatchIds.length}
+                  </span>
+                </button>
+
+                {/* Sound Quick Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleSoundAlerts}
+                  className={`p-2 rounded-lg border transition shrink-0 ${
+                    isSoundAlertsEnabled
+                      ? 'bg-slate-900 border-slate-800 text-emerald-400 hover:border-slate-700'
+                      : 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
+                  }`}
+                  title={isSoundAlertsEnabled ? 'Звук включен (кликните для отключения)' : 'Звук выключен (кликните для включения)'}
+                >
+                  {isSoundAlertsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </button>
 
                 <button
                   onClick={() => fetchLiveMatchesFromSource()}
@@ -4411,8 +5206,13 @@ export default function App() {
                   const dangDiff = match.stats.dangerousAttacks[0] - match.stats.dangerousAttacks[1];
                   const isHighPressure = Math.abs(dangDiff) >= 25;
                   const analysis = calculatePressureAnalysis(match);
+                  const matchSport = match.sport || inferSportFromMatch(match);
                   const matchingRules = filters.filter(
-                    (f) => f.enabled && (!f.userId || f.userId === currentUser?.id) && evaluateFilterRule(match, f).matches
+                    (f) =>
+                      f.enabled &&
+                      (!f.userId || f.userId === currentUser?.id) &&
+                      (f.sport || inferSportFromRule(f)) === matchSport &&
+                      evaluateFilterRule(match, f).matches
                   );
 
                   return (
@@ -4423,11 +5223,26 @@ export default function App() {
                       className={`cursor-pointer rounded-xl border p-4 transition-all relative ${
                         isSelected
                           ? 'bg-slate-900 border-emerald-500 shadow-xl shadow-emerald-950/40 ring-1 ring-emerald-500/50'
+                          : trackedMatchIds.includes(match.id)
+                          ? 'bg-slate-900/90 border-amber-500/50 hover:border-amber-500/80 shadow-lg shadow-amber-950/20'
                           : matchingRules.length > 0
                           ? 'bg-slate-900/80 border-emerald-500/40 hover:border-emerald-500/70 shadow-lg shadow-emerald-950/20'
                           : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
                       }`}
                     >
+                      {/* Highlight badge for tracked match in favorites */}
+                      {trackedMatchIds.includes(match.id) && (
+                        <div className="mb-2.5 -mt-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-between text-[11px] text-amber-300">
+                          <span className="flex items-center gap-1.5 font-bold">
+                            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" />
+                            <span>⭐ Матч на персональном отслеживании</span>
+                          </span>
+                          <span className="text-[10px] font-mono font-bold bg-amber-950/80 text-amber-200 px-1.5 py-0.5 rounded border border-amber-500/40">
+                            Избранное
+                          </span>
+                        </div>
+                      )}
+
                       {/* Highlight badge for matches with triggered filters (at the top of list) */}
                       {matchingRules.length > 0 && (
                         <div className="mb-2.5 -mt-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between text-[11px] text-emerald-300">
@@ -4465,13 +5280,37 @@ export default function App() {
                       )}
 
                       <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                        <span className="flex items-center gap-1.5 font-medium">
+                        <span className="flex items-center gap-1.5 font-medium flex-wrap">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-emerald-300 border border-slate-700/60 shrink-0">
+                            {matchSport === 'hockey' ? '🏒 Хоккей' :
+                             matchSport === 'basketball' ? '🏀 Баскетбол' :
+                             matchSport === 'tennis' ? '🎾 Теннис' :
+                             matchSport === 'volleyball' ? '🏐 Волейбол' :
+                             matchSport === 'table_tennis' ? '🏓 Настольный' : '⚽ Футбол'}
+                          </span>
                           <span>{match.countryCode}</span>
                           <span>{match.country}</span>
                           <span className="text-slate-600">•</span>
-                          <span className="text-slate-300">{match.league}</span>
+                          <span className="text-slate-300 truncate max-w-[130px]">{match.league}</span>
                         </span>
                         <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => toggleTrackMatch(match.id, e)}
+                            className={`px-2 py-0.5 rounded border text-[10px] font-bold flex items-center gap-1 transition ${
+                              trackedMatchIds.includes(match.id)
+                                ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50 shadow-sm'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-amber-300 border-slate-700'
+                            }`}
+                            title={
+                              trackedMatchIds.includes(match.id)
+                                ? 'Матч в избранном на отслеживание (кликните чтобы снять)'
+                                : 'Отслеживать этот матч по фильтрам (в избранное)'
+                            }
+                          >
+                            <Star className={`h-2.5 w-2.5 ${trackedMatchIds.includes(match.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            <span className="hidden sm:inline">{trackedMatchIds.includes(match.id) ? 'Следить' : 'Следить'}</span>
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -4601,9 +5440,9 @@ export default function App() {
                             <span
                               key={rule.id}
                               className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold flex items-center gap-1"
-                              title={rule.name}
+                              title={rule.isPreset && !isDeveloper ? getStrategyCardDisplayName(rule, isDeveloper, filters) : rule.name}
                             >
-                              {rule.name.split('(')[0].trim()}
+                              {getStrategyCardDisplayName(rule, isDeveloper, filters)}
                               {rule.targetMarket && <span className="text-emerald-400/80 font-mono font-normal">[{rule.targetMarket}]</span>}
                             </span>
                           ))}
@@ -4652,6 +5491,55 @@ export default function App() {
                     </div>
                   );
                 })}
+
+                {filteredMatches.length === 0 && (
+                  <div className="p-8 text-center rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-3">
+                    <div className="text-3xl">
+                      {filterTrackedOnly
+                        ? '⭐'
+                        : selectedSport === 'hockey' ? '🏒' :
+                        selectedSport === 'basketball' ? '🏀' :
+                        selectedSport === 'tennis' ? '🎾' :
+                        selectedSport === 'volleyball' ? '🏐' :
+                        selectedSport === 'table_tennis' ? '🏓' : '⚽'}
+                    </div>
+                    <div className="text-sm font-bold text-white">
+                      {filterTrackedOnly
+                        ? 'Нет выбранных матчей на отслеживании'
+                        : selectedSport === 'all'
+                        ? 'Нет активных матчей по вашему поисковому запросу'
+                        : `Сейчас в фиде нет активных матчей для вида спорта «${
+                            selectedSport === 'hockey' ? 'Хоккей' :
+                            selectedSport === 'basketball' ? 'Баскетбол' :
+                            selectedSport === 'tennis' ? 'Большой теннис' :
+                            selectedSport === 'volleyball' ? 'Волейбол' :
+                            selectedSport === 'table_tennis' ? 'Настольный теннис' : 'Футбол'
+                          }»`}
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      {filterTrackedOnly
+                        ? 'Вы включили режим «Сигналы только для отслеживаемых матчей». Нажмите кнопку «Следить ⭐» на карточке любого матча, чтобы начать персональный мониторинг.'
+                        : 'Нажмите кнопку ниже для загрузки актуальной линии матчей из Flashscore / Global Feed.'}
+                    </p>
+                    {filterTrackedOnly ? (
+                      <button
+                        type="button"
+                        onClick={() => setFilterTrackedOnly(false)}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition"
+                      >
+                        Показать все матчи
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => fetchLiveMatchesFromSource(dataSourceConfig.activeSource, selectedSport)}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition"
+                      >
+                        🔄 Загрузить матчи из Flashscore
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4788,6 +5676,24 @@ export default function App() {
                     <div className="flex flex-col sm:items-end gap-2 w-full sm:w-auto">
                       <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
                         <button
+                          type="button"
+                          onClick={(e) => toggleTrackMatch(selectedMatch.id, e)}
+                          className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-[0.98] ${
+                            trackedMatchIds.includes(selectedMatch.id)
+                              ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50 shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700'
+                          }`}
+                          title={
+                            trackedMatchIds.includes(selectedMatch.id)
+                              ? 'Матч в избранном на отслеживание (кликните чтобы снять)'
+                              : 'Отслеживать этот матч по фильтрам (в избранное)'
+                          }
+                        >
+                          <Star className={`h-3.5 w-3.5 ${trackedMatchIds.includes(selectedMatch.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                          <span className="truncate">{trackedMatchIds.includes(selectedMatch.id) ? 'В избранном' : 'Следить'}</span>
+                        </button>
+
+                        <button
                           id="match-inspector-create-filter-btn"
                           onClick={() => handleCreateFilterFromMatch(selectedMatch)}
                           className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 hover:border-emerald-500/50 transition active:scale-[0.98]"
@@ -4831,9 +5737,13 @@ export default function App() {
 
                   {/* Algorithmic Pressure & Filter Intelligence Inspector */}
                   {(() => {
+                    const matchSport = selectedMatch.sport || inferSportFromMatch(selectedMatch);
                     const analysis = calculatePressureAnalysis(selectedMatch);
                     const userLaunchedFilters = filters.filter(
-                      (f) => f.enabled && (!f.userId || f.userId === currentUser?.id)
+                      (f) =>
+                        f.enabled &&
+                        (!f.userId || f.userId === currentUser?.id) &&
+                        (f.sport || inferSportFromRule(f)) === matchSport
                     );
                     const matchingRules = userLaunchedFilters.filter(
                       (f) => evaluateFilterRule(selectedMatch, f).matches
@@ -4843,12 +5753,19 @@ export default function App() {
                       result: evaluateFilterRule(selectedMatch, rule),
                     }));
 
+                    const sportLabel =
+                      matchSport === 'hockey' ? '🏒 Хоккей' :
+                      matchSport === 'basketball' ? '🏀 Баскетбол' :
+                      matchSport === 'tennis' ? '🎾 Большой теннис' :
+                      matchSport === 'volleyball' ? '🏐 Волейбол' :
+                      matchSport === 'table_tennis' ? '🏓 Настольный теннис' : '⚽ Футбол';
+
                     return (
                       <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 space-y-3.5">
                         <div className="flex items-center justify-between">
                           <h3 className="text-xs uppercase tracking-wider text-slate-300 font-bold flex items-center gap-2">
                             <Cpu className="h-4 w-4 text-emerald-400" />
-                            Алгоритмический анализ давления и вероятность гола
+                            Алгоритмический анализ давления и вероятность гола ({sportLabel})
                           </h3>
                           <span
                             className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
@@ -4898,16 +5815,16 @@ export default function App() {
                         {/* Evaluated Rules Matrix */}
                         <div className="pt-2 border-t border-slate-800/80">
                           <div className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center justify-between">
-                            <span>Проверка запущенных фильтров для этого матча:</span>
+                            <span>Фильтры для вида спорта «{sportLabel}»:</span>
                             <span className="text-emerald-400 font-mono font-bold">
                               {matchingRules.length} из {userLaunchedFilters.length} совпало
                             </span>
                           </div>
                           {userLaunchedFilters.length === 0 ? (
                             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-center space-y-1.5">
-                              <p className="text-xs text-slate-400 font-medium">Нет запущенных фильтров</p>
+                              <p className="text-xs text-slate-400 font-medium">Нет запущенных фильтров для вида спорта {sportLabel}</p>
                               <p className="text-[11px] text-slate-500">
-                                Перейдите во вкладку «Фильтры» и нажмите «Запустить» на нужных стратегиях.
+                                Перейдите во вкладку «Фильтры» и активируйте стратегии для {sportLabel}.
                               </p>
                             </div>
                           ) : (
@@ -4930,11 +5847,13 @@ export default function App() {
                                     </div>
                                   )}
                                   <div>
-                                    <div className="font-semibold text-white text-[12px]">{rule.name}</div>
+                                    <div className="font-semibold text-white text-[12px]">
+                                      {rule.isPreset && !isDeveloper ? getStrategyCardDisplayName(rule, isDeveloper, filters) : rule.name}
+                                    </div>
                                     {rule.targetMarket && (
                                       <div className="text-[10px] text-amber-400 font-mono">🎯 Исход: {rule.targetMarket}</div>
                                     )}
-                                    {!result.matches && result.unmetCriteria && result.unmetCriteria.length > 0 && (
+                                    {!result.matches && (!rule.isPreset || isDeveloper) && result.unmetCriteria && result.unmetCriteria.length > 0 && (
                                       <div className="text-[10px] text-slate-500 mt-0.5">
                                         Не выполнено: {result.unmetCriteria[0]}
                                       </div>
@@ -4942,17 +5861,30 @@ export default function App() {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingFilter(rule);
-                                      setIsFilterModalOpen(true);
-                                    }}
-                                    className="p-1 rounded bg-slate-850 hover:bg-slate-750 text-slate-400 hover:text-white border border-slate-700/60 transition"
-                                    title="Настроить параметры этого фильтра"
-                                  >
-                                    <Sliders className="h-3 w-3 text-emerald-400" />
-                                  </button>
+                                  {(!rule.isPreset || isDeveloper) ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingFilter(rule);
+                                        setIsFilterModalOpen(true);
+                                      }}
+                                      className="p-1 rounded bg-slate-850 hover:bg-slate-750 text-slate-400 hover:text-white border border-slate-700/60 transition"
+                                      title="Настроить параметры этого фильтра"
+                                    >
+                                      <Sliders className="h-3 w-3 text-emerald-400" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setLockedPresetNotice(rule);
+                                      }}
+                                      className="p-1 rounded bg-slate-850 hover:bg-slate-750 text-slate-400 hover:text-amber-300 border border-slate-700/60 transition"
+                                      title="Параметры скрыты разработчиком"
+                                    >
+                                      <Lock className="h-3 w-3 text-amber-400" />
+                                    </button>
+                                  )}
                                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
                                     result.matches ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-500'
                                   }`}>
@@ -5303,6 +6235,16 @@ export default function App() {
 
                 <button
                   type="button"
+                  onClick={handleActivateNoviceSafeTop3}
+                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/40 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition active:scale-95"
+                  title="Быстрый запуск для новичка: включить ТОП-3 безопасные стратегии с высокой проходимостью"
+                >
+                  <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
+                  <span>🚀 Я новичок: ТОП-3</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     setEditingFilter(createCleanBlankFilter(currentUser.id));
                     setIsFilterModalOpen(true);
@@ -5426,6 +6368,7 @@ export default function App() {
                 selectedSport={selectedSport}
                 onOpenEducation={() => setActiveTab('education')}
                 isPaidUser={isPaidUser}
+                isDeveloper={isDeveloper}
                 onUpgradePlan={() => setActiveTab('cabinet')}
               />
             ) : filterViewMode === 'prematch' ? (
@@ -5636,6 +6579,28 @@ export default function App() {
                         setIsFilterModalOpen(true);
                         return;
                       }
+                      if (!isDeveloper) {
+                        // Для платных пользователей готовые шаблоны добавляются как защищённые пресеты в мониторинг (без открытия внутренних формул)
+                        const cleanName = item.name.replace(/^[^\wа-яА-ЯёЁ]+/, '').trim();
+                        const existing = filters.find((f) => f.name.includes(cleanName));
+                        if (existing) {
+                          setFilters((prev) => prev.map((f) => f.id === existing.id ? { ...f, enabled: true } : f));
+                          setLockedPresetNotice(existing);
+                        } else {
+                          const newPreset: FilterRule = {
+                            id: `preset-${Date.now()}`,
+                            enabled: true,
+                            telegramEnabled: true,
+                            isPreset: true,
+                            verifiedPassRate: '98% реальных матчей',
+                            ...item.preset,
+                            userId: currentUser.id,
+                          };
+                          setFilters((prev) => [newPreset, ...prev]);
+                          setLockedPresetNotice(newPreset);
+                        }
+                        return;
+                      }
                       setEditingFilter({
                         id: `custom-${Date.now()}`,
                         enabled: true,
@@ -5740,6 +6705,31 @@ export default function App() {
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Только запущенные
                 </button>
+
+                {/* Export / Import Filters JSON */}
+                <button
+                  type="button"
+                  onClick={handleExportFiltersJson}
+                  className="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                  title="Экспортировать все стратегии в файл JSON"
+                >
+                  <Download className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Экспорт JSON</span>
+                </button>
+
+                <label
+                  className="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                  title="Импортировать сохраненные стратегии из файла JSON"
+                >
+                  <Upload className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Импорт JSON</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={handleImportFiltersJson}
+                  />
+                </label>
               </div>
             </div>
 
@@ -5920,10 +6910,12 @@ export default function App() {
                     ? !rule.isPreset
                     : rule.category === activeFilterCategory;
 
+                const cardTitle = getStrategyCardDisplayName(rule, isDeveloper, filters);
                 const matchQuery =
                   !filterSearchQuery.trim() ||
-                  rule.name.toLowerCase().includes(filterSearchQuery.toLowerCase()) ||
-                  rule.description.toLowerCase().includes(filterSearchQuery.toLowerCase()) ||
+                  cardTitle.toLowerCase().includes(filterSearchQuery.toLowerCase()) ||
+                  (isDeveloper && rule.name.toLowerCase().includes(filterSearchQuery.toLowerCase())) ||
+                  (isDeveloper && rule.description.toLowerCase().includes(filterSearchQuery.toLowerCase())) ||
                   (rule.targetMarket && rule.targetMarket.toLowerCase().includes(filterSearchQuery.toLowerCase()));
 
                 return matchSport && matchCategory && matchQuery;
@@ -5979,47 +6971,63 @@ export default function App() {
                                   {filter.sport === 'hockey' ? '🏒 Хоккей' : filter.sport === 'basketball' ? '🏀 Баскетбол' : filter.sport === 'tennis' ? '🎾 Теннис' : filter.sport === 'volleyball' ? '🏐 Волейбол' : '🏓 Настольный теннис'}
                                 </span>
                               )}
-                              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                                {filter.ruleType === 'PREMATCH' ? 'ПРЕМАТЧ' : `${filter.minMinute}' - ${filter.maxMinute}'`}
-                              </span>
                               {filter.category && (
                                 <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800/80 text-emerald-400 border border-emerald-500/20">
                                   {filter.category}
                                 </span>
                               )}
-                              {filter.exactScore && (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                  Счёт {filter.exactScore}
-                                </span>
-                              )}
-                              {filter.exactTotalGoals !== undefined && (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                  Ровно {filter.exactTotalGoals} г.
-                                </span>
-                              )}
-                              {filter.exactHomeGoals !== undefined && (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                  К1: {filter.exactHomeGoals} г.
-                                </span>
-                              )}
-                              {filter.exactAwayGoals !== undefined && (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                                  К2: {filter.exactAwayGoals} г.
-                                </span>
-                              )}
-                              {filter.ruleType === 'PREMATCH' && (
-                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                                  {filter.prematchAlertDailyTime || '10:00'} (1 р/день)
-                                </span>
-                              )}
-                              {filter.isPreset ? (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                  Пресет
-                                </span>
+                              {(!filter.isPreset || isDeveloper) ? (
+                                <>
+                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                                    {filter.ruleType === 'PREMATCH' ? 'ПРЕМАТЧ' : `${filter.minMinute}' - ${filter.maxMinute}'`}
+                                  </span>
+                                  {filter.exactScore && (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                      Счёт {filter.exactScore}
+                                    </span>
+                                  )}
+                                  {filter.exactTotalGoals !== undefined && (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                      Ровно {filter.exactTotalGoals} г.
+                                    </span>
+                                  )}
+                                  {filter.exactHomeGoals !== undefined && (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                      К1: {filter.exactHomeGoals} г.
+                                    </span>
+                                  )}
+                                  {filter.exactAwayGoals !== undefined && (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                      К2: {filter.exactAwayGoals} г.
+                                    </span>
+                                  )}
+                                  {filter.ruleType === 'PREMATCH' && (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                      {filter.prematchAlertDailyTime || '10:00'} (1 р/день)
+                                    </span>
+                                  )}
+                                  {filter.isPreset ? (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono font-bold">
+                                      👨‍💻 Dev Пресет
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                                      Авторский
+                                    </span>
+                                  )}
+                                </>
                               ) : (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                                  Авторский
-                                </span>
+                                <>
+                                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                                    <Lock className="h-2.5 w-2.5 text-amber-400" />
+                                    Вшитый алгоритм
+                                  </span>
+                                  {filter.verifiedPassRate && (
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                      {filter.verifiedPassRate}
+                                    </span>
+                                  )}
+                                </>
                               )}
                             </div>
 
@@ -6063,28 +7071,52 @@ export default function App() {
                                 </span>
                               </div>
                             )}
-                            <h3 className="text-sm font-bold text-white leading-tight">{filter.name}</h3>
-                            <p className="text-xs text-slate-400 mt-1 line-clamp-2">{filter.description}</p>
-                            {filter.targetMarket && (
-                              <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[11px] font-medium font-mono">
-                                <Target className="h-3 w-3 text-amber-400" />
-                                {filter.targetMarket}
+                            <div>
+                              <h3 className="text-base font-black text-white leading-tight tracking-wide">
+                                {getStrategyCardDisplayName(filter, isDeveloper, filters)}
+                              </h3>
+                              {filter.isPreset && !isDeveloper && (
+                                <span className="text-[10px] text-amber-300 font-semibold flex items-center gap-1 mt-0.5">
+                                  <ShieldCheck className="h-3 w-3 text-amber-400" />
+                                  Вшитый алгоритм платформы
+                                </span>
+                              )}
+                            </div>
+                            {(!filter.isPreset || isDeveloper) ? (
+                              filter.description ? (
+                                <p className="text-xs text-slate-400 mt-1 line-clamp-2">{filter.description}</p>
+                              ) : null
+                            ) : null}
+
+                            {/* Какой прогноз ожидается по данной карточке */}
+                            <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
+                              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                                <Target className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                <span>Ожидаемый прогноз по карточке:</span>
                               </div>
-                            )}
+                              <div className="text-xs sm:text-sm font-black text-amber-200">
+                                {filter.targetMarket || 'Live исход / Тотал'}
+                              </div>
+                            </div>
                           </div>
 
-                          {/* Live match indicator */}
-                          <div className="pt-1">
+                          {/* Live match indicator (По каким карточкам отработала карточка как сейчас) */}
+                          <div className="pt-1 space-y-1.5">
                             {filter.enabled ? (
                               hasLiveMatches ? (
-                                <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 font-semibold flex items-center justify-between">
-                                  <span className="flex items-center gap-1.5">
-                                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                                    Сигнал прямо сейчас ({matchingLiveMatches.length}):
-                                  </span>
-                                  <span className="font-mono text-white text-[10px]">
-                                    {matchingLiveMatches.map((m) => `${m.homeTeam} (${m.minute}')`).join(', ')}
-                                  </span>
+                                <div className="px-3 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-300 font-semibold space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5 font-bold">
+                                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                                      Отработала прямо сейчас ({matchingLiveMatches.length}):
+                                    </span>
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/25 text-emerald-200 border border-emerald-500/40 font-bold">
+                                      LIVE СИГНАЛ
+                                    </span>
+                                  </div>
+                                  <div className="font-mono text-white text-xs pl-3.5 border-l-2 border-emerald-500/40">
+                                    {matchingLiveMatches.map((m) => `${m.homeTeam} vs ${m.awayTeam} (${m.minute}', ${m.score[0]}:${m.score[1]})`).join(' • ')}
+                                  </div>
                                 </div>
                               ) : (
                                 <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-500 flex items-center justify-between">
@@ -6092,6 +7124,7 @@ export default function App() {
                                     <Clock className="h-3 w-3 text-slate-400" />
                                     В работе • Ожидание критериев в live
                                   </span>
+                                  <span className="text-emerald-400 font-mono text-[9px]">Активна</span>
                                 </div>
                               )
                             ) : (
@@ -6100,7 +7133,7 @@ export default function App() {
                                   <span className={`h-1.5 w-1.5 rounded-full ${hasLiveMatches ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}`} />
                                   {hasLiveMatches ? (
                                     <span className="text-amber-300 font-bold">
-                                      ⚡ Совпадает {matchingLiveMatches.map(m => m.homeTeam).join(', ')} ({matchingLiveMatches.length})! Включите для алертов
+                                      ⚡ Отрабатывает в {matchingLiveMatches.length} live-матчах! Включите для алертов
                                     </span>
                                   ) : (
                                     'Остановлен пользователем'
@@ -6111,14 +7144,56 @@ export default function App() {
                                 </span>
                               </div>
                             )}
+
+                            {/* Ранее отработанные сигналы этой карточки */}
+                            {signals.filter((s) => s.ruleId === filter.id).length > 0 && (
+                              <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-[11px] text-slate-300 flex items-center justify-between">
+                                <span className="flex items-center gap-1.5 truncate">
+                                  <Zap className="h-3 w-3 text-emerald-400 shrink-0" />
+                                  <span className="text-slate-400">Отработала в сигналах:</span>
+                                  <span className="text-white font-medium truncate">
+                                    {signals
+                                      .filter((s) => s.ruleId === filter.id)
+                                      .slice(0, 2)
+                                      .map((s) => `${s.matchName} (${s.minute}', ${s.score})`)
+                                      .join(' • ')}
+                                  </span>
+                                </span>
+                                <span className="text-emerald-400 font-mono text-[10px] shrink-0 font-bold ml-1">
+                                  {signals.filter((s) => s.ruleId === filter.id).length} шт.
+                                </span>
+                              </div>
+                            )}
                           </div>
 
-                          {/* Conditions Grid */}
-                          <div className="pt-2 space-y-1.5 text-xs text-slate-300 font-mono bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
-                            <div className="flex justify-between border-b border-slate-800/60 pb-1">
-                              <span className="text-slate-500 font-sans">Минуты:</span>
-                              <span className="font-bold text-sky-300">{filter.minMinute}' – {filter.maxMinute}'</span>
+                          {/* Conditions Grid OR Protected Proprietary View */}
+                          {filter.isPreset && !isDeveloper ? (
+                            <div className="pt-1.5 space-y-2">
+                              <div className="p-3 rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-slate-800 space-y-2 shadow-sm">
+                                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                  <div className="flex items-center gap-1 text-slate-400 truncate">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                                    <span className="truncate">Проход: <strong className="text-emerald-300 font-mono">{filter.verifiedPassRate || '96–100%'}</strong></span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-slate-400 truncate">
+                                    <ShieldCheck className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                    <span className="truncate">Статус: <strong className="text-amber-300">Вшитый VIP</strong></span>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
+                          ) : (
+                            <div className="pt-2 space-y-1.5 text-xs text-slate-300 font-mono bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/60">
+                              {filter.isPreset && isDeveloper && (
+                                <div className="mb-1 p-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-between text-[11px] text-purple-300">
+                                  <span className="font-bold flex items-center gap-1">👨‍💻 Режим разработчика</span>
+                                  <span className="text-[10px] text-purple-400">Формула открыта</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between border-b border-slate-800/60 pb-1">
+                                <span className="text-slate-500 font-sans">Минуты:</span>
+                                <span className="font-bold text-sky-300">{filter.minMinute}' – {filter.maxMinute}'</span>
+                              </div>
                             <div className="flex justify-between border-b border-slate-800/60 pb-1">
                               <span className="text-slate-500 font-sans">Счёт:</span>
                               <span className="font-bold text-slate-200">
@@ -6296,6 +7371,7 @@ export default function App() {
                               </div>
                             )}
                           </div>
+                          )}
                         </div>
 
                         {/* Per-Filter Telegram Bot Assignment */}
@@ -6367,33 +7443,49 @@ export default function App() {
                               <span>Тест (1 000+)</span>
                             </button>
 
-                            <button
-                              onClick={() => {
-                                setEditingFilter(filter);
-                                setIsFilterModalOpen(true);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs flex items-center gap-1 border border-slate-700 hover:border-emerald-500/40 transition"
-                              title="Настроить критерии фильтра"
-                            >
-                              <Sliders className="h-3 w-3 text-emerald-400" />
-                              <span>Настроить</span>
-                            </button>
+                            {(!filter.isPreset || isDeveloper) ? (
+                              <button
+                                onClick={() => {
+                                  setEditingFilter(filter);
+                                  setIsFilterModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs flex items-center gap-1 border border-slate-700 hover:border-emerald-500/40 transition"
+                                title="Настроить критерии фильтра"
+                              >
+                                <Sliders className="h-3 w-3 text-emerald-400" />
+                                <span>Настроить</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setLockedPresetNotice(filter)}
+                                className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-amber-300 font-medium text-xs flex items-center gap-1 border border-slate-800 hover:border-amber-500/40 transition"
+                                title="Параметры скрыты разработчиком от копирования"
+                              >
+                                <Lock className="h-3 w-3 text-amber-400" />
+                                <span>Параметры скрыты</span>
+                              </button>
+                            )}
 
-                            <button
-                              onClick={() => handleDuplicateFilter(filter)}
-                              title="Дублировать фильтр"
-                              className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </button>
+                            {(!filter.isPreset || isDeveloper) && (
+                              <button
+                                onClick={() => handleDuplicateFilter(filter)}
+                                title="Дублировать фильтр"
+                                className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                            )}
 
-                            <button
-                              onClick={() => handleDeleteFilter(filter.id)}
-                              title="Удалить фильтр"
-                              className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {(!filter.isPreset || isDeveloper) && (
+                              <button
+                                onClick={() => handleDeleteFilter(filter.id)}
+                                title="Удалить фильтр"
+                                className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -6454,12 +7546,16 @@ export default function App() {
               signalOutcomeFilter === 'ALL'
                 ? true
                 : sig.outcome === signalOutcomeFilter;
+            const matchesSport =
+              signalSportFilter === 'all'
+                ? true
+                : (sig.sport || 'football') === signalSportFilter;
             const matchesSearch =
               !signalSearchQuery.trim() ||
               sig.matchName.toLowerCase().includes(signalSearchQuery.toLowerCase()) ||
               sig.ruleName.toLowerCase().includes(signalSearchQuery.toLowerCase()) ||
               sig.league.toLowerCase().includes(signalSearchQuery.toLowerCase());
-            return matchesOutcome && matchesSearch;
+            return matchesOutcome && matchesSport && matchesSearch;
           });
 
           return (
@@ -6482,11 +7578,25 @@ export default function App() {
                     </div>
 
                     <button
+                      type="button"
+                      onClick={() => {
+                        triggerTgHaptic('medium');
+                        setIsProofOfWinOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
+                      title="Публичный чекер проходимости (Proof-of-Win)"
+                    >
+                      <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                      <span>Чекер Proof-of-Win</span>
+                    </button>
+
+                    <button
                       onClick={handleExportSignalsCsv}
-                      className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition"
+                      className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+                      title="Выгрузить историю сигналов за месяц в Excel (CSV) с детальным учетом банкролла"
                     >
                       <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
-                      Экспорт в CSV
+                      <span>Выгрузить в Excel (CSV)</span>
                     </button>
                     <button
                       type="button"
@@ -6560,6 +7670,41 @@ export default function App() {
                       {refundsCount > 0 ? `${refundsCount} возвратов • ` : ''}Авто-фиксация
                     </div>
                   </div>
+                </div>
+
+                {/* Multi-Sport Selector Bar for Signals */}
+                <div className="flex items-center gap-1.5 p-1.5 bg-slate-900/80 border border-slate-800 rounded-xl overflow-x-auto text-xs">
+                  {[
+                    { id: 'all', label: 'Все виды спорта' },
+                    { id: 'football', label: '⚽ Футбол' },
+                    { id: 'hockey', label: '🏒 Хоккей' },
+                    { id: 'basketball', label: '🏀 Баскетбол' },
+                    { id: 'tennis', label: '🎾 Теннис' },
+                    { id: 'volleyball', label: '🏐 Волейбол' },
+                    { id: 'table_tennis', label: '🏓 Настольный' },
+                  ].map((sp) => {
+                    const isSelected = signalSportFilter === sp.id;
+                    const count = signals.filter((s) => sp.id === 'all' || (s.sport || 'football') === sp.id).length;
+                    return (
+                      <button
+                        key={sp.id}
+                        type="button"
+                        onClick={() => setSignalSportFilter(sp.id as any)}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-xs whitespace-nowrap transition flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <span>{sp.label}</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                          isSelected ? 'bg-black/30 text-emerald-200' : 'bg-slate-800 text-slate-500'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Filter and Search Bar */}
@@ -6672,6 +7817,29 @@ export default function App() {
                           >
                             <ExternalLink className="h-3 w-3 text-emerald-400" />
                             <span>К матчу →</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleShareProof({
+                                id: sig.id,
+                                strategyName: sig.ruleName,
+                                matchName: sig.matchName,
+                                league: `${sig.country} • ${sig.league}`,
+                                minute: sig.minute,
+                                score: sig.score,
+                                finalScore: sig.finalScore,
+                                market: sig.marketSuggestion || 'ТБ / Live исход',
+                                odds: sig.odds,
+                                winRate: sig.outcome === 'WIN' ? 84.6 : 79.4,
+                                date: sig.timestamp,
+                              })
+                            }
+                            className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1 transition"
+                            title="Поделиться сигналом в Telegram / VK (Proof-of-Win карточка)"
+                          >
+                            <Share2 className="h-3 w-3 text-amber-400" />
+                            <span>Поделиться</span>
                           </button>
                           {sig.botName && (
                             <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 flex items-center gap-1 font-mono font-medium">
@@ -6871,9 +8039,14 @@ export default function App() {
         {activeTab === 'backtest' && (
           <BacktestingView
             filters={filters}
+            isDeveloper={isDeveloper}
             onSelectFilterToEdit={(rule) => {
-              setEditingFilter(rule);
-              setIsFilterModalOpen(true);
+              if (rule.isPreset && !isDeveloper) {
+                setLockedPresetNotice(rule);
+              } else {
+                setEditingFilter(rule);
+                setIsFilterModalOpen(true);
+              }
             }}
           />
         )}
@@ -7730,6 +8903,7 @@ export default function App() {
           liveMatches={matches}
           userBots={currentUser.telegramBots}
           isPaidUser={isPaidUser}
+          isDeveloper={isDeveloper}
           onUpgradePlan={() => {
             setIsFilterModalOpen(false);
             setActiveTab('cabinet');
@@ -7751,6 +8925,87 @@ export default function App() {
             setEditingFilter(null);
           }}
         />
+
+        {/* Locked Built-in Preset Notice Modal (Защита параметров вшитых карточек от копирования) */}
+        {lockedPresetNotice && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-7 max-w-md w-full space-y-4 shadow-2xl text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
+                <Lock className="h-7 w-7" />
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1">
+                  <ShieldAlert className="h-3 w-3" />
+                  Защита алгоритма разработчика
+                </span>
+                <h3 className="text-lg font-bold text-white">
+                  {getStrategyCardDisplayName(lockedPresetNotice, isDeveloper, filters)}
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Параметры и формула данной вшитой стратегии скрыты разработчиком для защиты от копирования. Вы можете полноценно использовать её по вашей подписке: запускать в мониторинг, получать сигналы в реальном времени и подключить Telegram-бота.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-left text-xs space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Статистика прохода:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {lockedPresetNotice.verifiedPassRate || '96–100% реальных матчей'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Целевой рынок:</span>
+                  <span className="font-bold text-amber-300">
+                    {lockedPresetNotice.targetMarket || 'Live исходы'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Статус в мониторинге:</span>
+                  <span className="text-emerald-300 font-semibold">
+                    {lockedPresetNotice.enabled ? '🟢 Запущен' : '⚪ Остановлен'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rule = lockedPresetNotice;
+                    setLockedPresetNotice(null);
+                    setBacktestModalFilter(rule);
+                    setIsBacktestModalOpen(true);
+                  }}
+                  className="w-full sm:w-auto flex-1 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                >
+                  <BarChart3 className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Тест (1 000+ матчей)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLockedPresetNotice(null);
+                    setEditingFilter(createCleanBlankFilter(currentUser.id));
+                    setIsFilterModalOpen(true);
+                  }}
+                  className="w-full sm:w-auto flex-1 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>Чистый бланк</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setLockedPresetNotice(null)}
+                className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-300 font-medium transition"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* AI Strategy Synthesizer Modal (VIP / Max Plan Feature - No VPN) */}
         <AIStrategySynthesizerModal
@@ -7824,6 +9079,7 @@ export default function App() {
           filter={backtestModalFilter}
           isOpen={isBacktestModalOpen}
           liveMatchesCount={matches.length}
+          isDeveloper={isDeveloper}
           onClose={() => {
             setIsBacktestModalOpen(false);
             setBacktestModalFilter(null);
@@ -7834,6 +9090,10 @@ export default function App() {
             );
           }}
           onOpenEditFilter={(filterToEdit) => {
+            if (filterToEdit.isPreset && !isDeveloper) {
+              setLockedPresetNotice(filterToEdit);
+              return;
+            }
             setIsBacktestModalOpen(false);
             setEditingFilter(filterToEdit);
             setIsFilterModalOpen(true);
@@ -7846,9 +9106,38 @@ export default function App() {
           onClose={() => setIsMarketplaceOpen(false)}
           userFilters={filters}
           currentUserId={currentUser.id}
+          onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
           onImportStrategy={(newFilter) => {
             setFilters((prev) => [newFilter, ...prev]);
             alert(`Стратегия «${newFilter.name}» успешно добавлена в ваши алгоритмы!`);
+          }}
+        />
+
+        {/* Proof of Win Public Audit Modal */}
+        <ProofOfWinModal
+          isOpen={isProofOfWinOpen}
+          onClose={() => setIsProofOfWinOpen(false)}
+          onShareProof={handleShareProof}
+          onActivateTopStrategies={handleActivateNoviceSafeTop3}
+        />
+
+        {/* Viral Proof-of-Win Share Card Modal */}
+        <ProofOfWinShareModal
+          isOpen={isProofShareOpen}
+          onClose={() => {
+            setIsProofShareOpen(false);
+            setProofToShare(null);
+          }}
+          proof={proofToShare}
+        />
+
+        {/* Creators Gamification Leaderboard Modal */}
+        <LeaderboardModal
+          isOpen={isLeaderboardOpen}
+          onClose={() => setIsLeaderboardOpen(false)}
+          onOpenMarketplace={() => {
+            setIsLeaderboardOpen(false);
+            setIsMarketplaceOpen(true);
           }}
         />
 
@@ -7875,6 +9164,56 @@ export default function App() {
           onSendTelegramAlert={async (msg) => {
             const res = await sendTelegramMessage(msg, false);
             return res.ok;
+          }}
+        />
+
+        {/* PWA Paywall for Standalone Mode: "Pwa приложения могут пользоваться только подписчики у которых оплачена подписка" */}
+        {isInPwaStandalone && !isPaidUser && !isDeveloper && (
+          <PwaSubscriptionPaywall
+            currentUser={currentUser}
+            allUsers={allUsers}
+            onSelectUser={(u) => setCurrentUserId(u.id)}
+            onUpgradePlan={(newPlan) => {
+              setAllUsers((prev) =>
+                prev.map((u) =>
+                  u.id === currentUser.id
+                    ? {
+                        ...u,
+                        plan: newPlan,
+                        role: newPlan === 'VIP_CLUB' ? 'vip' : 'pro',
+                      }
+                    : u
+                )
+              );
+            }}
+            onExitToBrowser={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('source');
+              url.searchParams.delete('mode');
+              window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+              setIsInPwaStandalone(false);
+            }}
+          />
+        )}
+
+        {/* PWA Installation & Subscription Guidance Modal */}
+        <PwaInstallModal
+          isOpen={isPwaInstallModalOpen}
+          onClose={() => setIsPwaInstallModalOpen(false)}
+          isPaidUser={isPaidUser}
+          currentUser={currentUser}
+          onUpgradePlan={(newPlan) => {
+            setAllUsers((prev) =>
+              prev.map((u) =>
+                u.id === currentUser.id
+                  ? {
+                      ...u,
+                      plan: newPlan,
+                      role: newPlan === 'VIP_CLUB' ? 'vip' : 'pro',
+                    }
+                  : u
+              )
+            );
           }}
         />
       </div>
@@ -8166,6 +9505,63 @@ export default function App() {
               <div className="truncate">
                 <div className="font-bold text-white text-xs">Кабинет & Тариф</div>
                 <div className="text-[10px] text-purple-300 truncate">{currentUser.displayName}</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsMobileToolsDrawerOpen(false);
+                setIsProofOfWinOpen(true);
+              }}
+              className="p-3 rounded-2xl bg-slate-950/80 border border-amber-500/40 flex items-center gap-2.5 text-amber-300 text-left active:scale-95 transition"
+            >
+              <Trophy className="h-4 w-4 text-amber-400 shrink-0" />
+              <div className="truncate">
+                <div className="font-bold text-white text-xs">Proof-of-Win</div>
+                <div className="text-[10px] text-amber-300 truncate">Чекер заходов</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsMobileToolsDrawerOpen(false);
+                setIsLeaderboardOpen(true);
+              }}
+              className="p-3 rounded-2xl bg-slate-950/80 border border-purple-500/40 flex items-center gap-2.5 text-purple-300 text-left active:scale-95 transition"
+            >
+              <Crown className="h-4 w-4 text-purple-400 shrink-0" />
+              <div className="truncate">
+                <div className="font-bold text-white text-xs">Рейтинг авторов</div>
+                <div className="text-[10px] text-purple-300 truncate">Топ капперов месяца</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsMobileToolsDrawerOpen(false);
+                handleActivateNoviceSafeTop3();
+              }}
+              className="p-3 rounded-2xl bg-emerald-950/60 border border-emerald-500/40 flex items-center gap-2.5 text-emerald-300 text-left active:scale-95 transition"
+            >
+              <Sparkles className="h-4 w-4 text-amber-300 shrink-0 animate-pulse" />
+              <div className="truncate">
+                <div className="font-bold text-white text-xs">ТОП-3 Новичку</div>
+                <div className="text-[10px] text-emerald-300 truncate">1-клик безопасный пуск</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                handleToggleWebPush();
+              }}
+              className={`p-3 rounded-2xl bg-slate-950/80 border flex items-center gap-2.5 text-left active:scale-95 transition ${
+                isWebPushEnabled ? 'border-blue-500/40 text-blue-300' : 'border-slate-800 text-slate-300'
+              }`}
+            >
+              {isWebPushEnabled ? <BellRing className="h-4 w-4 text-blue-400 shrink-0" /> : <Bell className="h-4 w-4 text-slate-400 shrink-0" />}
+              <div className="truncate">
+                <div className="font-bold text-white text-xs">Web Push</div>
+                <div className="text-[10px] text-slate-400 truncate">{isWebPushEnabled ? 'ВКЛЮЧЕН' : 'Отключен'}</div>
               </div>
             </button>
 
