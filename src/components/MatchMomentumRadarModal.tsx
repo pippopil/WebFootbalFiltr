@@ -42,21 +42,21 @@ export const MatchMomentumRadarModal: React.FC<MatchMomentumRadarModalProps> = (
 }) => {
   const { language, t } = useLanguage();
 
-  const activeMatch = selectedMatch || matches[0] || null;
+  const activeMatch = selectedMatch || (matches && matches.length > 0 ? matches[0] : null);
 
   // Local state for time window simulation
   const [selectedTimeWindow, setSelectedTimeWindow] = useState<'last5' | 'last15' | 'full'>('last15');
 
   // Compute momentum metrics and 10-minute goal probability
   const analytics = useMemo(() => {
-    if (!activeMatch) return null;
+    if (!activeMatch || !activeMatch.stats) return null;
 
-    const dangHome = activeMatch.stats.dangerousAttacks[0] || 0;
-    const dangAway = activeMatch.stats.dangerousAttacks[1] || 0;
-    const shotsHome = activeMatch.stats.shotsOnTarget[0] || 0;
-    const shotsAway = activeMatch.stats.shotsOnTarget[1] || 0;
-    const cornersHome = activeMatch.stats.corners[0] || 0;
-    const cornersAway = activeMatch.stats.corners[1] || 0;
+    const dangHome = activeMatch.stats.dangerousAttacks?.[0] || 0;
+    const dangAway = activeMatch.stats.dangerousAttacks?.[1] || 0;
+    const shotsHome = activeMatch.stats.shotsOnTarget?.[0] || 0;
+    const shotsAway = activeMatch.stats.shotsOnTarget?.[1] || 0;
+    const cornersHome = activeMatch.stats.corners?.[0] || 0;
+    const cornersAway = activeMatch.stats.corners?.[1] || 0;
     const minute = activeMatch.minute || 45;
 
     // Minute attack velocity (dangerous attacks per 10 mins)
@@ -72,7 +72,11 @@ export const MatchMomentumRadarModal: React.FC<MatchMomentumRadarModalProps> = (
     // AI 10-Minute Goal Probability Formula (Quantitative Poisson / Momentum hybrid)
     // Factors: current total shots on target, dangerous attack rate, current minute urgency (75-90' has higher urgency)
     const urgencyFactor = minute >= 75 ? 1.35 : minute >= 60 ? 1.2 : 1.0;
-    const totalShots = (activeMatch.stats.shots[0] || 0) + (activeMatch.stats.shots[1] || 0);
+    const totalShots =
+      (activeMatch.stats.shotsOnTarget?.[0] || 0) +
+      (activeMatch.stats.shotsOffTarget?.[0] || 0) +
+      (activeMatch.stats.shotsOnTarget?.[1] || 0) +
+      (activeMatch.stats.shotsOffTarget?.[1] || 0);
     const attacksFactor = Math.min(2.5, (dangHome + dangAway) / 40);
     const shotsFactor = Math.min(2.0, totalShots / 12);
     
@@ -178,9 +182,9 @@ export const MatchMomentumRadarModal: React.FC<MatchMomentumRadarModalProps> = (
                     : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
                 }`}
               >
-                <span>{m.homeTeam.split(' ')[0]} – {m.awayTeam.split(' ')[0]}</span>
+                <span>{(m.homeTeam || 'Home').split(' ')[0]} – {(m.awayTeam || 'Away').split(' ')[0]}</span>
                 <span className={`font-mono text-[10px] px-1 rounded ${isSel ? 'bg-black/30 text-emerald-200' : 'bg-slate-800 text-slate-400'}`}>
-                  {m.minute}' ({m.score[0]}:{m.score[1]})
+                  {m.minute ?? 0}' ({m.score?.[0] ?? 0}:{m.score?.[1] ?? 0})
                 </span>
               </button>
             );
@@ -200,7 +204,7 @@ export const MatchMomentumRadarModal: React.FC<MatchMomentumRadarModalProps> = (
                 </div>
 
                 <div className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-emerald-400 text-base sm:text-lg shrink-0">
-                  {activeMatch.score[0]} : {activeMatch.score[1]}
+                  {activeMatch.score?.[0] ?? 0} : {activeMatch.score?.[1] ?? 0}
                 </div>
 
                 <div className="text-left flex-1 sm:flex-initial">
@@ -293,8 +297,8 @@ export const MatchMomentumRadarModal: React.FC<MatchMomentumRadarModalProps> = (
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-cyan-300">{activeMatch.homeTeam.split(' ')[0]}: {analytics.homePressureShare}%</span>
-                  <span className="text-purple-300">{activeMatch.awayTeam.split(' ')[0]}: {analytics.awayPressureShare}%</span>
+                  <span className="text-cyan-300">{(activeMatch.homeTeam || 'Home').split(' ')[0]}: {analytics.homePressureShare}%</span>
+                  <span className="text-purple-300">{(activeMatch.awayTeam || 'Away').split(' ')[0]}: {analytics.awayPressureShare}%</span>
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden flex">
                   <div
