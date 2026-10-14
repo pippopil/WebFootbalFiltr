@@ -206,6 +206,59 @@ export const cleanPresetTitle = (name: string): string => {
     .trim();
 };
 
+export const PRESET_STRATEGY_NUMBER_BY_ID: Record<string, number> = {
+  'f-1': 1,
+  'f-2': 2,
+  'f-3': 3,
+  'f-4': 4,
+  'f-5': 5,
+  'f-6': 6,
+  'f-7': 7,
+  'f-8': 8,
+  'strat-2': 9,
+  'strat-4': 10,
+  'strat-5': 11,
+  'strat-7': 12,
+  'strat-8': 13,
+  'strat-12': 14,
+  'strat-16': 15,
+  'strat-14': 16,
+  'strat-deadly-combo': 17,
+  'strat-corners-80': 18,
+  'strat-corners-fav-losing': 19,
+  'strat-over35-odds20': 20,
+  'strat-draw-over5': 21,
+  'strat-underdog-55-halftime': 22,
+  'strat-red-card-revenge': 23,
+  'strat-guest-two-quick': 24,
+  'strat-draw-under25': 25,
+  'strat-tb15-value': 26,
+  'strat-xg-deficit-75': 27,
+  'strat-smart-money-drop': 28,
+  'strat-favorite-steam': 29,
+  'strat-over-steam': 30,
+  'strat-prematch-insider-drop': 31,
+  'strat-top-fav-65': 32,
+  'strat-comeback-fav-60': 33,
+  'strat-corner-assault-75': 34,
+  'strat-xg-dominance-11': 35,
+  'strat-smart-money-steam-live': 36,
+  'strat-late-assault': 37,
+  'strat-corner-storm-60': 38,
+  'strat-red-card-live': 39,
+  'strat-yellow-cards-derby': 40,
+  'strat-concrete-bus': 41,
+  'strat-second-half-sieve': 42,
+  'strat-xg-trap-regression': 43,
+  'strat-tempo-fade-tm': 44,
+  'strat-hockey-late-assault': 45,
+  'strat-hockey-prematch-h2h': 46,
+  'strat-basketball-4q-over': 47,
+  'strat-tennis-set2-comeback': 48,
+  'strat-volleyball-tight-set': 49,
+  'strat-table-tennis-deciding': 50,
+};
+
 /**
  * Возвращает отображаемое название карточки:
  * Для разработчика (isDeveloper) — полное оригинальное название алгоритма со всеми деталями.
@@ -235,23 +288,36 @@ export const getStrategyCardDisplayName = (
   };
   const prefix = prefixMap[currentLang] || 'Стратегия';
 
-  // Обычные пользователи видят строго "Стратегия 1", "Стратегия 2", "Стратегия 3"...
-  const matchF = rule.id.match(/^f-(\d+)$/i);
+  // 1. Быстрый и надёжный поиск по словарю официальных ID пресетов (Стратегия 1 .. 50)
+  if (rule.id && PRESET_STRATEGY_NUMBER_BY_ID[rule.id] !== undefined) {
+    return `${prefix} ${PRESET_STRATEGY_NUMBER_BY_ID[rule.id]}`;
+  }
+
+  // 2. Стандартные ID вида f-1, f-2 ...
+  const matchF = rule.id?.match(/^f-(\d+)$/i);
   if (matchF) {
     return `${prefix} ${matchF[1]}`;
   }
 
-  const matchPresetNum = rule.name.match(/Стратегия\s+(\d+)/i);
+  // 3. Если в названии уже есть "Стратегия N"
+  const matchPresetNum = rule.name?.match(/Стратегия\s+(\d+)/i);
   if (matchPresetNum) {
     return `${prefix} ${matchPresetNum[1]}`;
   }
 
-  if (allFilters) {
+  // 4. Поиск по переданному или сохраненному списку пресетов
+  if (allFilters && allFilters.length > 0) {
     const presetIndex = allFilters.filter((f) => f.isPreset).findIndex((f) => f.id === rule.id);
     if (presetIndex !== -1) {
       return `${prefix} ${presetIndex + 1}`;
     }
   }
 
-  return prefix;
+  // 5. Поиск цифр в id (strat-12, card-22, etc.)
+  const matchIdNum = rule.id?.match(/(?:strat|filter|preset|card)[-_](\d+)/i);
+  if (matchIdNum) {
+    return `${prefix} ${matchIdNum[1]}`;
+  }
+
+  return `${prefix} 22`;
 };

@@ -1967,9 +1967,13 @@ export function formatExtendedTelegramAlert(
         : ''
       : '';
 
+  const cleanStratName = ruleName.trim();
+  const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
+  const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
+
   const headerTag = isPrematch
-    ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР]</b>\n💡 <b>Стратегия: ${ruleName}</b>\n⏱ <i>До начала: ${match.startsInMinutes ?? 60} мин${match.startTime ? ` (${escapeTelegramHtml(match.startTime)})` : ''}</i>`
-    : `🔴 <b>[ЛАЙВ СИГНАЛ]</b> (Мин: <b>${match.minute}'</b> | Счёт: <b>${match.score[0]}:${match.score[1]}</b>)\n⚡ <b>Стратегия: ${ruleName}</b>`;
+    ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР]</b>\n💡 <b>${strategyTag}</b>\n⏱ <i>До начала: ${match.startsInMinutes ?? 60} мин${match.startTime ? ` (${escapeTelegramHtml(match.startTime)})` : ''}</i>`
+    : `🔴 <b>[ЛАЙВ СИГНАЛ]</b> (Мин: <b>${match.minute}'</b> | Счёт: <b>${match.score[0]}:${match.score[1]}</b>)\n⚡ <b>${strategyTag}</b>`;
 
   const p1Str = match.odds?.home !== undefined ? match.odds.home.toFixed(2) : '-';
   const pxStr = match.odds?.draw !== undefined ? match.odds.draw.toFixed(2) : '-';
@@ -2073,11 +2077,15 @@ export function formatResolvedTelegramAlert(
   const matchStatusTag = isHalfTimeResolution ? '[1-й тайм завершён • Перерыв]' : '[Матч завершён]';
   const outcomeLabel = isHalfTimeResolution ? 'Итог 1-го тайма:' : 'Итог:';
 
+  const cleanStratName = ruleName.trim();
+  const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
+  const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
+
   return (
     `${statusHeader}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🏷 <b>Категория:</b> ${betTypeLabel}\n` +
-    `📋 <b>Стратегия:</b> ${ruleName}\n` +
+    `📋 <b>${strategyTag}</b>\n` +
     `🏆 <b>${country} | ${league}</b>\n` +
     `⚽ <b>${home} ${finalScore} ${away}</b> ${matchStatusTag}\n` +
     `${scoreChangeNote}\n` +

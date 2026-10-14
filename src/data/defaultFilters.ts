@@ -430,7 +430,7 @@ const RAW_DEFAULT_FILTERS: FilterRule[] = [
   },
   {
     id: 'strat-draw-over5',
-    name: '👑 Доминант: кэф на ничью > 5.0 (ТБ 1.5 1Т)',
+    name: '👑 Стратегия 21: Доминант: кэф на ничью > 5.0 (ТБ 1.5 1Т)',
     description: 'Кэф на ничью > 5.00 при явном фаворите (≤1.35). Фаворит забивает в 1Т (до 1 гола к моменту входа), общий тотал матча > 3.5.',
     category: 'halftime',
     ruleType: 'PREMATCH',
@@ -449,7 +449,7 @@ const RAW_DEFAULT_FILTERS: FilterRule[] = [
   },
   {
     id: 'strat-underdog-55-halftime',
-    name: '⏱️ Гол во 2Т: 0:0 к перерыву при слабом андердоге (≥5.5)',
+    name: '⏱️ Стратегия 22: Гол во 2Т: 0:0 к перерыву при слабом андердоге (≥5.5)',
     description: 'Кэф на аутсайдера ≥ 5.50, кэф ТБ 2.5 ≤ 1.50. Первый тайм закончился 0:0. Исключены женщины и РФ.',
     category: 'halftime',
     ruleType: 'LIVE',
@@ -458,8 +458,8 @@ const RAW_DEFAULT_FILTERS: FilterRule[] = [
     maxMinute: 70,
     scoreCondition: '0-0',
     maxTotalGoals: 0,
-    minOddsUnderdog: 4.00,
-    maxOddsOver25: 1.75,
+    minOddsUnderdog: 5.50,
+    maxOddsOver25: 1.50,
     excludeYouthAndWomen: true,
     targetMarket: 'Гол во 2-м тайме (ТБ 0.5 / 1.0)',
     defaultOdds: 1.75,
@@ -470,7 +470,7 @@ const RAW_DEFAULT_FILTERS: FilterRule[] = [
   },
   {
     id: 'strat-red-card-revenge',
-    name: '🟥 Месть за удаление в крайнем матче',
+    name: '🟥 Стратегия 23: Месть за удаление в крайнем матче',
     description: 'Команда получила КК в прошлом матче, но в этом матче котируется с кэфом ≤ 3.20. Высокая вероятность забитого гола.',
     category: 'goals',
     ruleType: 'PREMATCH',

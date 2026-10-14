@@ -240,20 +240,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                   </span>
                 </button>
               </li>
-              <li>
-                <button
-                  onClick={() => handleNavigate('telegram')}
-                  className={`flex items-center justify-between w-full p-1.5 rounded-lg hover:bg-slate-900 transition text-left ${
-                    activeTab === 'telegram' ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <Send className="h-3.5 w-3.5" />
-                    <span>{t('telegramBot')}</span>
-                  </span>
-                  <span className="text-[10px] text-sky-400 font-mono">TG</span>
-                </button>
-              </li>
+
               <li>
                 <button
                   onClick={() => handleNavigate('education')}

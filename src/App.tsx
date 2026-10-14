@@ -1743,6 +1743,13 @@ export default function App() {
       initYandexMetrika(analytics.yandexMetrikaCounterId);
     }
   }, [analytics.yandexMetrikaCounterId]);
+
+  // Redirect legacy telegram tab to personal cabinet
+  useEffect(() => {
+    if (activeTab === 'telegram') {
+      setActiveTab('cabinet');
+    }
+  }, [activeTab]);
   
   // Persistent signals tracker state (Strictly genuine live signals, zero fake seeds)
   const [signals, setSignals] = useState<SignalAlert[]>(() => {
@@ -3004,8 +3011,8 @@ export default function App() {
 
     if (configuredBots.length === 0) {
       if (!isAutoCron) {
-        setActiveTab('telegram');
-        alert('Пожалуйста, укажите Telegram Bot Token и Chat ID во вкладке Telegram Бот.');
+        setActiveTab('cabinet');
+        alert('Пожалуйста, подключите вашего Telegram-бота в Личном кабинете.');
       }
       return;
     }
@@ -3435,11 +3442,15 @@ export default function App() {
 
         const simPrefix = isSimulatedMode ? '🎮 [ДЕМО-СИМУЛЯЦИЯ]\n' : '';
         const displayRuleName = getStrategyCardDisplayName(rule, isDeveloper, filters);
+        const cleanDisplay = displayRuleName.trim();
+        const stratDisplay = /^(?:\p{Emoji}|\s)*(?:стратегия)/iu.test(cleanDisplay)
+          ? cleanDisplay
+          : `Стратегия: ${cleanDisplay}`;
         const signalMessage = isPrematch
           ? `${simPrefix}📋 [ПРЕДМАТЧЕВЫЙ СИГНАЛ ЗА 1 ЧАС] ${match.countryCode} ${match.country} | ${match.league}\n` +
             `⚔️ ${match.homeTeam} vs ${match.awayTeam} (⏳ Старт через ${match.startsInMinutes ?? 60} мин${match.startTime ? `, ${match.startTime}` : ''})\n` +
             (rule.targetMarket ? `🎯 Рекомендуемый исход: ${rule.targetMarket}\n` : '') +
-            `⏱ Анализ проведён строго за 1 час (60 мин) до свистка | Стратегия: ${displayRuleName}`
+            `⏱ Анализ проведён строго за 1 час (60 мин) до свистка | ${stratDisplay}`
           : `${simPrefix}⚽ [СИГНАЛ] ${match.country} | ${match.league}\n${match.homeTeam} ${match.score[0]}:${match.score[1]} ${match.awayTeam} (${match.minute}')\n` +
             (rule.targetMarket ? `🎯 Исход: ${rule.targetMarket}\n` : '') +
             `🔥 Давление: ${analysis.pressureIndex}/100 | Оп. атаки ${match.stats.dangerousAttacks[0]}-${match.stats.dangerousAttacks[1]} | Удары в створ ${match.stats.shotsOnTarget[0]}-${match.stats.shotsOnTarget[1]} | Углы ${match.stats.corners[0]}-${match.stats.corners[1]}`;
@@ -4807,18 +4818,6 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setActiveTab('telegram')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
-                activeTab === 'telegram'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
-              }`}
-            >
-              <Bot className="h-3.5 w-3.5 text-sky-400" />
-              <span>{t('telegramBot')}</span>
-            </button>
-
-            <button
               id="education-nav-btn"
               onClick={() => setActiveTab('education')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
@@ -5367,8 +5366,18 @@ export default function App() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={t('searchPlaceholder')}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-8 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 transition p-0.5 rounded"
+                      title="Очистить поиск"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Tracked matches only filter button */}
@@ -5481,6 +5490,10 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         triggerTgHaptic('light');
+                        // Автоматически очищаем поле поиска, чтобы избежать конфликтов фильтрации
+                        if (searchQuery) {
+                          setSearchQuery('');
+                        }
                         setMatchQuickFilter(isSelected && btn.id !== 'all' ? 'all' : (btn.id as any));
                       }}
                       className={`px-2.5 py-1 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 shrink-0 whitespace-nowrap active:scale-95 ${
@@ -9719,13 +9732,13 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('telegram')}
+          onClick={() => setActiveTab('cabinet')}
           className={`flex flex-col items-center justify-center py-1 transition-colors min-h-[48px] ${
-            activeTab === 'telegram' ? 'text-sky-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            activeTab === 'cabinet' ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Bot className="h-5 w-5" />
-          <span className="text-[10px] mt-1 tracking-tight">{t('telegramBot')}</span>
+          <User className="h-5 w-5" />
+          <span className="text-[10px] mt-1 tracking-tight">{t('navCabinet')}</span>
         </button>
 
         <button
