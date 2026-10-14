@@ -22,6 +22,8 @@ export interface MatchStats {
   xg: [number, number];
 }
 
+export type MatchStatus = 'LIVE' | 'HT' | 'FT' | 'PREMATCH';
+
 export interface Match {
   id: string;
   country: string;
@@ -31,7 +33,7 @@ export interface Match {
   awayTeam: string;
   score: [number, number];
   minute: number;
-  status: 'LIVE' | 'HT' | 'FT' | 'PREMATCH';
+  status: MatchStatus;
   sport?: SportType;
   source: 'Flashscore' | 'Sofascore' | 'SStats' | 'API-Football' | 'Football-Data' | 'The-Odds-API' | 'Custom-Webhook' | 'Public-Feed' | 'Fonbet' | '1xBet';
   startTime?: string;
@@ -449,6 +451,7 @@ export interface SignalAlert {
   };
   ruleId?: string;
   ruleName: string;
+  ruleCategory?: string;
   message: string;
   sentToTelegram: boolean;
   telegramStatusText?: string;

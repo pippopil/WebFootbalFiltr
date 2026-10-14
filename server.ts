@@ -578,157 +578,25 @@ async function startServer() {
     profit: number;
   }
 
-  // Initial seed of today's verified real match events
-  const todayTimestamp = Date.now();
-  const dailySignalEvents: TelegramSignalEvent[] = [
-    {
-      id: 'sig-1',
-      timestamp: todayTimestamp - 6 * 3600 * 1000,
-      matchName: 'Arsenal vs Chelsea',
-      league: 'Premier League',
-      sport: 'football',
-      ruleName: '🚩 «Угловой шторм на флангах» (ТБ 9.5 угловых ~1.75)',
-      targetMarket: 'ТБ 9.5 угловых',
-      odds: 1.75,
-      outcome: 'WIN',
-      profit: 0.75,
-    },
-    {
-      id: 'sig-2',
-      timestamp: todayTimestamp - 5 * 3600 * 1000,
-      matchName: 'Real Madrid vs Barcelona',
-      league: 'La Liga',
-      sport: 'football',
-      ruleName: '🚩 Штурм угловых в концовке 75-87\' (ТБ угловых +2.0 ~1.72)',
-      targetMarket: 'ТБ угловых (+2)',
-      odds: 1.72,
-      outcome: 'WIN',
-      profit: 0.72,
-    },
-    {
-      id: 'sig-3',
-      timestamp: todayTimestamp - 4.5 * 3600 * 1000,
-      matchName: 'Bayern München vs Borussia Dortmund',
-      league: 'Bundesliga',
-      sport: 'football',
-      ruleName: '⚡ Высокий прессинг и угловые (70-90 мин)',
-      targetMarket: 'Угловые ТБ',
-      odds: 1.85,
-      outcome: 'WIN',
-      profit: 0.85,
-    },
-    {
-      id: 'sig-4',
-      timestamp: todayTimestamp - 4 * 3600 * 1000,
-      matchName: 'Juventus vs Inter',
-      league: 'Serie A',
-      sport: 'football',
-      ruleName: '🚩 Односторонний угловой штурм',
-      targetMarket: 'ИТБ угловых фаворита',
-      odds: 1.80,
-      outcome: 'WIN',
-      profit: 0.80,
-    },
-    {
-      id: 'sig-5',
-      timestamp: todayTimestamp - 3.5 * 3600 * 1000,
-      matchName: 'Liverpool vs Manchester City',
-      league: 'Premier League',
-      sport: 'football',
-      ruleName: '🚩 Угловые фаворита при проигрыше в 1-м тайме',
-      targetMarket: 'ТБ угловых во 2-м тайме',
-      odds: 1.83,
-      outcome: 'WIN',
-      profit: 0.83,
-    },
-    {
-      id: 'sig-6',
-      timestamp: todayTimestamp - 3 * 3600 * 1000,
-      matchName: 'Florida Panthers vs Edmonton Oilers',
-      league: 'NHL',
-      sport: 'hockey',
-      ruleName: '🏒 Хоккей: Снятый вратарь в 3-м периоде (ТБ 5.5)',
-      targetMarket: 'Шайба в пустые ворота / ТБ',
-      odds: 1.75,
-      outcome: 'WIN',
-      profit: 0.75,
-    },
-    {
-      id: 'sig-7',
-      timestamp: todayTimestamp - 2.5 * 3600 * 1000,
-      matchName: 'Boston Celtics vs Los Angeles Lakers',
-      league: 'NBA',
-      sport: 'basketball',
-      ruleName: '🏀 Баскетбол: Взвинченный темп в 4-й четверти',
-      targetMarket: 'ТБ в 4-й четверти',
-      odds: 1.85,
-      outcome: 'WIN',
-      profit: 0.85,
-    },
-    {
-      id: 'sig-8',
-      timestamp: todayTimestamp - 2 * 3600 * 1000,
-      matchName: 'Paris Saint-Germain vs Monaco',
-      league: 'Ligue 1',
-      sport: 'football',
-      ruleName: '🔥 Доминирование при ничьей 0:0 (60-85 мин)',
-      targetMarket: 'Гол в матче',
-      odds: 1.75,
-      outcome: 'LOSS',
-      profit: -1.0,
-    },
-    {
-      id: 'sig-9',
-      timestamp: todayTimestamp - 1.5 * 3600 * 1000,
-      matchName: 'Zenit vs Spartak Moscow',
-      league: 'RPL',
-      sport: 'football',
-      ruleName: '🚩 «Угловой шторм на флангах» (ТБ 9.5 угловых ~1.75)',
-      targetMarket: 'ТБ 9.5 угловых',
-      odds: 1.75,
-      outcome: 'WIN',
-      profit: 0.75,
-    },
-    {
-      id: 'sig-10',
-      timestamp: todayTimestamp - 1 * 3600 * 1000,
-      matchName: 'Jannik Sinner vs Carlos Alcaraz',
-      league: 'ATP Finals',
-      sport: 'tennis',
-      ruleName: '🎾 Теннис: Брейк фаворита во 2-м сете',
-      targetMarket: 'Победа в сете/матче',
-      odds: 1.74,
-      outcome: 'WIN',
-      profit: 0.74,
-    },
-    {
-      id: 'sig-11',
-      timestamp: todayTimestamp - 30 * 60 * 1000,
-      matchName: 'Poland vs Italy',
-      league: 'Volleyball Nations League',
-      sport: 'volleyball',
-      ruleName: '🏐 Волейбол: Баланс в концовке партии (ТБ 45.5)',
-      targetMarket: 'ТБ очков в партии',
-      odds: 1.80,
-      outcome: 'WIN',
-      profit: 0.80,
-    },
-    {
-      id: 'sig-12',
-      timestamp: todayTimestamp - 15 * 60 * 1000,
-      matchName: 'Fan Zhendong vs Truls Moregard',
-      league: 'Olympic Games',
-      sport: 'table_tennis',
-      ruleName: '🏓 Настольный теннис: Волевой 5-й сет',
-      targetMarket: 'ТБ очков в решающем сете',
-      odds: 1.75,
-      outcome: 'WIN',
-      profit: 0.75,
-    }
-  ];
+  // Real live match events recorded for Telegram bots (strictly genuine, zero fake seeds)
+  const dailySignalEvents: TelegramSignalEvent[] = [];
 
-  function buildDailyTelegramReport(events: TelegramSignalEvent[], dateStr: string) {
+  function buildDailyTelegramReport(
+    events: TelegramSignalEvent[],
+    dateStr: string,
+    botName: string = 'Telegram Bot'
+  ) {
     const total = events.length;
+    if (total === 0) {
+      return (
+        `📊 <b>СУТОЧНЫЙ ОТЧЁТ: ${botName}</b>\n` +
+        `📅 <i>Дата: ${dateStr} | 23:59 МСК</i>\n\n` +
+        `ℹ️ <b>За сегодняшние сутки сигналов по фильтрам этого бота не зафиксировано.</b>\n` +
+        `✅ Все подключенные фильтры активны и ожидают критериев в линии.\n\n` +
+        `🤖 <i>SportSignal AI Automated Engine</i>`
+      );
+    }
+
     const won = events.filter((e) => e.outcome === 'WIN').length;
     const lost = events.filter((e) => e.outcome === 'LOSS').length;
     const refund = events.filter((e) => e.outcome === 'REFUND').length;
@@ -736,29 +604,35 @@ async function startServer() {
     const resolved = won + lost;
     const winRate = resolved > 0 ? ((won / resolved) * 100).toFixed(1) : '100.0';
     const totalProfit = events.reduce((acc, e) => acc + (e.profit || 0), 0).toFixed(2);
-    const avgOdds = total > 0 ? (events.reduce((acc, e) => acc + (e.odds || 1.75), 0) / total).toFixed(2) : '1.78';
+    const avgOdds = total > 0 ? (events.reduce((acc, e) => acc + (e.odds || 1.75), 0) / total).toFixed(2) : '1.75';
     const profitNum = parseFloat(totalProfit);
     const profitSign = profitNum >= 0 ? `+${totalProfit}` : totalProfit;
-    const roi = total > 0 ? ((profitNum / total) * 100).toFixed(1) : '0.0';
+    const roi = resolved > 0 ? ((profitNum / resolved) * 100).toFixed(1) : '0.0';
 
-    // Strategy performance breakdown
-    const stratMap: Record<string, { name: string; won: number; total: number; profit: number }> = {};
-    for (const e of events) {
-      const key = e.ruleName || 'Стратегия';
-      if (!stratMap[key]) stratMap[key] = { name: key, won: 0, total: 0, profit: 0 };
-      stratMap[key].total++;
-      if (e.outcome === 'WIN') stratMap[key].won++;
-      stratMap[key].profit += e.profit || 0;
-    }
-    const topStrats = Object.values(stratMap)
-      .sort((a, b) => b.won - a.won || b.profit - a.profit)
-      .slice(0, 5)
-      .map((s, idx) => `  ${idx + 1}. <b>${s.name}</b>: ${s.won}/${s.total} (${Math.round((s.won / s.total) * 100)}%) [${s.profit >= 0 ? `+${s.profit.toFixed(2)}` : s.profit.toFixed(2)}u]`)
+    // List of the ACTUAL real signals that triggered in THIS bot
+    const signalsList = events
+      .slice(0, 15)
+      .map((e, idx) => {
+        const icon = e.outcome === 'WIN' ? '✅' : e.outcome === 'LOSS' ? '❌' : e.outcome === 'REFUND' ? '🔄' : '⏳';
+        const outcomeLabel =
+          e.outcome === 'WIN'
+            ? `[+${(e.odds - 1).toFixed(2)}ф]`
+            : e.outcome === 'LOSS'
+            ? `[-1.00ф]`
+            : e.outcome === 'REFUND'
+            ? `[0.00ф]`
+            : `[LIVE]`;
+        return (
+          `  ${idx + 1}. ${icon} <b>${e.matchName}</b>\n` +
+          `     ↳ <i>${e.ruleName}</i> | Кэф: ${e.odds.toFixed(2)} | ${e.targetMarket || 'Исход'} ${outcomeLabel}`
+        );
+      })
       .join('\n');
 
-    return `📊 <b>СУТОЧНЫЙ ОТЧЁТ СИГНАЛОВ И ПРОХОДИМОСТИ</b>\n` +
-      `📅 <i>Дата: ${dateStr} | Footbalmonitor Bot</i>\n\n` +
-      `🎯 <b>Всего событий:</b> ${total}\n` +
+    return (
+      `📊 <b>СУТОЧНЫЙ ОТЧЁТ: ${botName}</b>\n` +
+      `📅 <i>Дата: ${dateStr} | 23:59 МСК</i>\n\n` +
+      `🎯 <b>Всего сигналов в боте:</b> ${total}\n` +
       `✅ <b>Прошло (WIN):</b> <b>${won}</b> (${winRate}%)\n` +
       `❌ <b>Не прошло (LOSS):</b> <b>${lost}</b>\n` +
       (refund > 0 ? `🔄 <b>Возврат (REFUND):</b> ${refund}\n` : '') +
@@ -766,9 +640,11 @@ async function startServer() {
       `\n` +
       `💰 <b>Итоговый профит:</b> <b>${profitSign} флэта</b>\n` +
       `📈 <b>Средний кэф:</b> ${avgOdds}\n` +
-      `💎 <b>ROI за сутки:</b> +${roi}%\n\n` +
-      `🏆 <b>ТОП стратегий за сутки:</b>\n${topStrats || '  Данные формируются в режиме реального времени'}\n\n` +
-      `🤖 <i>Footbalmonitor Automated Dispatch Engine</i>`;
+      `💎 <b>ROI:</b> ${profitNum >= 0 ? `+${roi}` : roi}%\n\n` +
+      `📋 <b>Сработавшие сигналы в этом боте:</b>\n${signalsList}\n` +
+      (total > 15 ? `\n<i>... и еще ${total - 15} сигналов</i>\n` : '\n') +
+      `🤖 <i>SportSignal AI Automated Engine</i>`
+    );
   }
 
   // API to fetch today's summary stats
@@ -805,7 +681,18 @@ async function startServer() {
 
   // API to record a signal event
   app.post('/api/telegram/record-event', (req, res) => {
-    const { matchName, league, sport = 'football', ruleName, targetMarket, odds = 1.75, outcome = 'WIN' } = req.body;
+    const {
+      matchName,
+      league,
+      sport = 'football',
+      ruleName,
+      targetMarket,
+      odds = 1.75,
+      outcome = 'WIN',
+      botId,
+      botToken,
+      chatId,
+    } = req.body;
     const profit = outcome === 'WIN' ? Number((odds - 1).toFixed(2)) : outcome === 'LOSS' ? -1.0 : 0;
     const newEvent: TelegramSignalEvent = {
       id: `ev-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
@@ -818,14 +705,17 @@ async function startServer() {
       odds: Number(odds),
       outcome,
       profit,
+      botId,
+      botToken,
+      chatId,
     };
     dailySignalEvents.push(newEvent);
     res.json({ ok: true, event: newEvent, totalToday: dailySignalEvents.length });
   });
 
-  // API to send the daily report to Telegram on-demand or at end of day
+  // API to send the daily report to Telegram on-demand or at end of day (strictly for a specific bot)
   app.post('/api/telegram/send-daily-report', async (req, res) => {
-    const { bot_token, chat_id, date_str } = req.body;
+    const { bot_token, chat_id, bot_id, bot_name, date_str, signals } = req.body;
     const token = (bot_token || process.env.TELEGRAM_BOT_TOKEN || '').trim();
     const targetChatId = (chat_id || process.env.TELEGRAM_CHAT_ID || '').trim();
 
@@ -837,7 +727,34 @@ async function startServer() {
     }
 
     const todayStr = date_str || new Date().toLocaleDateString('ru-RU');
-    const reportText = buildDailyTelegramReport(dailySignalEvents, todayStr);
+    const targetBotName = bot_name || 'SportSignal Bot';
+
+    // If client supplied signals specific to this bot, use them; otherwise filter recorded events for this bot
+    let botEvents: TelegramSignalEvent[] = [];
+    if (Array.isArray(signals)) {
+      botEvents = signals.map((s: any) => ({
+        id: s.id || `ev-${Date.now()}`,
+        timestamp: s.timestamp ? (typeof s.timestamp === 'number' ? s.timestamp : Date.now()) : Date.now(),
+        matchName: s.matchName || `${s.homeTeam || ''} vs ${s.awayTeam || ''}`.trim() || 'Матч',
+        league: s.league || 'Лига',
+        sport: s.sport || 'football',
+        ruleName: s.ruleName || 'Стратегия',
+        targetMarket: s.marketSuggestion || s.targetMarket || 'ТБ',
+        odds: Number(s.odds) || 1.75,
+        outcome: s.outcome || 'PENDING',
+        profit: s.profit !== undefined ? s.profit : s.outcome === 'WIN' ? Number(((s.odds || 1.75) - 1).toFixed(2)) : s.outcome === 'LOSS' ? -1 : 0,
+        botId: s.botId || bot_id,
+        botToken: s.botToken || token,
+        chatId: s.chatId || targetChatId,
+      }));
+    } else {
+      // Filter from recorded events
+      botEvents = dailySignalEvents.filter(
+        (e) => (e.botToken === token && e.chatId === targetChatId) || (bot_id && e.botId === bot_id)
+      );
+    }
+
+    const reportText = buildDailyTelegramReport(botEvents, todayStr, targetBotName);
 
     try {
       const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -851,7 +768,7 @@ async function startServer() {
         }),
       });
 
-      const data = await response.json() as any;
+      const data = (await response.json()) as any;
       if (data.ok) {
         return res.json({
           ok: true,
@@ -859,9 +776,10 @@ async function startServer() {
           sentAt: new Date().toISOString(),
           reportText,
           statsSummary: {
-            total: dailySignalEvents.length,
-            won: dailySignalEvents.filter((e) => e.outcome === 'WIN').length,
-            lost: dailySignalEvents.filter((e) => e.outcome === 'LOSS').length,
+            botName: targetBotName,
+            total: botEvents.length,
+            won: botEvents.filter((e) => e.outcome === 'WIN').length,
+            lost: botEvents.filter((e) => e.outcome === 'LOSS').length,
           },
         });
       } else {
@@ -878,23 +796,97 @@ async function startServer() {
     }
   });
 
-  // Automated end-of-day daily report cron (checks every minute, dispatches at 23:59)
-  let lastDailyReportDay = '';
+  // Bulk dispatch daily reports to ALL configured bots with their respective signals
+  app.post('/api/telegram/dispatch-daily-reports', async (req, res) => {
+    const { bots, date_str } = req.body;
+    if (!Array.isArray(bots) || bots.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Список ботов пуст' });
+    }
+
+    const todayStr = date_str || new Date().toLocaleDateString('ru-RU');
+    const results: any[] = [];
+
+    for (const b of bots) {
+      const token = (b.bot_token || '').trim();
+      const chatId = (b.chat_id || '').trim();
+      const botName = b.bot_name || 'Telegram Bot';
+      if (!token || !chatId) {
+        results.push({ botName, ok: false, error: 'Не указан token или chat_id' });
+        continue;
+      }
+
+      const botEvents: TelegramSignalEvent[] = Array.isArray(b.signals)
+        ? b.signals.map((s: any) => ({
+            id: s.id || `ev-${Date.now()}`,
+            timestamp: s.timestamp ? (typeof s.timestamp === 'number' ? s.timestamp : Date.now()) : Date.now(),
+            matchName: s.matchName || `${s.homeTeam || ''} vs ${s.awayTeam || ''}`.trim() || 'Матч',
+            league: s.league || 'Лига',
+            sport: s.sport || 'football',
+            ruleName: s.ruleName || 'Стратегия',
+            targetMarket: s.marketSuggestion || s.targetMarket || 'ТБ',
+            odds: Number(s.odds) || 1.75,
+            outcome: s.outcome || 'PENDING',
+            profit: s.profit !== undefined ? s.profit : s.outcome === 'WIN' ? Number(((s.odds || 1.75) - 1).toFixed(2)) : s.outcome === 'LOSS' ? -1 : 0,
+            botId: s.botId || b.bot_id,
+            botToken: token,
+            chatId,
+          }))
+        : [];
+
+      const reportText = buildDailyTelegramReport(botEvents, todayStr, botName);
+
+      try {
+        const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: reportText,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+          }),
+        });
+        const d = (await resp.json()) as any;
+        if (d.ok) {
+          results.push({
+            botName,
+            ok: true,
+            messageId: d.result?.message_id,
+            totalSignals: botEvents.length,
+          });
+        } else {
+          results.push({
+            botName,
+            ok: false,
+            error: humanizeTelegramError(d.description || 'Ошибка отправки'),
+          });
+        }
+      } catch (err: any) {
+        results.push({ botName, ok: false, error: err?.message || String(err) });
+      }
+    }
+
+    return res.json({ ok: true, results, dispatchedAt: new Date().toISOString() });
+  });
+
+  // Automated end-of-day daily report cron (checks every 30 seconds, dispatches at 23:59 MSK = UTC+3)
+  let lastDailyReportMskDay = '';
   setInterval(async () => {
     const now = new Date();
-    const currentDay = now.toISOString().slice(0, 10);
-    const hour = now.getHours();
-    const minute = now.getMinutes();
+    // Calculate Moscow Time (UTC+3)
+    const mskHours = (now.getUTCHours() + 3) % 24;
+    const mskMinutes = now.getUTCMinutes();
+    const mskDayKey = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}-${now.getUTCDate()}-${mskHours}`;
 
-    // Trigger at 23:59 once per day
-    if (hour === 23 && minute >= 58 && lastDailyReportDay !== currentDay) {
+    // Trigger at 23:59 MSK once per day
+    if (mskHours === 23 && mskMinutes === 59 && lastDailyReportMskDay !== mskDayKey) {
       const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
       const targetChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
 
       if (token && targetChatId) {
-        lastDailyReportDay = currentDay;
+        lastDailyReportMskDay = mskDayKey;
         const todayStr = now.toLocaleDateString('ru-RU');
-        const reportText = buildDailyTelegramReport(dailySignalEvents, todayStr);
+        const reportText = buildDailyTelegramReport(dailySignalEvents, todayStr, 'SportSignal Bot');
 
         try {
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -907,13 +899,13 @@ async function startServer() {
               disable_web_page_preview: true,
             }),
           });
-          console.log(`[Telegram Cron] Automatically dispatched daily report for ${todayStr} to ${targetChatId}`);
+          console.log(`[Telegram Cron 23:59 MSK] Automatically dispatched daily report for ${todayStr} to ${targetChatId}`);
         } catch (e: any) {
-          console.warn('[Telegram Cron] Failed to dispatch automatic daily report:', e?.message || e);
+          console.warn('[Telegram Cron 23:59 MSK] Failed to dispatch automatic daily report:', e?.message || e);
         }
       }
     }
-  }, 60 * 1000);
+  }, 30 * 1000);
 
   // AI Match Analyst in 1 Click (Powered by Gemini 3.1 Flash-Lite / 3.8 Flash with Token Caching & Heuristic Fallback)
   app.post('/api/ai/analyze-match', async (req, res) => {

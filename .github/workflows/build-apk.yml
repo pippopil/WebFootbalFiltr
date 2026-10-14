@@ -49,6 +49,7 @@ jobs:
         run: |
           mkdir -p android/app/src/main/assets/www
           cp -r dist/* android/app/src/main/assets/www/ || true
+          cp -r dist/* android/app/src/main/assets/ || true
           mkdir -p android/app/src/main/res/values
           mkdir -p android/app/src/main/java/com/sportsignal/app
 
@@ -113,6 +114,10 @@ jobs:
                   }
               }
           }
+
+          dependencies {
+              implementation 'androidx.webkit:webkit:1.10.0'
+          }
           EOF
 
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
@@ -121,11 +126,13 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
 
               <application
                   android:allowBackup="true"
                   android:label="@string/app_name"
                   android:supportsRtl="true"
+                  android:hardwareAccelerated="true"
                   android:usesCleartextTraffic="true">
                   <activity
                       android:name=".MainActivity"
@@ -152,9 +159,13 @@ jobs:
 
           import android.app.Activity;
           import android.os.Bundle;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import androidx.webkit.WebViewAssetLoader;
 
           public class MainActivity extends Activity {
               private WebView webView;
@@ -163,7 +174,15 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   webView = new WebView(this);
+                  webView.setBackgroundColor(0xFF020617);
                   setContentView(webView);
+
+                  final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                      .setDomain("appassets.androidplatform.net")
+                      .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                      .addPathHandler("/www/", new WebViewAssetLoader.AssetsPathHandler(this))
+                      .addPathHandler("/", new WebViewAssetLoader.AssetsPathHandler(this))
+                      .build();
 
                   WebSettings settings = webView.getSettings();
                   settings.setJavaScriptEnabled(true);
@@ -171,9 +190,48 @@ jobs:
                   settings.setDatabaseEnabled(true);
                   settings.setAllowFileAccess(true);
                   settings.setAllowContentAccess(true);
+                  settings.setAllowFileAccessFromFileURLs(true);
+                  settings.setAllowUniversalAccessFromFileURLs(true);
+                  settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setUserAgentString(settings.getUserAgentString() + " SportSignalAndroid/1.0");
 
-                  webView.setWebViewClient(new WebViewClient());
-                  webView.loadUrl("file:///android_asset/www/index.html");
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onConsoleMessage(android.webkit.ConsoleMessage cm) {
+                          android.util.Log.d("SportSignalApp", cm.message() + " -- Line " + cm.lineNumber() + " of " + cm.sourceId());
+                          return true;
+                      }
+                  });
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          WebResourceResponse response = assetLoader.shouldInterceptRequest(request.getUrl());
+                          if (response != null) {
+                              java.util.Map<String, String> headers = response.getResponseHeaders();
+                              if (headers == null) {
+                                  headers = new java.util.HashMap<>();
+                              }
+                              headers.put("Access-Control-Allow-Origin", "*");
+                              headers.put("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                              headers.put("Access-Control-Allow-Headers", "*");
+                              response.setResponseHeaders(headers);
+                          }
+                          return response;
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                          android.util.Log.e("SportSignalApp", "Error: " + description + " at " + failingUrl);
+                          if (failingUrl != null && failingUrl.contains("appassets.androidplatform.net")) {
+                              view.loadUrl("file:///android_asset/www/index.html");
+                          }
+                      }
+                  });
+
+                  // Load via secure asset loader origin to ensure full ES module and relative path compatibility
+                  webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html");
               }
 
               @Override

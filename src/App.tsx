@@ -22,6 +22,7 @@ import {
   Radio,
   Share2,
   Filter,
+  Flag,
   ArrowUpRight,
   TrendingUp,
   TrendingDown,
@@ -158,6 +159,7 @@ import { AIStrategySynthesizerModal } from './components/AIStrategySynthesizerMo
 import { EducationGuideView } from './components/EducationGuideView';
 import { StrategyMarketplaceModal } from './components/StrategyMarketplaceModal';
 import { BankrollTrackerModal } from './components/BankrollTrackerModal';
+import { SignalsBankrollProgressChart } from './components/SignalsBankrollProgressChart';
 import { OddsMovementRadarModal } from './components/OddsMovementRadarModal';
 import { MatchMomentumRadarModal } from './components/MatchMomentumRadarModal';
 import { voiceAnnouncer } from './services/voiceAlertAnnouncer';
@@ -1730,6 +1732,7 @@ export default function App() {
   const [selectedSport, setSelectedSport] = useState<SportType | 'all'>('football');
   const [signalsViewMode, setSignalsViewMode] = useState<'table' | 'cards'>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [matchQuickFilter, setMatchQuickFilter] = useState<'all' | 'live' | 'prematch' | 'over25' | 'odds_drop' | 'corners' | 'pressure'>('all');
 
   // Site Analytics & Yandex Metrika state
   const [analytics, setAnalytics] = useState<SiteAnalyticsData>(() => loadAndRegisterSiteVisit());
@@ -1784,41 +1787,6 @@ export default function App() {
   // Daily Telegram Report state
   const [sendingDailyReport, setSendingDailyReport] = useState<boolean>(false);
   const [dailyReportToast, setDailyReportToast] = useState<string | null>(null);
-
-  const handleSendDailyReport = async () => {
-    const token = (telegramConfig.botToken || '').trim();
-    const chatId = (telegramConfig.channelId || '').trim();
-
-    if (!token || !chatId) {
-      setActiveTab('telegram');
-      alert('Пожалуйста, укажите Telegram Bot Token и Chat ID во вкладке Telegram Бот.');
-      return;
-    }
-
-    setSendingDailyReport(true);
-    try {
-      const res = await fetch('/api/telegram/send-daily-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bot_token: token,
-          chat_id: chatId,
-          date_str: new Date().toLocaleDateString('ru-RU'),
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setDailyReportToast('✅ ' + (data.statsSummary ? `Суточный отчёт отправлен: ${data.statsSummary.total} событий (${data.statsSummary.won} WIN / ${data.statsSummary.lost} LOSS)` : 'Суточный отчёт отправлен в Telegram!'));
-        setTimeout(() => setDailyReportToast(null), 5000);
-      } else {
-        alert(`Ошибка отправки: ${data.error || 'Не удалось отправить'}`);
-      }
-    } catch (e: any) {
-      alert(`Ошибка сети: ${e?.message || e}`);
-    } finally {
-      setSendingDailyReport(false);
-    }
-  };
 
   // User Management & Cabinet Handlers
   const handleSelectUser = (newUser: UserProfile) => {
@@ -2976,6 +2944,145 @@ export default function App() {
     }
   };
 
+  // Helper: extract all active configured Telegram bots for current user
+  const getAllConfiguredBots = (): Array<{ id: string; name: string; botToken: string; channelId: string; isDefault?: boolean }> => {
+    const list: Array<{ id: string; name: string; botToken: string; channelId: string; isDefault?: boolean }> = [];
+
+    if (currentUser?.telegramBots && currentUser.telegramBots.length > 0) {
+      currentUser.telegramBots.forEach((b) => {
+        if (b.botToken && b.channelId && b.active !== false) {
+          list.push({
+            id: b.id,
+            name: b.name || 'Telegram Bot',
+            botToken: b.botToken.trim(),
+            channelId: b.channelId.trim(),
+            isDefault: b.isDefault,
+          });
+        }
+      });
+    }
+
+    if (telegramConfig.botToken && telegramConfig.channelId) {
+      const already = list.some(
+        (b) => b.botToken === telegramConfig.botToken.trim() && b.channelId === telegramConfig.channelId.trim()
+      );
+      if (!already) {
+        list.unshift({
+          id: 'default',
+          name: 'Основной бот',
+          botToken: telegramConfig.botToken.trim(),
+          channelId: telegramConfig.channelId.trim(),
+          isDefault: true,
+        });
+      }
+    }
+
+    return list;
+  };
+
+  // Helper: get the EXACT real signals routed to a specific bot
+  const getSignalsForSpecificBot = (bot: { id: string; botToken: string; channelId: string; isDefault?: boolean }) => {
+    return signals.filter((sig) => {
+      // 1. Explicit botId
+      if (sig.botId && sig.botId === bot.id) return true;
+      // 2. Direct token and chat match
+      if (sig.botToken && sig.chatId && sig.botToken === bot.botToken && sig.chatId === bot.channelId) return true;
+      // 3. Strategy assigned to this bot
+      if (sig.ruleId) {
+        const rule = filters.find((f) => f.id === sig.ruleId);
+        if (rule?.botId === bot.id) return true;
+        if (!rule?.botId && bot.isDefault) return true;
+      }
+      // 4. Default bot catches signals without a custom bot assignment
+      if (bot.isDefault && (!sig.botId || sig.botId === 'default' || !sig.botToken)) return true;
+      return false;
+    });
+  };
+
+  const handleSendDailyReport = async (isAutoCron = false, specificBotId?: string) => {
+    const configuredBots = getAllConfiguredBots();
+
+    if (configuredBots.length === 0) {
+      if (!isAutoCron) {
+        setActiveTab('telegram');
+        alert('Пожалуйста, укажите Telegram Bot Token и Chat ID во вкладке Telegram Бот.');
+      }
+      return;
+    }
+
+    const targetBots = specificBotId
+      ? configuredBots.filter((b) => b.id === specificBotId)
+      : configuredBots;
+
+    setSendingDailyReport(true);
+    try {
+      const dateStr = new Date().toLocaleDateString('ru-RU');
+      const botsPayload = targetBots.map((bot) => {
+        const botSignals = getSignalsForSpecificBot(bot);
+        return {
+          bot_token: bot.botToken,
+          chat_id: bot.channelId,
+          bot_id: bot.id,
+          bot_name: bot.name,
+          signals: botSignals,
+        };
+      });
+
+      const res = await fetch('/api/telegram/dispatch-daily-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bots: botsPayload,
+          date_str: dateStr,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        const successCount = (data.results || []).filter((r: any) => r.ok).length;
+        const msg = `✅ Суточный отчёт (23:59 МСК) отправлен в ${successCount} из ${targetBots.length} настроенных ботов! Отчёт сформирован строго из реальных сигналов каждого конкретного бота.`;
+        setDailyReportToast(msg);
+        setTimeout(() => setDailyReportToast(null), 6000);
+      } else {
+        if (!isAutoCron) {
+          alert(`Ошибка отправки: ${data.error || 'Не удалось отправить отчёт'}`);
+        }
+      }
+    } catch (e: any) {
+      if (!isAutoCron) {
+        alert(`Ошибка сети: ${e?.message || e}`);
+      }
+    } finally {
+      setSendingDailyReport(false);
+    }
+  };
+
+  // Automated 23:59 MSK Daily Report Scheduler (checks every 25 seconds)
+  useEffect(() => {
+    const checkMskDailyCron = () => {
+      try {
+        const now = new Date();
+        // Calculate Moscow Time (UTC+3)
+        const mskHours = (now.getUTCHours() + 3) % 24;
+        const mskMinutes = now.getUTCMinutes();
+        const mskDayKey = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}-${now.getUTCDate()}`;
+        const lastSentDay = localStorage.getItem('sportsignal_last_msk_daily_report_day');
+
+        // Trigger at 23:59 MSK once per day
+        if (mskHours === 23 && mskMinutes === 59 && lastSentDay !== mskDayKey) {
+          localStorage.setItem('sportsignal_last_msk_daily_report_day', mskDayKey);
+          console.log(`[Auto Cron 23:59 MSK] Dispatching daily reports to all configured bots for ${mskDayKey}`);
+          handleSendDailyReport(true);
+        }
+      } catch (e) {
+        console.warn('MSK Daily cron notice:', e);
+      }
+    };
+
+    const cronInterval = setInterval(checkMskDailyCron, 25000);
+    return () => clearInterval(cronInterval);
+  }, [signals, filters, currentUser, telegramConfig]);
+
   // Rewrite Telegram message for a specific signal with outcome result
   const handleRewriteTelegramMessage = async (sig: SignalAlert, overrideOutcome?: SignalOutcome) => {
     if (!sig.telegramMessageId) {
@@ -3104,10 +3211,29 @@ export default function App() {
       if (!match) return;
 
       const isFinished = match.status === 'FT' || match.minute >= 90;
-      const evalRes = evaluateSignalOutcome(sig, match.score, isFinished, match.stats?.corners, match.stats);
+      const evalRes = evaluateSignalOutcome(
+        sig,
+        match.score,
+        isFinished,
+        match.stats?.corners,
+        match.stats,
+        {
+          matchStatus: match.status,
+          minute: match.minute,
+          firstHalfScore: match.history?.firstHalfScore,
+        }
+      );
 
       if (evalRes.shouldResolve) {
-        const finalScoreStr = `${match.score[0]}:${match.score[1]}`;
+        // Record 1st-half score snapshot on match history if not yet recorded
+        if ((match.status === 'HT' || match.minute >= 45) && !match.history?.firstHalfScore) {
+          match.history = { ...match.history, firstHalfScore: [match.score[0], match.score[1]] };
+        }
+
+        const isHalfTimeRes = evalRes.note?.includes('1-й тайм') || evalRes.note?.includes('перерыв');
+        const finalScoreStr = isHalfTimeRes && match.history?.firstHalfScore
+          ? `${match.history.firstHalfScore[0]}:${match.history.firstHalfScore[1]}`
+          : `${match.score[0]}:${match.score[1]}`;
         const stake = sig.stake || 1000;
         const profit =
           evalRes.outcome === 'WIN'
@@ -3460,6 +3586,48 @@ export default function App() {
     [filters, currentUser?.id]
   );
 
+  // Pre-calculate counts for the quick filter buttons under the search bar
+  const quickFilterCounts = useMemo(() => {
+    const baseMatches = matches.filter((m) => {
+      if (filterTrackedOnly && !trackedMatchIds.includes(m.id)) return false;
+      const mSport = m.sport || inferSportFromMatch(m);
+      if (selectedSport !== 'all' && mSport !== selectedSport) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          m.homeTeam.toLowerCase().includes(q) ||
+          m.awayTeam.toLowerCase().includes(q) ||
+          m.league.toLowerCase().includes(q) ||
+          m.country.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+
+    return {
+      all: baseMatches.length,
+      live: baseMatches.filter((m) => m.status === 'LIVE' || m.status === 'HT').length,
+      prematch: baseMatches.filter((m) => m.status === 'PREMATCH').length,
+      over25: baseMatches.filter((m) => {
+        const currentGoals = (m.score[0] || 0) + (m.score[1] || 0);
+        return (
+          currentGoals >= 2 ||
+          (m.odds?.over25 && m.odds.over25 <= 1.95) ||
+          ((m.history?.homeOver25CountLast5 || 0) >= 3 || (m.history?.awayOver25CountLast5 || 0) >= 3)
+        );
+      }).length,
+      odds_drop: baseMatches.filter((m) =>
+        Boolean(m.oddsDrop || (m.marketFlows && m.marketFlows.length > 0) || m.history?.prematchInsiderDropReason)
+      ).length,
+      corners: baseMatches.filter((m) => ((m.stats.corners[0] || 0) + (m.stats.corners[1] || 0)) >= 6).length,
+      pressure: baseMatches.filter((m) => {
+        const dang = (m.stats.dangerousAttacks[0] || 0) + (m.stats.dangerousAttacks[1] || 0);
+        const att = (m.stats.attacks[0] || 0) + (m.stats.attacks[1] || 0);
+        return dang >= 25 || att >= 55;
+      }).length,
+    };
+  }, [matches, selectedSport, filterTrackedOnly, trackedMatchIds, searchQuery]);
+
   const filteredMatches = useMemo(() => {
     // Ensure deduplication by unique match.id to prevent any React duplicate key warnings
     const seenIds = new Set<string>();
@@ -3482,12 +3650,48 @@ export default function App() {
         if (selectedSport !== 'all' && mSport !== selectedSport) {
           return false;
         }
-        return (
-          m.homeTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.awayTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.league.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.country.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+
+        // Search query filter
+        if (
+          searchQuery.trim() &&
+          !(
+            m.homeTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.awayTeam.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.league.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.country.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        ) {
+          return false;
+        }
+
+        // Quick filter buttons below search
+        if (matchQuickFilter === 'live') {
+          if (m.status !== 'LIVE' && m.status !== 'HT') return false;
+        } else if (matchQuickFilter === 'prematch') {
+          if (m.status !== 'PREMATCH') return false;
+        } else if (matchQuickFilter === 'over25') {
+          const currentGoals = (m.score[0] || 0) + (m.score[1] || 0);
+          const hasOver25Odds = m.odds?.over25 && m.odds.over25 <= 1.95;
+          const hasOver25History =
+            (m.history?.homeOver25CountLast5 || 0) >= 3 || (m.history?.awayOver25CountLast5 || 0) >= 3;
+          if (currentGoals < 2 && !hasOver25Odds && !hasOver25History) return false;
+        } else if (matchQuickFilter === 'odds_drop') {
+          const hasDrop = Boolean(
+            m.oddsDrop ||
+            (m.marketFlows && m.marketFlows.length > 0) ||
+            m.history?.prematchInsiderDropReason
+          );
+          if (!hasDrop) return false;
+        } else if (matchQuickFilter === 'corners') {
+          const totalCorners = (m.stats.corners[0] || 0) + (m.stats.corners[1] || 0);
+          if (totalCorners < 6) return false;
+        } else if (matchQuickFilter === 'pressure') {
+          const dang = (m.stats.dangerousAttacks[0] || 0) + (m.stats.dangerousAttacks[1] || 0);
+          const att = (m.stats.attacks[0] || 0) + (m.stats.attacks[1] || 0);
+          if (dang < 25 && att < 55) return false;
+        }
+
+        return true;
       }
     );
 
@@ -3511,21 +3715,40 @@ export default function App() {
         if (aCount !== bCount) return bCount - aCount;
       }
 
-      // 3. Status grouping: LIVE first, then PREMATCH, then FT
+      // 3. If a specific quick filter is active, sort by that metric
+      if (matchQuickFilter === 'over25') {
+        const goalsA = (a.score[0] || 0) + (a.score[1] || 0);
+        const goalsB = (b.score[0] || 0) + (b.score[1] || 0);
+        if (goalsB !== goalsA) return goalsB - goalsA;
+      } else if (matchQuickFilter === 'odds_drop') {
+        const dropA = Math.abs(a.oddsDrop?.dropPercent || 0);
+        const dropB = Math.abs(b.oddsDrop?.dropPercent || 0);
+        if (dropB !== dropA) return dropB - dropA;
+      } else if (matchQuickFilter === 'corners') {
+        const cA = (a.stats.corners[0] || 0) + (a.stats.corners[1] || 0);
+        const cB = (b.stats.corners[0] || 0) + (b.stats.corners[1] || 0);
+        if (cB !== cA) return cB - cA;
+      } else if (matchQuickFilter === 'pressure') {
+        const pA = (a.stats.dangerousAttacks[0] || 0) + (a.stats.dangerousAttacks[1] || 0);
+        const pB = (b.stats.dangerousAttacks[0] || 0) + (b.stats.dangerousAttacks[1] || 0);
+        if (pB !== pA) return pB - pA;
+      }
+
+      // 4. Status grouping: LIVE first, then PREMATCH, then FT
       const statusOrder: Record<string, number> = { LIVE: 0, HT: 1, PREMATCH: 2, FT: 3 };
       const aOrder = statusOrder[a.status] ?? 2;
       const bOrder = statusOrder[b.status] ?? 2;
       if (aOrder !== bOrder) return aOrder - bOrder;
 
-      // 4. For PREMATCH matches: sort by startsInMinutes ascending (e.g. 60 min before 180 min)
+      // 5. For PREMATCH matches: sort by startsInMinutes ascending (e.g. 60 min before 180 min)
       if (a.status === 'PREMATCH' && b.status === 'PREMATCH') {
         return (a.startsInMinutes ?? 999) - (b.startsInMinutes ?? 999);
       }
 
-      // 5. For LIVE matches: sort by minute descending
+      // 6. For LIVE matches: sort by minute descending
       return (b.minute || 0) - (a.minute || 0);
     });
-  }, [matches, searchQuery, getMatchTriggeredCount, signals, selectedSport, filterTrackedOnly, trackedMatchIds]);
+  }, [matches, searchQuery, matchQuickFilter, getMatchTriggeredCount, signals, selectedSport, filterTrackedOnly, trackedMatchIds]);
 
   // Screen resize watcher for desktop 2-column layout
   useEffect(() => {
@@ -4163,10 +4386,10 @@ export default function App() {
             {/* Daily Telegram Performance Report */}
             <button
               id="send-daily-report-header-btn"
-              onClick={handleSendDailyReport}
+              onClick={() => handleSendDailyReport(false)}
               disabled={sendingDailyReport}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-              title="Отправить суточный отчёт в Telegram"
+              title="Отправить суточный отчёт во все настроенные боты (по 23:59 МСК)"
             >
               <BarChart3 className={`h-3.5 w-3.5 text-blue-400 ${sendingDailyReport ? 'animate-pulse' : ''}`} />
               <span>{sendingDailyReport ? 'Отправка...' : t('sendDailyReport')}</span>
@@ -5194,6 +5417,95 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Quick Filter & Sort Buttons Panel directly below search-match-input */}
+              <div
+                id="matches-quick-filters-bar"
+                className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar text-xs"
+              >
+                {[
+                  {
+                    id: 'all',
+                    label: 'Все',
+                    icon: null,
+                    count: quickFilterCounts.all,
+                    activeClass: 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-950/50',
+                  },
+                  {
+                    id: 'live',
+                    label: 'Live',
+                    icon: Activity,
+                    count: quickFilterCounts.live,
+                    activeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm ring-1 ring-emerald-500/30',
+                  },
+                  {
+                    id: 'prematch',
+                    label: 'Прематч',
+                    icon: Clock,
+                    count: quickFilterCounts.prematch,
+                    activeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/50 shadow-sm ring-1 ring-blue-500/30',
+                  },
+                  {
+                    id: 'over25',
+                    label: 'ТБ 2.5',
+                    icon: Flame,
+                    count: quickFilterCounts.over25,
+                    activeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm ring-1 ring-amber-500/30',
+                  },
+                  {
+                    id: 'odds_drop',
+                    label: 'Прогруз',
+                    icon: TrendingDown,
+                    count: quickFilterCounts.odds_drop,
+                    activeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-sm ring-1 ring-rose-500/30',
+                  },
+                  {
+                    id: 'corners',
+                    label: 'Угловые',
+                    icon: Flag,
+                    count: quickFilterCounts.corners,
+                    activeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-sm ring-1 ring-purple-500/30',
+                  },
+                  {
+                    id: 'pressure',
+                    label: 'Штурм',
+                    icon: Zap,
+                    count: quickFilterCounts.pressure,
+                    activeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm ring-1 ring-cyan-500/30',
+                  },
+                ].map((btn) => {
+                  const isSelected = matchQuickFilter === btn.id;
+                  const Icon = btn.icon;
+                  return (
+                    <button
+                      key={btn.id}
+                      type="button"
+                      onClick={() => {
+                        triggerTgHaptic('light');
+                        setMatchQuickFilter(isSelected && btn.id !== 'all' ? 'all' : (btn.id as any));
+                      }}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 shrink-0 whitespace-nowrap active:scale-95 ${
+                        isSelected
+                          ? btn.activeClass
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                      title={`Фильтровать и сортировать матчи: ${btn.label}`}
+                    >
+                      {Icon && <Icon className={`h-3 w-3 ${isSelected ? 'animate-pulse' : ''}`} />}
+                      <span>{btn.label}</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                          isSelected
+                            ? 'bg-black/40 text-white font-bold'
+                            : 'bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {btn.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Feed mode indicator bar */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-lg px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400">
                 <div className="flex items-center gap-2">
@@ -5565,6 +5877,17 @@ export default function App() {
                         className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition"
                       >
                         {t('showAllMatches')}
+                      </button>
+                    ) : matchQuickFilter !== 'all' ? (
+                      <button
+                        type="button"
+                        onClick={() => setMatchQuickFilter('all')}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold rounded-xl text-xs transition inline-flex items-center gap-1.5"
+                      >
+                        <span>Сбросить фильтр</span>
+                        <span className="font-normal text-slate-400">
+                          («{matchQuickFilter === 'live' ? 'Live' : matchQuickFilter === 'prematch' ? 'Прематч' : matchQuickFilter === 'over25' ? 'ТБ 2.5' : matchQuickFilter === 'odds_drop' ? 'Прогруз' : matchQuickFilter === 'corners' ? 'Угловые' : 'Штурм'}»)
+                        </span>
                       </button>
                     ) : (
                       <button
@@ -7703,6 +8026,9 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Interactive 30-Day Bankroll Progress, Yield (ROI) & WinRate Chart (Recharts) */}
+                <SignalsBankrollProgressChart signals={signals} initialBank={100000} flatStake={2000} />
+
                 {/* Multi-Sport Selector Bar for Signals */}
                 <div className="flex items-center gap-1.5 p-1.5 bg-slate-900/80 border border-slate-800 rounded-xl overflow-x-auto text-xs">
                   {[
@@ -8615,25 +8941,30 @@ export default function App() {
                         <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
                           <div className="text-[10px] uppercase font-bold text-slate-400">Всего сигналов</div>
                           <div className="text-base font-black text-white font-mono mt-0.5">
-                            {signals.length > 0 ? signals.length : '14'}
+                            {signals.length}
                           </div>
                         </div>
                         <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/30">
                           <div className="text-[10px] uppercase font-bold text-emerald-400">Прошло (WIN)</div>
                           <div className="text-base font-black text-emerald-300 font-mono mt-0.5">
-                            {signals.filter((s) => s.outcome === 'WIN').length > 0 ? signals.filter((s) => s.outcome === 'WIN').length : '13'}
+                            {signals.filter((s) => s.outcome === 'WIN').length}
                           </div>
                         </div>
                         <div className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-500/30">
                           <div className="text-[10px] uppercase font-bold text-rose-400">Не прошло (LOSS)</div>
                           <div className="text-base font-black text-rose-300 font-mono mt-0.5">
-                            {signals.filter((s) => s.outcome === 'LOSS').length > 0 ? signals.filter((s) => s.outcome === 'LOSS').length : '1'}
+                            {signals.filter((s) => s.outcome === 'LOSS').length}
                           </div>
                         </div>
                         <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30">
                           <div className="text-[10px] uppercase font-bold text-amber-400">Проходимость</div>
                           <div className="text-base font-black text-amber-300 font-mono mt-0.5">
-                            92.9%
+                            {(() => {
+                              const w = signals.filter((s) => s.outcome === 'WIN').length;
+                              const l = signals.filter((s) => s.outcome === 'LOSS').length;
+                              const res = w + l;
+                              return res > 0 ? `${((w / res) * 100).toFixed(1)}%` : '100%';
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -8641,16 +8972,17 @@ export default function App() {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
                         <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5 text-blue-400" />
-                          <span>Бот отправит отчет в конце суток (23:59) или мгновенно по кнопке:</span>
+                          <span>Авто-отправка в каждый настроенный бот по умолчанию в <b>23:59 по МСК</b> (только реальные сигналы бота):</span>
                         </div>
                         <button
                           type="button"
-                          onClick={handleSendDailyReport}
-                          disabled={sendingDailyReport || !telegramConfig.botToken || !telegramConfig.channelId}
+                          onClick={() => handleSendDailyReport(false)}
+                          disabled={sendingDailyReport}
                           className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-950/50 flex items-center justify-center gap-2 transition disabled:opacity-50 active:scale-95 shrink-0"
+                          title="Отправить суточный отчёт во все настроенные боты прямо сейчас"
                         >
                           <Send className={`h-3.5 w-3.5 ${sendingDailyReport ? 'animate-pulse' : ''}`} />
-                          <span>{sendingDailyReport ? 'Отправка...' : t('reportCardSendNow')}</span>
+                          <span>{sendingDailyReport ? 'Отправка...' : 'Отправить в боты сейчас (23:59 МСК)'}</span>
                         </button>
                       </div>
                     </div>

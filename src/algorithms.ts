@@ -1,4 +1,4 @@
-import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats, SportType } from './types';
+import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats, SportType, MatchStatus } from './types';
 import { getStrategyCardDisplayName } from './utils/filterDefaults';
 
 /**
@@ -2062,13 +2062,24 @@ export function formatResolvedTelegramAlert(
 
   const betTypeLabel = signal.betType === 'PREMATCH' ? '📋 Предматчевый отбор' : '🔴 Лайв ставка';
 
+  const isHalfTimeResolution =
+    signal.period === '1-й тайм' ||
+    signal.resolutionNote?.includes('1-й тайм') ||
+    signal.resolutionNote?.includes('перерыв') ||
+    signal.ruleName.toLowerCase().includes('1-й тайм') ||
+    signal.marketSuggestion?.toLowerCase().includes('1-й тайм') ||
+    signal.marketSuggestion?.toLowerCase().includes('1т');
+
+  const matchStatusTag = isHalfTimeResolution ? '[1-й тайм завершён • Перерыв]' : '[Матч завершён]';
+  const outcomeLabel = isHalfTimeResolution ? 'Итог 1-го тайма:' : 'Итог:';
+
   return (
     `${statusHeader}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🏷 <b>Категория:</b> ${betTypeLabel}\n` +
     `📋 <b>Стратегия:</b> ${ruleName}\n` +
     `🏆 <b>${country} | ${league}</b>\n` +
-    `⚽ <b>${home} ${finalScore} ${away}</b> [Матч завершён]\n` +
+    `⚽ <b>${home} ${finalScore} ${away}</b> ${matchStatusTag}\n` +
     `${scoreChangeNote}\n` +
     (marketSuggestion
       ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -2077,21 +2088,26 @@ export function formatResolvedTelegramAlert(
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
       : '') +
     `📈 <b>Коэффициент:</b> <b>${signal.odds.toFixed(2)}</b>\n` +
-    `💰 <b>Итог:</b> <b>${isWin ? '✅ ПРОШЛО' : isLoss ? '❌ НЕ ПРОШЛО' : '🔄 ВОЗВРАТ'}</b> [${profitText}]\n\n` +
+    `💰 <b>${outcomeLabel}</b> <b>${isWin ? '✅ ПРОШЛО' : isLoss ? '❌ НЕ ПРОШЛО' : '🔄 ВОЗВРАТ'}</b> [${profitText}]\n\n` +
     `⏱ <i>Результат зафиксирован: ${new Date().toLocaleTimeString('ru-RU')}</i>`
   );
 }
 
 /**
  * Automatically evaluates whether a signal outcome was successful (WIN) or not (LOSS).
- * Supports early wins (e.g. goal scored for Over market) or final whistle evaluations.
+ * Supports early wins, first-half conclusion evaluations at HT (Перерыв), or final whistle evaluations.
  */
 export function evaluateSignalOutcome(
   signal: SignalAlert,
   currentScore: [number, number],
   isMatchFinished: boolean,
   currentCorners?: [number, number],
-  currentStats?: MatchStats
+  currentStats?: MatchStats,
+  matchContext?: {
+    matchStatus?: MatchStatus;
+    minute?: number;
+    firstHalfScore?: [number, number];
+  }
 ): { outcome: SignalOutcome; note?: string; shouldResolve: boolean } {
   const initialParts = signal.score.split(':').map((s: string) => parseInt(s.trim(), 10));
   const initHome = isNaN(initialParts[0]) ? 0 : initialParts[0];
@@ -2104,6 +2120,116 @@ export function evaluateSignalOutcome(
   const goalsSinceSignal = currentTotalGoals - initialTotalGoals;
 
   const market = (signal.marketSuggestion || signal.ruleName).toLowerCase();
+  const ruleNameLower = signal.ruleName.toLowerCase();
+
+  // ⏱️ First-half signal detection: must be evaluated when the 1st half ends, NOT waiting for full match finish!
+  const isFirstHalfSignal =
+    signal.period === '1-й тайм' ||
+    signal.ruleCategory === 'halftime' ||
+    market.includes('1-й тайм') ||
+    market.includes('1 тайм') ||
+    market.includes('1-м тайм') ||
+    market.includes('1-го тайм') ||
+    market.includes('первом тайм') ||
+    market.includes('первый тайм') ||
+    market.includes('1т') ||
+    market.includes('1ht') ||
+    market.includes('ht') ||
+    ruleNameLower.includes('1-й тайм') ||
+    ruleNameLower.includes('1 тайм') ||
+    ruleNameLower.includes('1т') ||
+    ruleNameLower.includes('первом тайм') ||
+    (signal.minute <= 45 && (market.includes('тб 0.5') || market.includes('гол в')));
+
+  // Did the first half finish (HT break, second half begun >= 46', or FT)?
+  const isHalfTimeEnded =
+    isMatchFinished ||
+    matchContext?.matchStatus === 'HT' ||
+    matchContext?.matchStatus === 'FT' ||
+    (matchContext?.minute !== undefined && matchContext.minute > 45) ||
+    (matchContext?.matchStatus === 'LIVE' && matchContext.minute !== undefined && matchContext.minute >= 46);
+
+  // 🎯 FIRST-HALF RESOLUTION (Resolves at the end of 1st half / HT, with immediate Telegram rewrite on failure or win)
+  if (isFirstHalfSignal) {
+    // If a goal was scored during the 1st half or at HT -> WIN!
+    if (goalsSinceSignal > 0 && (matchContext?.minute === undefined || matchContext.minute <= 45 || matchContext?.matchStatus === 'HT')) {
+      return {
+        outcome: 'WIN',
+        note: `Гол в 1-м тайме забит (${curHome}:${curAway}, +${goalsSinceSignal} гол)!`,
+        shouldResolve: true,
+      };
+    }
+
+    // Corners in 1st half
+    if (market.includes('угл') || market.includes('corner')) {
+      const initCornersH = signal.statsSnapshot?.corners?.[0] ?? 0;
+      const initCornersA = signal.statsSnapshot?.corners?.[1] ?? 0;
+      const initTotalCorners = initCornersH + initCornersA;
+      const curCornersTotal = currentCorners ? (currentCorners[0] + currentCorners[1]) : initTotalCorners;
+      const newCorners = curCornersTotal - initTotalCorners;
+
+      if (newCorners >= 2 || (curCornersTotal >= 5 && newCorners >= 1)) {
+        return {
+          outcome: 'WIN',
+          note: `Угловые в 1-м тайме зашли: +${newCorners} угловых (итого ${curCornersTotal})`,
+          shouldResolve: true,
+        };
+      }
+      if (isHalfTimeEnded) {
+        return {
+          outcome: newCorners >= 1 ? 'WIN' : 'LOSS',
+          note: newCorners >= 1
+            ? `Поданы угловые в 1-м тайме (+${newCorners}, счёт ${curHome}:${curAway})`
+            : `Недостаточно угловых в 1-м тайме (+${newCorners}, перерыв при ${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // Outcome in 1st half (П1 / П2 / Ничья 1-й тайм)
+    if (market.includes('п1') || market.includes('победа 1') || market.includes('победа хозяев')) {
+      if (isHalfTimeEnded) {
+        const isWin = curHome > curAway;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin ? `П1 в 1-м тайме зашла (${curHome}:${curAway})` : `П1 в 1-м тайме не зашла (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+    if (market.includes('п2') || market.includes('победа 2') || market.includes('победа гостей')) {
+      if (isHalfTimeEnded) {
+        const isWin = curAway > curHome;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin ? `П2 в 1-м тайме зашла (${curHome}:${curAway})` : `П2 в 1-м тайме не зашла (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // Default 1st half Goal/Total market (e.g. Гол в 1-м тайме, ТБ 0.5 1Т)
+    if (isHalfTimeEnded) {
+      if (goalsSinceSignal > 0) {
+        return {
+          outcome: 'WIN',
+          note: `Гол в 1-м тайме зафиксирован (счёт к перерыву ${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      } else {
+        return {
+          outcome: 'LOSS',
+          note: `1-й тайм завершился без забитых голов (счёт к перерыву ${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+    }
+
+    return { outcome: 'PENDING', shouldResolve: false };
+  }
 
   // 0-cards. Card markets (Желтые карточки, Красные карточки, Удаление, Карточки ТБ, ЖК)
   if (
