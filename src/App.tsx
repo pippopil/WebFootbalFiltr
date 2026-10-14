@@ -88,6 +88,7 @@ import {
   isUserDeveloper,
   cleanPresetTitle,
   getStrategyCardDisplayName,
+  PRESET_STRATEGY_NUMBER_BY_ID,
 } from './utils/filterDefaults';
 import { isPwaStandalone } from './utils/pwaManager';
 import { PwaSubscriptionPaywall } from './components/PwaSubscriptionPaywall';
@@ -1664,10 +1665,10 @@ export default function App() {
     if (isFree) {
       return [createCleanBlankFilter(uid)];
     }
-    return EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
+    return EXPANDED_DEFAULT_FILTERS.map((f) => ({
       ...f,
       sport: (f.sport || inferSportFromRule(f) || 'football') as SportType,
-      enabled: idx === 0, // Only 1 filter launched initially, user explicitly launches others
+      enabled: f.enabled !== false,
       userId: uid,
       botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
     }));
@@ -1863,10 +1864,10 @@ export default function App() {
     }
 
     const defaultBot = newUser.telegramBots.find((b) => b.isDefault) || newUser.telegramBots[0];
-    const initialForUser = EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
+    const initialForUser = EXPANDED_DEFAULT_FILTERS.map((f) => ({
       ...f,
       userId: newUser.id,
-      enabled: idx === 0,
+      enabled: f.enabled !== false,
       botId: defaultBot?.id,
     }));
     setFilters(initialForUser);
@@ -3442,7 +3443,12 @@ export default function App() {
 
         const simPrefix = isSimulatedMode ? '🎮 [ДЕМО-СИМУЛЯЦИЯ]\n' : '';
         const displayRuleName = getStrategyCardDisplayName(rule, isDeveloper, filters);
-        const cleanDisplay = displayRuleName.trim();
+        let cleanDisplay = displayRuleName.trim();
+        cleanDisplay = cleanDisplay.replace(/^(?:стратегия\s*[:：]\s*)+(стратегия)/iu, '$1');
+        if (/^(?:\p{Emoji}|\s)*(?:стратегия)\s*[:：]?\s*$/iu.test(cleanDisplay)) {
+          const num = rule.id ? PRESET_STRATEGY_NUMBER_BY_ID[rule.id] : undefined;
+          cleanDisplay = num !== undefined ? `Стратегия ${num}` : (rule.name || cleanDisplay);
+        }
         const stratDisplay = /^(?:\p{Emoji}|\s)*(?:стратегия)/iu.test(cleanDisplay)
           ? cleanDisplay
           : `Стратегия: ${cleanDisplay}`;
@@ -5378,6 +5384,24 @@ export default function App() {
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
+                </div>
+
+                {/* Индикатор количества найденных матчей в реальном времени */}
+                <div
+                  id="search-match-counter-badge"
+                  className="px-2.5 py-2 rounded-lg border border-slate-800 bg-slate-900/95 text-xs text-slate-300 shrink-0 whitespace-nowrap flex items-center gap-1.5 shadow-sm font-medium"
+                  title="Количество матчей, соответствующих текущему поисковому запросу и фильтрам"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${filteredMatches.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                  <span className="text-slate-300 font-mono font-semibold">
+                    {language === 'ru'
+                      ? (filteredMatches.length % 10 === 1 && filteredMatches.length % 100 !== 11
+                          ? `Найден ${filteredMatches.length} матч`
+                          : (filteredMatches.length % 10 >= 2 && filteredMatches.length % 10 <= 4 && (filteredMatches.length % 100 < 10 || filteredMatches.length % 100 >= 20)
+                              ? `Найдено ${filteredMatches.length} матча`
+                              : `Найдено ${filteredMatches.length} матчей`))
+                      : `Found ${filteredMatches.length} ${filteredMatches.length === 1 ? 'match' : 'matches'}`}
+                  </span>
                 </div>
 
                 {/* Tracked matches only filter button */}

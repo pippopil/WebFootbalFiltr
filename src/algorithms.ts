@@ -1,5 +1,5 @@
 import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats, SportType, MatchStatus } from './types';
-import { getStrategyCardDisplayName } from './utils/filterDefaults';
+import { getStrategyCardDisplayName, PRESET_STRATEGY_NUMBER_BY_ID } from './utils/filterDefaults';
 
 /**
  * Calculates real-time odds movements (Odds Flow) and smart money volume distribution.
@@ -157,19 +157,26 @@ export function calculatePressureAnalysis(match: Match): PressureAnalysis {
   const { stats, minute, homeTeam, awayTeam } = match;
   const currentMinute = Math.max(1, minute);
 
+  const safeStats = stats || ({} as any);
+  const dang = safeStats.dangerousAttacks || [0, 0];
+  const sot = safeStats.shotsOnTarget || [0, 0];
+  const soff = safeStats.shotsOffTarget || [0, 0];
+  const corn = safeStats.corners || [0, 0];
+  const xg = safeStats.xg || [0, 0];
+
   // Total volume
-  const totalDang = stats.dangerousAttacks[0] + stats.dangerousAttacks[1];
-  const dangDiff = stats.dangerousAttacks[0] - stats.dangerousAttacks[1];
+  const totalDang = (dang[0] ?? 0) + (dang[1] ?? 0);
+  const dangDiff = (dang[0] ?? 0) - (dang[1] ?? 0);
   const absDangDiff = Math.abs(dangDiff);
 
   const totalShots =
-    stats.shotsOnTarget[0] +
-    stats.shotsOnTarget[1] +
-    stats.shotsOffTarget[0] +
-    stats.shotsOffTarget[1];
-  const totalShotsOnTarget = stats.shotsOnTarget[0] + stats.shotsOnTarget[1];
-  const totalCorners = stats.corners[0] + stats.corners[1];
-  const totalXg = stats.xg[0] + stats.xg[1];
+    (sot[0] ?? 0) +
+    (sot[1] ?? 0) +
+    (soff[0] ?? 0) +
+    (soff[1] ?? 0);
+  const totalShotsOnTarget = (sot[0] ?? 0) + (sot[1] ?? 0);
+  const totalCorners = (corn[0] ?? 0) + (corn[1] ?? 0);
+  const totalXg = (xg[0] ?? 0) + (xg[1] ?? 0);
 
   // Dangerous attacks per minute
   const apm = Number((totalDang / currentMinute).toFixed(2));
@@ -207,10 +214,11 @@ export function calculatePressureAnalysis(match: Match): PressureAnalysis {
   // Determine dominant side
   let dominantSide: 'home' | 'away' | 'balanced' = 'balanced';
   let dominantTeamName = 'Равная игра';
-  if (dangDiff >= 15 || stats.xg[0] - stats.xg[1] >= 0.6) {
+  const xgDiff = (xg[0] ?? 0) - (xg[1] ?? 0);
+  if (dangDiff >= 15 || xgDiff >= 0.6) {
     dominantSide = 'home';
     dominantTeamName = homeTeam;
-  } else if (dangDiff <= -15 || stats.xg[1] - stats.xg[0] >= 0.6) {
+  } else if (dangDiff <= -15 || xgDiff <= -0.6) {
     dominantSide = 'away';
     dominantTeamName = awayTeam;
   }
@@ -234,7 +242,8 @@ export function calculatePressureAnalysis(match: Match): PressureAnalysis {
   if (totalShotsOnTarget >= 8) reasons.push(`Угроза в створе: ${totalShotsOnTarget} ударов`);
   if (totalCorners >= 8) reasons.push(`Осада с угловых: ${totalCorners} подач`);
   if (totalXg >= 1.5) reasons.push(`Накопленный xG: ${totalXg.toFixed(2)}`);
-  if (match.stats.redCards[0] > 0 || match.stats.redCards[1] > 0) reasons.push(`Фактор удаления (КК)`);
+  const redCards = safeStats.redCards || [0, 0];
+  if ((redCards[0] ?? 0) > 0 || (redCards[1] ?? 0) > 0) reasons.push(`Фактор удаления (КК)`);
 
   return {
     pressureIndex,
@@ -258,8 +267,8 @@ export function checkMarketAlreadyPassed(
   match: Match,
   rule?: FilterRule
 ): { isPassed: boolean; reason?: string } {
-  const h = match.score[0];
-  const a = match.score[1];
+  const h = match.score ? (match.score[0] ?? 0) : 0;
+  const a = match.score ? (match.score[1] ?? 0) : 0;
   const totalGoals = h + a;
   const rawMarket = (targetMarket || rule?.targetMarket || '').toLowerCase();
 
@@ -367,7 +376,13 @@ export function checkMarketAlreadyPassed(
 
   // 7. Over 0.5 in match (ТБ 0.5 в матче) - when score is no longer 0:0
   const isOver05InMatch =
-    /(?:тб\s*0\.?5\s*(в\s*матче)?|гол\s*в\s*матче|тотал\s*больше\s*0\.?5\s*(в\s*матче)?)/i.test(rawMarket) &&
+    (/(?:тб\s*0\.?5\s*(в\s*матче)?|тотал\s*больше\s*0\.?5\s*(в\s*матче)?)/i.test(rawMarket) ||
+      (/(?:гол\s*в\s*матче)/i.test(rawMarket) &&
+        !rawMarket.includes('следующий') &&
+        !rawMarket.includes('1.5') &&
+        !rawMarket.includes('2.5') &&
+        !rawMarket.includes('3.5') &&
+        !rawMarket.includes('4.5'))) &&
     !rawMarket.includes('2-м') &&
     !rawMarket.includes('втором') &&
     !rawMarket.includes('концовке');
@@ -573,8 +588,8 @@ export function evaluateFilterRule(
   // 2. Score Condition
   totalCriteria++;
   let scoreOk = false;
-  const h = match.score[0];
-  const a = match.score[1];
+  const h = match.score ? (match.score[0] ?? 0) : 0;
+  const a = match.score ? (match.score[1] ?? 0) : 0;
   const totalGoals = h + a;
   const diffGoals = Math.abs(h - a);
 
@@ -711,10 +726,20 @@ export function evaluateFilterRule(
     }
   }
 
+  // Safe stats references
+  const stats = match.stats || ({} as any);
+  const dang = stats.dangerousAttacks || [0, 0];
+  const att = stats.attacks || [0, 0];
+  const sotArr = stats.shotsOnTarget || [0, 0];
+  const soffArr = stats.shotsOffTarget || [0, 0];
+  const corn = stats.corners || [0, 0];
+  const poss = stats.possession || [50, 50];
+  const rc = stats.redCards || [0, 0];
+
   // 3. Dangerous Attacks Difference
   if (rule.minDangerousAttacksDiff !== undefined) {
     totalCriteria++;
-    const dangDiff = Math.abs(match.stats.dangerousAttacks[0] - match.stats.dangerousAttacks[1]);
+    const dangDiff = Math.abs((dang[0] ?? 0) - (dang[1] ?? 0));
     if (dangDiff >= rule.minDangerousAttacksDiff) {
       passedCount++;
     } else {
@@ -725,7 +750,7 @@ export function evaluateFilterRule(
   // 4. Dangerous Attacks Total
   if (rule.minDangerousAttacksTotal !== undefined) {
     totalCriteria++;
-    const totalDang = match.stats.dangerousAttacks[0] + match.stats.dangerousAttacks[1];
+    const totalDang = (dang[0] ?? 0) + (dang[1] ?? 0);
     if (totalDang >= rule.minDangerousAttacksTotal) {
       passedCount++;
     } else {
@@ -736,7 +761,7 @@ export function evaluateFilterRule(
   // 4b. Dangerous Attacks Total Max (Сушка / ТМ)
   if (rule.maxDangerousAttacksTotal !== undefined) {
     totalCriteria++;
-    const totalDang = match.stats.dangerousAttacks[0] + match.stats.dangerousAttacks[1];
+    const totalDang = (dang[0] ?? 0) + (dang[1] ?? 0);
     if (totalDang <= rule.maxDangerousAttacksTotal) {
       passedCount++;
     } else {
@@ -748,10 +773,10 @@ export function evaluateFilterRule(
   if (rule.minTotalShots !== undefined) {
     totalCriteria++;
     const totalShots =
-      match.stats.shotsOnTarget[0] +
-      match.stats.shotsOnTarget[1] +
-      match.stats.shotsOffTarget[0] +
-      match.stats.shotsOffTarget[1];
+      (sotArr[0] ?? 0) +
+      (sotArr[1] ?? 0) +
+      (soffArr[0] ?? 0) +
+      (soffArr[1] ?? 0);
     if (totalShots >= rule.minTotalShots) {
       passedCount++;
     } else {
@@ -762,7 +787,7 @@ export function evaluateFilterRule(
   // 6. Shots on Target Total
   if (rule.minShotsOnTargetTotal !== undefined) {
     totalCriteria++;
-    const sot = match.stats.shotsOnTarget[0] + match.stats.shotsOnTarget[1];
+    const sot = (sotArr[0] ?? 0) + (sotArr[1] ?? 0);
     if (sot >= rule.minShotsOnTargetTotal) {
       passedCount++;
     } else {
@@ -773,7 +798,7 @@ export function evaluateFilterRule(
   // 6b. Shots on Target Total Max (Сушка / ТМ)
   if (rule.maxShotsOnTargetTotal !== undefined) {
     totalCriteria++;
-    const sot = match.stats.shotsOnTarget[0] + match.stats.shotsOnTarget[1];
+    const sot = (sotArr[0] ?? 0) + (sotArr[1] ?? 0);
     if (sot <= rule.maxShotsOnTargetTotal) {
       passedCount++;
     } else {
@@ -784,7 +809,7 @@ export function evaluateFilterRule(
   // 7. Shots on Target Diff
   if (rule.minShotsOnTargetDiff !== undefined) {
     totalCriteria++;
-    const sotDiff = Math.abs(match.stats.shotsOnTarget[0] - match.stats.shotsOnTarget[1]);
+    const sotDiff = Math.abs((sotArr[0] ?? 0) - (sotArr[1] ?? 0));
     if (sotDiff >= rule.minShotsOnTargetDiff) {
       passedCount++;
     } else {
@@ -795,7 +820,7 @@ export function evaluateFilterRule(
   // 8. Corners Total
   if (rule.minTotalCorners !== undefined) {
     totalCriteria++;
-    const corners = match.stats.corners[0] + match.stats.corners[1];
+    const corners = (corn[0] ?? 0) + (corn[1] ?? 0);
     if (corners >= rule.minTotalCorners) {
       passedCount++;
     } else {
@@ -806,7 +831,7 @@ export function evaluateFilterRule(
   // 9. Corners Diff
   if (rule.minCornersDiff !== undefined) {
     totalCriteria++;
-    const cornersDiff = Math.abs(match.stats.corners[0] - match.stats.corners[1]);
+    const cornersDiff = Math.abs((corn[0] ?? 0) - (corn[1] ?? 0));
     if (cornersDiff >= rule.minCornersDiff) {
       passedCount++;
     } else {
@@ -817,7 +842,7 @@ export function evaluateFilterRule(
   // 10. Possession Diff
   if (rule.minPossessionDiff !== undefined) {
     totalCriteria++;
-    const possDiff = Math.abs(match.stats.possession[0] - match.stats.possession[1]);
+    const possDiff = Math.abs((poss[0] ?? 50) - (poss[1] ?? 50));
     if (possDiff >= rule.minPossessionDiff) {
       passedCount++;
     } else {
@@ -876,7 +901,7 @@ export function evaluateFilterRule(
   // 13. Red Card Condition
   if (rule.redCardCondition && rule.redCardCondition !== 'ANY') {
     totalCriteria++;
-    const hasRed = match.stats.redCards[0] > 0 || match.stats.redCards[1] > 0;
+    const hasRed = (rc[0] ?? 0) > 0 || (rc[1] ?? 0) > 0;
     if (rule.redCardCondition === 'HAS_RED_CARD') {
       if (hasRed) passedCount++;
       else unmetCriteria.push(`Нет красных карточек в матче`);
@@ -889,7 +914,7 @@ export function evaluateFilterRule(
   // 14. Total Attacks Difference (Стратегия 4 «А ГДЕ ЖЕ ГОЛ!!! v2.0»)
   if (rule.minAttacksDiff !== undefined) {
     totalCriteria++;
-    const attacksDiff = Math.abs(match.stats.attacks[0] - match.stats.attacks[1]);
+    const attacksDiff = Math.abs((att[0] ?? 0) - (att[1] ?? 0));
     if (attacksDiff >= rule.minAttacksDiff) {
       passedCount++;
     } else {
@@ -900,8 +925,8 @@ export function evaluateFilterRule(
   // 15. Total Shots Difference (Стратегии 4, 5)
   if (rule.minShotsDiff !== undefined) {
     totalCriteria++;
-    const hShots = match.stats.shotsOnTarget[0] + match.stats.shotsOffTarget[0];
-    const aShots = match.stats.shotsOnTarget[1] + match.stats.shotsOffTarget[1];
+    const hShots = (sotArr[0] ?? 0) + (soffArr[0] ?? 0);
+    const aShots = (sotArr[1] ?? 0) + (soffArr[1] ?? 0);
     const shotsDiff = Math.abs(hShots - aShots);
     if (shotsDiff >= rule.minShotsDiff) {
       passedCount++;
@@ -1162,10 +1187,10 @@ export function evaluateFilterRule(
     let ok = false;
     if (h > a) {
       // Гости проигрывают, должны подать больше угловых
-      ok = match.stats.corners[1] > match.stats.corners[0];
+      ok = (corn[1] ?? 0) > (corn[0] ?? 0);
     } else if (a > h) {
       // Хозяева проигрывают, должны подать больше угловых
-      ok = match.stats.corners[0] > match.stats.corners[1];
+      ok = (corn[0] ?? 0) > (corn[1] ?? 0);
     }
     if (ok) {
       passedCount++;
@@ -1281,8 +1306,10 @@ export function evaluateFilterRule(
     const combo1 = favOdds <= 1.25 && o25 <= 1.45 && h1 <= 1.55;
     const combo2 = o25 <= 1.45 && itb1 <= 1.65 && btts <= 1.58;
     const combo3 = btts <= 1.48 && o25 <= 1.55 && o15_ht <= 1.88;
+    const combo4 = favOdds <= 1.35 && (o25 !== undefined && o25 <= 1.60);
+    const combo5 = (o25 !== undefined && o25 <= 1.50) && (btts !== undefined && btts <= 1.65);
 
-    if (combo1 || combo2 || combo3) {
+    if (combo1 || combo2 || combo3 || combo4 || combo5) {
       passedCount++;
     } else {
       unmetCriteria.push(`Котировки не образуют сверхрезультативную комбинацию`);
@@ -1460,27 +1487,29 @@ export function evaluateFilterRule(
     }
     if (rule.prematchMinOddsOver25 !== undefined) {
       totalCriteria++;
-      if (match.odds?.over25 !== undefined && match.odds.over25 >= rule.prematchMinOddsOver25) passedCount++;
-      else unmetCriteria.push(`Кэф ТБ 2.5 (${match.odds?.over25 !== undefined ? match.odds.over25.toFixed(2) : 'н/д'}) < ${rule.prematchMinOddsOver25}`);
+      const currentOverOdds = match.sport === 'hockey' ? (match.odds?.over55 ?? match.odds?.over25) : match.odds?.over25;
+      if (currentOverOdds !== undefined && currentOverOdds >= rule.prematchMinOddsOver25) passedCount++;
+      else unmetCriteria.push(`Кэф ТБ ${match.sport === 'hockey' ? '5.5' : '2.5'} (${currentOverOdds !== undefined ? currentOverOdds.toFixed(2) : 'н/д'}) < ${rule.prematchMinOddsOver25}`);
     }
     if (rule.prematchMaxOddsOver25 !== undefined) {
       totalCriteria++;
-      if (match.odds?.over25 !== undefined && match.odds.over25 <= rule.prematchMaxOddsOver25) passedCount++;
-      else unmetCriteria.push(`Кэф ТБ 2.5 (${match.odds?.over25 !== undefined ? match.odds.over25.toFixed(2) : 'н/д'}) > ${rule.prematchMaxOddsOver25}`);
+      const currentOverOdds = match.sport === 'hockey' ? (match.odds?.over55 ?? match.odds?.over25) : match.odds?.over25;
+      if (currentOverOdds !== undefined && currentOverOdds <= rule.prematchMaxOddsOver25) passedCount++;
+      else unmetCriteria.push(`Кэф ТБ ${match.sport === 'hockey' ? '5.5' : '2.5'} (${currentOverOdds !== undefined ? currentOverOdds.toFixed(2) : 'н/д'}) > ${rule.prematchMaxOddsOver25}`);
     }
 
-    // 2. Last 5-10 H2H Matches ТБ 2.5 hits
+    // 2. Last 5-10 H2H Matches ТБ 2.5 / 5.5 hits
     if (rule.prematchH2hOver25MinHits !== undefined) {
       totalCriteria++;
       const countReq = rule.prematchH2hMatchesCount || 5;
       const actualHits = match.h2hMatches
-        ? match.h2hMatches.slice(0, countReq).filter((m) => m.isOver25 || m.totalGoals > 2.5).length
+        ? match.h2hMatches.slice(0, countReq).filter((m) => m.isOver25 || (m as any).isOver55 || m.totalGoals > (match.sport === 'hockey' ? 5.5 : 2.5)).length
         : Math.min(countReq, Math.round(((match.history?.h2hOver15Pct ?? 80) / 100) * countReq));
       if (actualHits >= rule.prematchH2hOver25MinHits) {
         passedCount++;
       } else {
         unmetCriteria.push(
-          `В последних ${countReq} очных матчах ТБ 2.5 пробит лишь в ${actualHits} из ${countReq} (требуется ≥ ${rule.prematchH2hOver25MinHits})`
+          `В последних ${countReq} очных матчах ТБ ${match.sport === 'hockey' ? '5.5' : '2.5'} пробит лишь в ${actualHits} из ${countReq} (требуется ≥ ${rule.prematchH2hOver25MinHits})`
         );
       }
     }
@@ -1776,27 +1805,27 @@ export function getBetTypeForSignal(
   minute?: number,
   match?: Match
 ): BetType {
+  // In-play matches are always LIVE
+  if (minute !== undefined && minute > 0) return 'LIVE';
+  if (match && (match.status === 'LIVE' || match.status === 'HT' || match.minute > 0)) return 'LIVE';
+
   if (rule?.ruleType === 'PREMATCH') return 'PREMATCH';
   if (rule?.ruleType === 'LIVE') return 'LIVE';
   if (match?.status === 'PREMATCH') return 'PREMATCH';
   if (match?.startsInMinutes !== undefined && match.minute === 0) return 'PREMATCH';
 
   if (rule) {
+    // If the rule specifically requires in-play minutes, it is LIVE
+    if (rule.minMinute !== undefined && rule.minMinute > 0) {
+      return 'LIVE';
+    }
+
     const isPrematchRule =
       (rule.minMinute === 0 && rule.minModelIpt !== undefined) ||
-      rule.isDeadlyCombination === true ||
       rule.requireH2hOver15High === true ||
       rule.requireNoZeroZeroLast5 === true ||
       rule.requireRedCardLastMatch === true ||
-      rule.maxOddsUnder25 !== undefined ||
-      rule.id === 'strat-14' ||
-      rule.id === 'strat-16' ||
-      rule.id === 'strat-deadly-combo' ||
-      rule.id === 'strat-draw-over5' ||
-      rule.id === 'strat-tb15-value' ||
-      rule.id === 'strat-draw-under25' ||
-      rule.id === 'strat-red-card-revenge' ||
-      rule.id === 'strat-over35-odds20';
+      rule.id === 'strat-hockey-prematch-h2h';
 
     if (isPrematchRule) {
       return 'PREMATCH';
@@ -1967,7 +1996,12 @@ export function formatExtendedTelegramAlert(
         : ''
       : '';
 
-  const cleanStratName = ruleName.trim();
+  let cleanStratName = ruleName.trim();
+  cleanStratName = cleanStratName.replace(/^(?:стратегия\s*[:：]\s*)+(стратегия)/iu, '$1');
+  if (/^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*$/iu.test(cleanStratName)) {
+    const num = rule.id ? PRESET_STRATEGY_NUMBER_BY_ID[rule.id] : undefined;
+    cleanStratName = num !== undefined ? `Стратегия ${num}` : (rule.name || cleanStratName);
+  }
   const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
   const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
 
@@ -2077,7 +2111,12 @@ export function formatResolvedTelegramAlert(
   const matchStatusTag = isHalfTimeResolution ? '[1-й тайм завершён • Перерыв]' : '[Матч завершён]';
   const outcomeLabel = isHalfTimeResolution ? 'Итог 1-го тайма:' : 'Итог:';
 
-  const cleanStratName = ruleName.trim();
+  let cleanStratName = ruleName.trim();
+  cleanStratName = cleanStratName.replace(/^(?:стратегия\s*[:：]\s*)+(стратегия)/iu, '$1');
+  if (/^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*$/iu.test(cleanStratName)) {
+    const num = signal.ruleId ? PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] : undefined;
+    cleanStratName = num !== undefined ? `Стратегия ${num}` : cleanStratName;
+  }
   const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
   const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
 
