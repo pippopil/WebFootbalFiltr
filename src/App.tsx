@@ -177,6 +177,7 @@ import {
   reachGoal,
 } from './services/analyticsService';
 import { SiteAnalyticsData } from './types';
+import { SearchMatchCounterBadge } from './components/SearchMatchCounterBadge';
 
 // Real signals start clean - no synthetic dummy seed alerts
 const INITIAL_SIGNALS: SignalAlert[] = [];
@@ -5386,23 +5387,8 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Индикатор количества найденных матчей в реальном времени */}
-                <div
-                  id="search-match-counter-badge"
-                  className="px-2.5 py-2 rounded-lg border border-slate-800 bg-slate-900/95 text-xs text-slate-300 shrink-0 whitespace-nowrap flex items-center gap-1.5 shadow-sm font-medium"
-                  title="Количество матчей, соответствующих текущему поисковому запросу и фильтрам"
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${filteredMatches.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
-                  <span className="text-slate-300 font-mono font-semibold">
-                    {language === 'ru'
-                      ? (filteredMatches.length % 10 === 1 && filteredMatches.length % 100 !== 11
-                          ? `Найден ${filteredMatches.length} матч`
-                          : (filteredMatches.length % 10 >= 2 && filteredMatches.length % 10 <= 4 && (filteredMatches.length % 100 < 10 || filteredMatches.length % 100 >= 20)
-                              ? `Найдено ${filteredMatches.length} матча`
-                              : `Найдено ${filteredMatches.length} матчей`))
-                      : `Found ${filteredMatches.length} ${filteredMatches.length === 1 ? 'match' : 'matches'}`}
-                  </span>
-                </div>
+                {/* Индикатор количества найденных матчей в реальном времени с изолированным жизненным циклом и memoization */}
+                <SearchMatchCounterBadge count={filteredMatches.length} language={language} />
 
                 {/* Tracked matches only filter button */}
                 <button

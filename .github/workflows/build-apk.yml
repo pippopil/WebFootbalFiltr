@@ -37,10 +37,21 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle 8.5
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
+        continue-on-error: true
         with:
           gradle-version: '8.5'
           cache-disabled: true
+
+      - name: Ensure Gradle 8.5 is Available (Direct Fallback)
+        run: |
+          if ! command -v gradle &> /dev/null; then
+            echo "Installing Gradle 8.5 directly from services.gradle.org..."
+            curl -sSL -o /tmp/gradle-8.5-bin.zip https://services.gradle.org/distributions/gradle-8.5-bin.zip
+            sudo unzip -q -o /tmp/gradle-8.5-bin.zip -d /opt/
+            sudo ln -sf /opt/gradle-8.5/bin/gradle /usr/local/bin/gradle
+          fi
+          gradle --version
 
       - name: Accept Android SDK Licenses
         run: |
