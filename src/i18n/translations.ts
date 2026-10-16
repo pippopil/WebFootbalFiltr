@@ -236,6 +236,77 @@ export interface Translations {
   vipBuiltin: string;
   exactScoreLabel: string;
   exactGoalsLabel: string;
+  // Quick Filters
+  qfAll: string;
+  qfLive: string;
+  qfPrematch: string;
+  qfOver25: string;
+  qfOddsDrop: string;
+  qfCorners: string;
+  qfPressure: string;
+
+  // Match Periods
+  period1stHalf: string;
+  periodHalftime: string;
+  period2ndHalf: string;
+  periodPrematch: string;
+  periodFinished: string;
+
+  // Scanner Table & Controls
+  scannerStartBtn: string;
+  scannerStopBtn: string;
+  scannerClearBtn: string;
+  scannerSignalsCount: string;
+  scannerAllSports: string;
+  scannerPeriodAll: string;
+  scannerPeriod1H: string;
+  scannerPeriod2H: string;
+  scannerPeriodHT: string;
+  colFilter: string;
+  colCountry: string;
+  colLeague: string;
+  colPeriod: string;
+  colTime: string;
+  colHome: string;
+  colAway: string;
+  colAttacks: string;
+  colDangAttacks: string;
+  colShots: string;
+  colCorners: string;
+  colCards: string;
+  colOutcome: string;
+  colBetStatus: string;
+  colTelegram: string;
+  colLoggedAt: string;
+  colActions: string;
+  noSignalsRecorded: string;
+  scannerPromptActive: string;
+  scannerPromptStopped: string;
+
+  // Update Center & Modals
+  updateCenterTitle: string;
+  updateCenterDesc: string;
+  currentVersionLabel: string;
+  latestReleaseLabel: string;
+  versionInstalledDesc: string;
+  versionOnServerDesc: string;
+  checkingUpdatesText: string;
+  updateAvailableBanner: string;
+  updateReadyInstallDesc: string;
+  appUpToDateBanner: string;
+  btnDownloadApkDirect: string;
+  btnOtaSyncLive: string;
+
+  // Feed & Priority
+  feedActiveSource: string;
+  feedChangeBtn: string;
+  clearSearchTooltip: string;
+  refreshMatchesTooltip: string;
+  soundOnTooltip: string;
+  soundOffTooltip: string;
+  priorityMatchesTop: string;
+  topOfListBadge: string;
+  shareSignalTooltip: string;
 }
 
 export const TRANSLATIONS: Record<Language, Translations> = {
@@ -461,6 +532,72 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     vipBuiltin: 'Вшитый VIP',
     exactScoreLabel: 'Счёт {score}',
     exactGoalsLabel: 'Ровно {n} г.',
+    qfAll: 'Все',
+    qfLive: 'Live',
+    qfPrematch: 'Прематч',
+    qfOver25: 'ТБ 2.5',
+    qfOddsDrop: 'Прогруз',
+    qfCorners: 'Угловые',
+    qfPressure: 'Штурм',
+
+    period1stHalf: '1-й тайм',
+    periodHalftime: 'Перерыв',
+    period2ndHalf: '2-й тайм',
+    periodPrematch: 'Прематч (за 1 час)',
+    periodFinished: 'Завершен',
+
+    scannerStartBtn: '[ СТАРТ ]',
+    scannerStopBtn: '[ СТОП ]',
+    scannerClearBtn: '[ ОЧИСТИТЬ ТАБЛИЦУ ]',
+    scannerSignalsCount: 'Сигналов в базе',
+    scannerAllSports: 'Все виды',
+    scannerPeriodAll: 'Все',
+    scannerPeriod1H: '1Т',
+    scannerPeriod2H: '2Т',
+    scannerPeriodHT: 'HT',
+    colFilter: 'Фильтр',
+    colCountry: 'Страна',
+    colLeague: 'Лига',
+    colPeriod: 'Период',
+    colTime: 'Время',
+    colHome: 'Хозяева',
+    colAway: 'Гости',
+    colAttacks: 'Атаки',
+    colDangAttacks: 'Оп. ат.',
+    colShots: 'Удары (ств)',
+    colCorners: 'Углы',
+    colCards: 'ЖК/КК',
+    colOutcome: 'Исход',
+    colBetStatus: 'Статус ставки',
+    colTelegram: 'Telegram / Бот',
+    colLoggedAt: 'Фиксация',
+    colActions: 'Действия',
+    noSignalsRecorded: 'Нет зафиксированных сигналов в текущей сессии',
+    scannerPromptActive: 'Сканер запущен: при срабатывании фильтра новая строка сразу появится здесь',
+    scannerPromptStopped: 'Нажмите [ СТАРТ ] для запуска сканирования live-матчей',
+
+    updateCenterTitle: 'Центр обновлений SportSignal',
+    updateCenterDesc: 'Обновление мобильного приложения и веб-версии',
+    currentVersionLabel: 'Текущая версия',
+    latestReleaseLabel: 'Последний релиз',
+    versionInstalledDesc: 'Установлена в приложении',
+    versionOnServerDesc: 'На сервере GitHub',
+    checkingUpdatesText: 'Проверка доступных обновлений...',
+    updateAvailableBanner: 'Доступна новая сборка {name}!',
+    updateReadyInstallDesc: 'Вы можете установить её прямо сейчас одним нажатием без необходимости удалять приложение.',
+    appUpToDateBanner: 'У вас установлена актуальная версия!',
+    btnDownloadApkDirect: 'Скачать и установить APK',
+    btnOtaSyncLive: 'Мгновенная синхронизация OTA',
+
+    feedActiveSource: 'Источник',
+    feedChangeBtn: 'Сменить / Настроить →',
+    clearSearchTooltip: 'Очистить поиск',
+    refreshMatchesTooltip: 'Обновить live-матчи',
+    soundOnTooltip: 'Звук включен (кликните для отключения)',
+    soundOffTooltip: 'Звук выключен (кликните для включения)',
+    priorityMatchesTop: 'со сработавшими фильтрами подняты в верхний список',
+    topOfListBadge: 'Вверху списка ⬆',
+    shareSignalTooltip: 'Поделиться сигналом',
   },
 
   en: {
@@ -685,6 +822,72 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     vipBuiltin: 'VIP Built-in',
     exactScoreLabel: 'Score {score}',
     exactGoalsLabel: 'Exact {n} goals',
+    qfAll: 'All',
+    qfLive: 'Live',
+    qfPrematch: 'Prematch',
+    qfOver25: 'Over 2.5',
+    qfOddsDrop: 'Odds Drop',
+    qfCorners: 'Corners',
+    qfPressure: 'Assault',
+
+    period1stHalf: '1st Half',
+    periodHalftime: 'Halftime',
+    period2ndHalf: '2nd Half',
+    periodPrematch: 'Prematch (1h before)',
+    periodFinished: 'Full Time',
+
+    scannerStartBtn: '[ START ]',
+    scannerStopBtn: '[ STOP ]',
+    scannerClearBtn: '[ CLEAR TABLE ]',
+    scannerSignalsCount: 'Signals in DB',
+    scannerAllSports: 'All Sports',
+    scannerPeriodAll: 'All',
+    scannerPeriod1H: '1H',
+    scannerPeriod2H: '2H',
+    scannerPeriodHT: 'HT',
+    colFilter: 'Filter',
+    colCountry: 'Country',
+    colLeague: 'League',
+    colPeriod: 'Period',
+    colTime: 'Time',
+    colHome: 'Home',
+    colAway: 'Away',
+    colAttacks: 'Attacks',
+    colDangAttacks: 'Dang. Att.',
+    colShots: 'Shots (on)',
+    colCorners: 'Corners',
+    colCards: 'YC/RC',
+    colOutcome: 'Outcome',
+    colBetStatus: 'Bet Status',
+    colTelegram: 'Telegram / Bot',
+    colLoggedAt: 'Logged At',
+    colActions: 'Actions',
+    noSignalsRecorded: 'No signals recorded in current session',
+    scannerPromptActive: 'Scanner running: matching filters will appear here immediately',
+    scannerPromptStopped: 'Click [ START ] to launch live match scanning',
+
+    updateCenterTitle: 'SportSignal Update Center',
+    updateCenterDesc: 'Mobile app and web client updates',
+    currentVersionLabel: 'Current Version',
+    latestReleaseLabel: 'Latest Release',
+    versionInstalledDesc: 'Installed in application',
+    versionOnServerDesc: 'On GitHub server',
+    checkingUpdatesText: 'Checking for available updates...',
+    updateAvailableBanner: 'New build {name} is available!',
+    updateReadyInstallDesc: 'You can update right now with 1 click without reinstalling the app.',
+    appUpToDateBanner: 'Your app is up to date!',
+    btnDownloadApkDirect: 'Download & Install APK',
+    btnOtaSyncLive: 'Instant OTA Sync',
+
+    feedActiveSource: 'Source',
+    feedChangeBtn: 'Change / Configure →',
+    clearSearchTooltip: 'Clear search',
+    refreshMatchesTooltip: 'Refresh live matches',
+    soundOnTooltip: 'Sound ON (click to mute)',
+    soundOffTooltip: 'Sound OFF (click to unmute)',
+    priorityMatchesTop: 'with triggered filters pushed to top of the list',
+    topOfListBadge: 'Top of list ⬆',
+    shareSignalTooltip: 'Share signal',
   },
 
   tr: {
@@ -909,6 +1112,72 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     vipBuiltin: 'VIP Yerleşik',
     exactScoreLabel: 'Skor {score}',
     exactGoalsLabel: 'Tam {n} gol',
+    qfAll: 'Tümü',
+    qfLive: 'Canlı',
+    qfPrematch: 'Maç Öncesi',
+    qfOver25: 'Üst 2.5',
+    qfOddsDrop: 'Oran Düşüşü',
+    qfCorners: 'Kornerler',
+    qfPressure: 'Baskı',
+
+    period1stHalf: '1. Yarı',
+    periodHalftime: 'Devre Arası',
+    period2ndHalf: '2. Yarı',
+    periodPrematch: 'Maç Öncesi (1 saat)',
+    periodFinished: 'Bitti',
+
+    scannerStartBtn: '[ BAŞLAT ]',
+    scannerStopBtn: '[ DURDUR ]',
+    scannerClearBtn: '[ TABLOYU TEMİZLE ]',
+    scannerSignalsCount: 'Veritabanındaki sinyaller',
+    scannerAllSports: 'Tüm Sporlar',
+    scannerPeriodAll: 'Tümü',
+    scannerPeriod1H: '1Y',
+    scannerPeriod2H: '2Y',
+    scannerPeriodHT: 'DA',
+    colFilter: 'Filtre',
+    colCountry: 'Ülke',
+    colLeague: 'Lig',
+    colPeriod: 'Periyot',
+    colTime: 'Zaman',
+    colHome: 'Ev Sahibi',
+    colAway: 'Deplasman',
+    colAttacks: 'Hücumlar',
+    colDangAttacks: 'Tehlikeli',
+    colShots: 'Şutlar (isabet)',
+    colCorners: 'Korner',
+    colCards: 'Sarı/Kırmızı',
+    colOutcome: 'Tahmin',
+    colBetStatus: 'Bahis Durumu',
+    colTelegram: 'Telegram / Bot',
+    colLoggedAt: 'Kayıt Zamanı',
+    colActions: 'İşlemler',
+    noSignalsRecorded: 'Mevcut oturumda kaydedilmiş sinyal yok',
+    scannerPromptActive: 'Tarayıcı aktif: eşleşen filtreler hemen burada görünecektir',
+    scannerPromptStopped: 'Canlı maç taramasını başlatmak için [ BAŞLAT ] butonuna tıklayın',
+
+    updateCenterTitle: 'SportSignal Güncelleme Merkezi',
+    updateCenterDesc: 'Mobil uygulama ve web sürümü güncellemeleri',
+    currentVersionLabel: 'Mevcut Sürüm',
+    latestReleaseLabel: 'En Son Sürüm',
+    versionInstalledDesc: 'Uygulamada yüklü',
+    versionOnServerDesc: 'GitHub sunucusunda',
+    checkingUpdatesText: 'Güncellemeler denetleniyor...',
+    updateAvailableBanner: 'Yeni sürüm {name} mevcut!',
+    updateReadyInstallDesc: 'Uygulamayı yeniden yüklemeden tek tıkla hemen güncelleyebilirsiniz.',
+    appUpToDateBanner: 'Uygulamanız güncel!',
+    btnDownloadApkDirect: 'APK İndir ve Yükle',
+    btnOtaSyncLive: 'Anında OTA Senkronizasyonu',
+
+    feedActiveSource: 'Kaynak',
+    feedChangeBtn: 'Değiştir / Yapılandır →',
+    clearSearchTooltip: 'Aramayı temizle',
+    refreshMatchesTooltip: 'Canlı maçları yenile',
+    soundOnTooltip: 'Ses AÇIK (kapatmak için tıklayın)',
+    soundOffTooltip: 'Ses KAPALI (açmak için tıklayın)',
+    priorityMatchesTop: 'tetiklenen filtrelerle listenin en üstüne taşındı',
+    topOfListBadge: 'Listenin Başı ⬆',
+    shareSignalTooltip: 'Sinyali paylaş',
   },
 
   it: {
@@ -1133,6 +1402,72 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     vipBuiltin: 'VIP Integrato',
     exactScoreLabel: 'Punteggio {score}',
     exactGoalsLabel: 'Esattamente {n} gol',
+    qfAll: 'Tutte',
+    qfLive: 'Live',
+    qfPrematch: 'Prematch',
+    qfOver25: 'Over 2.5',
+    qfOddsDrop: 'Calo Quote',
+    qfCorners: 'Calci d\'angolo',
+    qfPressure: 'Assalto',
+
+    period1stHalf: '1° Tempo',
+    periodHalftime: 'Intervallo',
+    period2ndHalf: '2° Tempo',
+    periodPrematch: 'Prematch (1 ora prima)',
+    periodFinished: 'Terminata',
+
+    scannerStartBtn: '[ AVVIA ]',
+    scannerStopBtn: '[ FERMA ]',
+    scannerClearBtn: '[ SVUOTA TABELLA ]',
+    scannerSignalsCount: 'Segnali salvati',
+    scannerAllSports: 'Tutti gli sport',
+    scannerPeriodAll: 'Tutti',
+    scannerPeriod1H: '1T',
+    scannerPeriod2H: '2T',
+    scannerPeriodHT: 'INT',
+    colFilter: 'Filtro',
+    colCountry: 'Paese',
+    colLeague: 'Lega',
+    colPeriod: 'Periodo',
+    colTime: 'Tempo',
+    colHome: 'Casa',
+    colAway: 'Ospiti',
+    colAttacks: 'Attacchi',
+    colDangAttacks: 'Att. Peric.',
+    colShots: 'Tiri (in porta)',
+    colCorners: 'Angoli',
+    colCards: 'Gialli/Rossi',
+    colOutcome: 'Esito',
+    colBetStatus: 'Stato scommessa',
+    colTelegram: 'Telegram / Bot',
+    colLoggedAt: 'Ora segnale',
+    colActions: 'Azioni',
+    noSignalsRecorded: 'Nessun segnale registrato nella sessione corrente',
+    scannerPromptActive: 'Scanner attivo: i nuovi segnali compariranno qui all\'istante',
+    scannerPromptStopped: 'Clicca [ AVVIA ] per scansionare le partite live',
+
+    updateCenterTitle: 'Centro Aggiornamenti SportSignal',
+    updateCenterDesc: 'Aggiornamenti app mobile e web',
+    currentVersionLabel: 'Versione Corrente',
+    latestReleaseLabel: 'Ultima Versione',
+    versionInstalledDesc: 'Installata nell\'app',
+    versionOnServerDesc: 'Sul server GitHub',
+    checkingUpdatesText: 'Verifica aggiornamenti in corso...',
+    updateAvailableBanner: 'Nuova build {name} disponibile!',
+    updateReadyInstallDesc: 'Puoi aggiornare all\'istante con un click senza dover reinstallare l\'app.',
+    appUpToDateBanner: 'L\'app è aggiornata all\'ultima versione!',
+    btnDownloadApkDirect: 'Scarica e Installa APK',
+    btnOtaSyncLive: 'Sincronizzazione Rapida OTA',
+
+    feedActiveSource: 'Fonte',
+    feedChangeBtn: 'Modifica / Configura →',
+    clearSearchTooltip: 'Cancella ricerca',
+    refreshMatchesTooltip: 'Aggiorna partite live',
+    soundOnTooltip: 'Audio ATTIVO (clicca per disattivare)',
+    soundOffTooltip: 'Audio DISATTIVATO (clicca per attivare)',
+    priorityMatchesTop: 'con filtri attivati spostate in cima alla lista',
+    topOfListBadge: 'In cima ⬆',
+    shareSignalTooltip: 'Condividi segnale',
   },
 
   zh: {
@@ -1357,5 +1692,71 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     vipBuiltin: '平台内置 VIP',
     exactScoreLabel: '精确比分 {score}',
     exactGoalsLabel: '整场恰好 {n} 球',
+    qfAll: '全部',
+    qfLive: '滚球',
+    qfPrematch: '赛前',
+    qfOver25: '大 2.5',
+    qfOddsDrop: '赔率骤降',
+    qfCorners: '角球',
+    qfPressure: '高压进攻',
+
+    period1stHalf: '上半场',
+    periodHalftime: '半场休息',
+    period2ndHalf: '下半场',
+    periodPrematch: '赛前（提前1小时）',
+    periodFinished: '全场完赛',
+
+    scannerStartBtn: '[ 启动 ]',
+    scannerStopBtn: '[ 停止 ]',
+    scannerClearBtn: '[ 清空表格 ]',
+    scannerSignalsCount: '数据库信号数',
+    scannerAllSports: '全部运动',
+    scannerPeriodAll: '全部',
+    scannerPeriod1H: '上',
+    scannerPeriod2H: '下',
+    scannerPeriodHT: '中',
+    colFilter: '策略',
+    colCountry: '国家',
+    colLeague: '联赛',
+    colPeriod: '阶段',
+    colTime: '时间',
+    colHome: '主队',
+    colAway: '客队',
+    colAttacks: '进攻',
+    colDangAttacks: '危险进攻',
+    colShots: '射门(射正)',
+    colCorners: '角球',
+    colCards: '黄/红牌',
+    colOutcome: '推荐项',
+    colBetStatus: '注单结果',
+    colTelegram: '电报机器人',
+    colLoggedAt: '触发时间',
+    colActions: '操作',
+    noSignalsRecorded: '当前会话暂无记录信号',
+    scannerPromptActive: '扫描器运行中：策略触发后将即时显示在此处',
+    scannerPromptStopped: '点击 [ 启动 ] 开始实时滚球监控',
+
+    updateCenterTitle: 'SportSignal 更新中心',
+    updateCenterDesc: '移动端与Web客户端更新',
+    currentVersionLabel: '当前版本',
+    latestReleaseLabel: '最新发布',
+    versionInstalledDesc: '已安装至本应用',
+    versionOnServerDesc: 'GitHub 服务器端',
+    checkingUpdatesText: '正在检查可用更新...',
+    updateAvailableBanner: '发现新版本 {name}！',
+    updateReadyInstallDesc: '无需重新卸载安装，点击即可一键无缝更新。',
+    appUpToDateBanner: '当前已是最新版本！',
+    btnDownloadApkDirect: '下载并安装 APK',
+    btnOtaSyncLive: 'OTA 即时热重载',
+
+    feedActiveSource: '数据源',
+    feedChangeBtn: '更改 / 配置 →',
+    clearSearchTooltip: '清空搜索',
+    refreshMatchesTooltip: '刷新滚球比赛',
+    soundOnTooltip: '声音已开启（点击静音）',
+    soundOffTooltip: '声音已关闭（点击开启）',
+    priorityMatchesTop: '已触发策略并置顶显示',
+    topOfListBadge: '置顶 ⬆',
+    shareSignalTooltip: '分享信号',
   },
 };

@@ -586,8 +586,7 @@ async function startServer() {
     dateStr: string,
     botName: string = 'Telegram Bot'
   ) {
-    const total = events.length;
-    if (total === 0) {
+    if (!events || events.length === 0) {
       return (
         `📊 <b>СУТОЧНЫЙ ОТЧЁТ: ${botName}</b>\n` +
         `📅 <i>Дата: ${dateStr} | 23:59 МСК</i>\n\n` +
@@ -597,20 +596,56 @@ async function startServer() {
       );
     }
 
-    const won = events.filter((e) => e.outcome === 'WIN').length;
-    const lost = events.filter((e) => e.outcome === 'LOSS').length;
-    const refund = events.filter((e) => e.outcome === 'REFUND').length;
-    const pending = events.filter((e) => e.outcome === 'PENDING').length;
+    // Strict deduplication: ensure each match + rule only counted once per day
+    const uniqueEvents: TelegramSignalEvent[] = [];
+    const seenEventKeys = new Set<string>();
+
+    for (const ev of events) {
+      const matchClean = (ev.matchName || '').trim().toLowerCase();
+      const ruleClean = (ev.ruleName || '').trim().toLowerCase();
+      const key = `${matchClean}__${ruleClean}`;
+      if (!seenEventKeys.has(key)) {
+        seenEventKeys.add(key);
+        uniqueEvents.push(ev);
+      }
+    }
+
+    const total = uniqueEvents.length;
+    const won = uniqueEvents.filter((e) => e.outcome === 'WIN').length;
+    const lost = uniqueEvents.filter((e) => e.outcome === 'LOSS').length;
+    const refund = uniqueEvents.filter((e) => e.outcome === 'REFUND').length;
+    const pending = uniqueEvents.filter((e) => e.outcome === 'PENDING').length;
     const resolved = won + lost;
     const winRate = resolved > 0 ? ((won / resolved) * 100).toFixed(1) : '100.0';
-    const totalProfit = events.reduce((acc, e) => acc + (e.profit || 0), 0).toFixed(2);
-    const avgOdds = total > 0 ? (events.reduce((acc, e) => acc + (e.odds || 1.75), 0) / total).toFixed(2) : '1.75';
-    const profitNum = parseFloat(totalProfit);
-    const profitSign = profitNum >= 0 ? `+${totalProfit}` : totalProfit;
-    const roi = resolved > 0 ? ((profitNum / resolved) * 100).toFixed(1) : '0.0';
 
-    // List of the ACTUAL real signals that triggered in THIS bot
-    const signalsList = events
+    // Calculate flat profit:
+    // WIN = +(odds - 1) flats
+    // LOSS = -1.00 flat
+    // REFUND = 0.00 flat
+    let netFlats = 0;
+    uniqueEvents.forEach((e) => {
+      if (e.outcome === 'WIN') {
+        netFlats += Number(((e.odds || 1.75) - 1).toFixed(2));
+      } else if (e.outcome === 'LOSS') {
+        netFlats -= 1.0;
+      }
+    });
+
+    const profitFlatsNum = Number(netFlats.toFixed(2));
+    const profitSign = profitFlatsNum >= 0 ? `+${profitFlatsNum.toFixed(2)}` : `${profitFlatsNum.toFixed(2)}`;
+    const rublesEquivalent = Math.round(profitFlatsNum * 1000);
+    const rublesSign = rublesEquivalent >= 0 ? `+${rublesEquivalent.toLocaleString('ru-RU')}` : `${rublesEquivalent.toLocaleString('ru-RU')}`;
+
+    // Standard sports betting ROI %: Net profit in flats / Total resolved bets in flats * 100%
+    const roiNum = resolved > 0 ? Number(((profitFlatsNum / resolved) * 100).toFixed(1)) : 0.0;
+    const roiSign = roiNum >= 0 ? `+${roiNum.toFixed(1)}` : `${roiNum.toFixed(1)}`;
+
+    const avgOdds = total > 0
+      ? (uniqueEvents.reduce((acc, e) => acc + (e.odds || 1.75), 0) / total).toFixed(2)
+      : '1.75';
+
+    // List of the ACTUAL real unique signals that triggered in THIS bot
+    const signalsList = uniqueEvents
       .slice(0, 15)
       .map((e, idx) => {
         const icon = e.outcome === 'WIN' ? '✅' : e.outcome === 'LOSS' ? '❌' : e.outcome === 'REFUND' ? '🔄' : '⏳';
@@ -638,9 +673,9 @@ async function startServer() {
       (refund > 0 ? `🔄 <b>Возврат (REFUND):</b> ${refund}\n` : '') +
       (pending > 0 ? `⏳ <b>В игре (LIVE):</b> ${pending}\n` : '') +
       `\n` +
-      `💰 <b>Итоговый профит:</b> <b>${profitSign} флэта</b>\n` +
+      `💰 <b>Итоговый профит:</b> <b>${profitSign} флэта (${rublesSign} ₽)</b>\n` +
       `📈 <b>Средний кэф:</b> ${avgOdds}\n` +
-      `💎 <b>ROI:</b> ${profitNum >= 0 ? `+${roi}` : roi}%\n\n` +
+      `💎 <b>ROI:</b> ${roiSign}%\n\n` +
       `📋 <b>Сработавшие сигналы в этом боте:</b>\n${signalsList}\n` +
       (total > 15 ? `\n<i>... и еще ${total - 15} сигналов</i>\n` : '\n') +
       `🤖 <i>SportSignal AI Automated Engine</i>`

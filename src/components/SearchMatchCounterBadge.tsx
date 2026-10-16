@@ -73,6 +73,15 @@ export const SearchMatchCounterBadge: React.FC<SearchMatchCounterBadgeProps> = R
         }
         return `Найдено ${animatedCount} матчей`;
       }
+      if (language === 'tr') {
+        return `Bulunan ${animatedCount} maç`;
+      }
+      if (language === 'it') {
+        return `${animatedCount} ${animatedCount === 1 ? 'partita trovata' : 'partite trovate'}`;
+      }
+      if (language === 'zh') {
+        return `找到 ${animatedCount} 场比赛`;
+      }
       return `Found ${animatedCount} ${animatedCount === 1 ? 'match' : 'matches'}`;
     }, [animatedCount, language]);
 

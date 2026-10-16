@@ -175,6 +175,8 @@ jobs:
               <application
                   android:allowBackup="true"
                   android:label="@string/app_name"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
                   android:supportsRtl="true"
                   android:hardwareAccelerated="true"
                   android:usesCleartextTraffic="true">
@@ -191,6 +193,19 @@ jobs:
               </application>
           </manifest>
           EOF
+
+          # Populate Android Launcher Icons across all densities
+          mkdir -p android/app/src/main/res/mipmap-mdpi android/app/src/main/res/mipmap-hdpi android/app/src/main/res/mipmap-xhdpi android/app/src/main/res/mipmap-xxhdpi android/app/src/main/res/mipmap-xxxhdpi
+          cp public/assets/icon-192.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          cp public/assets/icon-192.png android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+          cp public/assets/icon-192.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp public/assets/icon-192.png android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+          cp public/assets/icon-192.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp public/assets/icon-192.png android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+          cp public/assets/icon-512.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp public/assets/icon-512.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+          cp public/assets/icon-512.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp public/assets/icon-512.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
 
           cat << 'EOF' > android/app/src/main/res/values/strings.xml
           <resources>

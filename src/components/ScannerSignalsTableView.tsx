@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SignalAlert, Match, SignalOutcome, SportType } from '../types';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   Play,
   Square,
@@ -43,6 +44,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
   onUpdateOutcome,
   onExportCsv,
 }) => {
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [periodFilter, setPeriodFilter] = useState<'ALL' | '1H' | '2H' | 'HT'>('ALL');
   const [sportFilter, setSportFilter] = useState<SportType | 'ALL'>('ALL');
@@ -100,12 +102,12 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             {isMonitoringActive ? (
               <>
                 <Square className="h-4 w-4 fill-white" />
-                <span>[ СТОП ]</span>
+                <span>{t('scannerStopBtn')}</span>
               </>
             ) : (
               <>
                 <Play className="h-4 w-4 fill-white" />
-                <span>[ СТАРТ ]</span>
+                <span>{t('scannerStartBtn')}</span>
               </>
             )}
           </button>
@@ -118,17 +120,17 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             }}
             disabled={signals.length === 0}
             className="px-4 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition active:scale-95"
-            title="Очистить все зафиксированные сигналы"
+            title="Clear all recorded signals"
           >
             <Trash2 className="h-3.5 w-3.5 text-rose-400" />
-            <span>[ ОЧИСТИТЬ ТАБЛИЦУ ]</span>
+            <span>{t('scannerClearBtn')}</span>
           </button>
 
           {onExportCsv && (
             <button
               onClick={onExportCsv}
               className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition active:scale-95 border border-slate-700"
-              title="Экспортировать сигналы в файл CSV"
+              title="CSV"
             >
               <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
               <span>CSV</span>
@@ -138,7 +140,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
           {/* Live signals counter */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="text-slate-400 font-medium">Сигналов в базе:</span>
+            <span className="text-slate-400 font-medium">{t('scannerSignalsCount')}:</span>
             <span className="font-bold font-mono text-emerald-400">{signals.length}</span>
           </div>
         </div>
@@ -148,7 +150,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
           {/* Sport selector */}
           <div className="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-xs">
             {[
-              { id: 'ALL', label: 'Все виды' },
+              { id: 'ALL', label: t('scannerAllSports') },
               { id: 'football', label: '⚽' },
               { id: 'hockey', label: '🏒' },
               { id: 'basketball', label: '🏀' },
@@ -174,10 +176,10 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
           {/* Period selector */}
           <div className="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-xs">
             {[
-              { id: 'ALL', label: 'Все' },
-              { id: '1H', label: '1Т' },
-              { id: '2H', label: '2Т' },
-              { id: 'HT', label: 'HT' },
+              { id: 'ALL', label: t('scannerPeriodAll') },
+              { id: '1H', label: t('scannerPeriod1H') },
+              { id: '2H', label: t('scannerPeriod2H') },
+              { id: 'HT', label: t('scannerPeriodHT') },
             ].map((item) => (
               <button
                 key={item.id}
@@ -200,7 +202,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
               onChange={(e) => setFilterNameChoice(e.target.value)}
               className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 max-w-[150px] truncate"
             >
-              <option value="ALL">Все фильтры</option>
+              <option value="ALL">{t('catAll')}</option>
               {distinctFilterNames.map((fn) => (
                 <option key={fn} value={fn}>
                   {fn}
@@ -214,7 +216,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Поиск по сигналам..."
+              placeholder={t('searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -230,25 +232,25 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             <thead className="sticky top-0 z-20 bg-slate-950 border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-2.5 px-2.5 text-center font-bold w-12">#</th>
-                <th className="py-2.5 px-3 font-bold">Фильтр</th>
-                <th className="py-2.5 px-3 font-bold">Страна</th>
-                <th className="py-2.5 px-3 font-bold">Лига</th>
-                <th className="py-2.5 px-2.5 text-center font-bold">Период</th>
-                <th className="py-2.5 px-2 text-center font-bold">Время</th>
-                <th className="py-2.5 px-3 font-bold">Хозяева</th>
-                <th className="py-2.5 px-3 font-bold">Гости</th>
+                <th className="py-2.5 px-3 font-bold">{t('colFilter')}</th>
+                <th className="py-2.5 px-3 font-bold">{t('colCountry')}</th>
+                <th className="py-2.5 px-3 font-bold">{t('colLeague')}</th>
+                <th className="py-2.5 px-2.5 text-center font-bold">{t('colPeriod')}</th>
+                <th className="py-2.5 px-2 text-center font-bold">{t('colTime')}</th>
+                <th className="py-2.5 px-3 font-bold">{t('colHome')}</th>
+                <th className="py-2.5 px-3 font-bold">{t('colAway')}</th>
                 <th className="py-2.5 px-2 text-center font-bold text-emerald-400">К1</th>
                 <th className="py-2.5 px-2 text-center font-bold text-blue-400">К2</th>
-                <th className="py-2.5 px-2 text-center font-bold">Атаки</th>
-                <th className="py-2.5 px-2 text-center font-bold">Оп. ат.</th>
-                <th className="py-2.5 px-2 text-center font-bold">Удары (ств)</th>
-                <th className="py-2.5 px-2 text-center font-bold">Углы</th>
-                <th className="py-2.5 px-2 text-center font-bold">ЖК/КК</th>
-                <th className="py-2.5 px-3 font-bold text-amber-400">Исход</th>
-                <th className="py-2.5 px-3 font-bold text-center text-emerald-400">Статус ставки</th>
-                <th className="py-2.5 px-3 font-bold">Telegram / Бот</th>
-                <th className="py-2.5 px-2.5 text-center font-bold">Фиксация</th>
-                <th className="py-2.5 px-2.5 text-center font-bold">Действия</th>
+                <th className="py-2.5 px-2 text-center font-bold">{t('colAttacks')}</th>
+                <th className="py-2.5 px-2 text-center font-bold">{t('colDangAttacks')}</th>
+                <th className="py-2.5 px-2 text-center font-bold">{t('colShots')}</th>
+                <th className="py-2.5 px-2 text-center font-bold">{t('colCorners')}</th>
+                <th className="py-2.5 px-2 text-center font-bold">{t('colCards')}</th>
+                <th className="py-2.5 px-3 font-bold text-amber-400">{t('colOutcome')}</th>
+                <th className="py-2.5 px-3 font-bold text-center text-emerald-400">{t('colBetStatus')}</th>
+                <th className="py-2.5 px-3 font-bold">{t('colTelegram')}</th>
+                <th className="py-2.5 px-2.5 text-center font-bold">{t('colLoggedAt')}</th>
+                <th className="py-2.5 px-2.5 text-center font-bold">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -257,11 +259,11 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                   <td colSpan={20} className="py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Filter className="h-7 w-7 text-slate-600" />
-                      <span>Нет зафиксированных сигналов в текущей сессии</span>
+                      <span>{t('noSignalsRecorded')}</span>
                       <span className="text-[11px] text-slate-600">
                         {isMonitoringActive
-                          ? 'Сканер запущен: при срабатывании фильтра новая строка сразу появится здесь'
-                          : 'Нажмите [ СТАРТ ] для запуска сканирования live-матчей'}
+                          ? t('scannerPromptActive')
+                          : t('scannerPromptStopped')}
                       </span>
                     </div>
                   </td>

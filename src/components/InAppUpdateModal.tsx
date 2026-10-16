@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, RefreshCw, CheckCircle2, AlertCircle, Sparkles, ExternalLink, X, Smartphone, ArrowUpCircle } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   CURRENT_APP_VERSION,
   checkAppUpdate,
@@ -20,6 +21,7 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
   onClose,
   onUpdateAvailable,
 }) => {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState<boolean>(false);
   const [release, setRelease] = useState<AppReleaseInfo | null>(null);
   const [downloading, setDownloading] = useState<boolean>(false);
@@ -63,8 +65,8 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
               <ArrowUpCircle className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-100 text-sm sm:text-base">Центр обновлений SportSignal</h3>
-              <p className="text-[11px] text-slate-400">Обновление мобильного приложения и веб-версии</p>
+              <h3 className="font-bold text-slate-100 text-sm sm:text-base">{t('updateCenterTitle')}</h3>
+              <p className="text-[11px] text-slate-400">{t('updateCenterDesc')}</p>
             </div>
           </div>
           <button
@@ -80,9 +82,9 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
           {/* Version Cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/60">
-              <span className="text-[10px] uppercase font-bold text-slate-400">Текущая версия</span>
+              <span className="text-[10px] uppercase font-bold text-slate-400">{t('currentVersionLabel')}</span>
               <div className="text-base font-extrabold text-slate-200 mt-0.5">v{CURRENT_APP_VERSION}</div>
-              <span className="text-[10px] text-slate-500">Установлена в приложении</span>
+              <span className="text-[10px] text-slate-500">{t('versionInstalledDesc')}</span>
             </div>
 
             <div
@@ -92,7 +94,7 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
                   : 'bg-slate-800/50 border-slate-700/60'
               }`}
             >
-              <span className="text-[10px] uppercase font-bold text-slate-400">Последний релиз</span>
+              <span className="text-[10px] uppercase font-bold text-slate-400">{t('latestReleaseLabel')}</span>
               <div className="text-base font-extrabold text-emerald-400 mt-0.5 flex items-center gap-1.5">
                 {loading ? (
                   <RefreshCw className="h-4 w-4 animate-spin text-slate-400" />
@@ -105,7 +107,7 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-slate-500">На сервере GitHub</span>
+              <span className="text-[10px] text-slate-500">{t('versionOnServerDesc')}</span>
             </div>
           </div>
 
@@ -113,25 +115,25 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
           {loading ? (
             <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-800 flex items-center justify-center gap-2 text-xs text-slate-300">
               <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
-              <span>Проверка доступных обновлений...</span>
+              <span>{t('checkingUpdatesText')}</span>
             </div>
           ) : release?.isNewer ? (
             <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
               <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
                 <Sparkles className="h-4 w-4 shrink-0 text-emerald-400" />
-                <span>Доступна новая сборка {release.name}!</span>
+                <span>{t('updateAvailableBanner', { name: release.name })}</span>
               </div>
               <p className="text-[11px] text-slate-300 leading-relaxed">
-                Вы можете установить её прямо сейчас одним нажатием без необходимости удалять приложение.
+                {t('updateReadyInstallDesc')}
               </p>
             </div>
           ) : (
             <div className="p-3.5 rounded-xl bg-slate-800/40 border border-slate-800 flex items-center gap-2.5 text-xs text-slate-300">
               <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
               <div>
-                <span className="font-semibold text-slate-200">У вас установлена актуальная версия!</span>
+                <span className="font-semibold text-slate-200">{t('appUpToDateBanner')}</span>
                 {checkedAt && (
-                  <div className="text-[10px] text-slate-500">Проверено: {checkedAt}</div>
+                  <div className="text-[10px] text-slate-500">Checked: {checkedAt}</div>
                 )}
               </div>
             </div>
@@ -147,13 +149,13 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
               {downloading ? (
                 <>
                   <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span>Загрузка APK файла...</span>
+                  <span>Loading APK...</span>
                 </>
               ) : (
                 <>
                   <Download className="h-4 w-4" />
                   <span>
-                    {release?.isNewer ? '⚡ Установить обновление в 1 клик' : '📥 Скачать APK повторно'}
+                    {release?.isNewer ? `⚡ ${t('btnDownloadApkDirect')}` : `📥 ${t('btnDownloadApkDirect')}`}
                   </span>
                 </>
               )}
@@ -162,10 +164,10 @@ export const InAppUpdateModal: React.FC<InAppUpdateModalProps> = ({
             <button
               onClick={performOtaReload}
               className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition border border-slate-700 flex items-center justify-center gap-2"
-              title="Перезагружает веб-интерфейс, мгновенно подтягивая самые свежие исправления без переустановки APK"
+              title="OTA"
             >
               <RefreshCw className="h-3.5 w-3.5 text-cyan-400" />
-              <span>🔄 Мгновенно обновить веб-оболочку (OTA)</span>
+              <span>🔄 {t('btnOtaSyncLive')}</span>
             </button>
           </div>
 

@@ -3417,9 +3417,9 @@ export default function App() {
         });
         persistSentSignalsTracker();
 
-        // Check if alert already recorded in current state list
+        // Check if alert already recorded in current state list (deterministic per match + strategy)
         const isPrematch = getBetTypeForSignal(rule, match.minute, match) === 'PREMATCH' || match.status === 'PREMATCH';
-        const alertId = isPrematch ? `${match.id}-${rule.id}-prematch-60` : `${match.id}-${rule.id}-${match.minute}`;
+        const alertId = isPrematch ? `${match.id}-${rule.id}-prematch-60` : `${match.id}-${rule.id}`;
         const estimatedOdds = getEstimatedOdds(rule.targetMarket, match.minute);
 
         // Determine destination bot for this rule
@@ -3520,7 +3520,7 @@ export default function App() {
         };
 
         setSignals((prev) => {
-          if (prev.some((s) => s.id === alertId)) return prev;
+          if (prev.some((s) => s.id === alertId || (s.matchId === match.id && s.ruleId === rule.id))) return prev;
           playSignalSound();
           triggerWebPushNotification(
             `🔥 Сигнал ${displayRuleName}: ${match.homeTeam} vs ${match.awayTeam}`,
@@ -3556,11 +3556,8 @@ export default function App() {
             }
           ).then((res) => {
             inFlightSendingRef.current.delete(matchTrackerKey);
-            if (!res.ok) {
-              sentSignalsTrackerRef.current.delete(matchTrackerKey);
-              sentSignalsTrackerRef.current.delete(ruleTrackerKey);
-              persistSentSignalsTracker();
-            }
+            // Keep tracker intact so failed messages don't create an infinite spam loop every polling cycle
+            persistSentSignalsTracker();
             setSignals((curr) =>
               curr.map((item) =>
                 item.id === alertId
@@ -5491,49 +5488,49 @@ export default function App() {
                 {[
                   {
                     id: 'all',
-                    label: 'Все',
+                    label: t('qfAll'),
                     icon: null,
                     count: quickFilterCounts.all,
                     activeClass: 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-950/50',
                   },
                   {
                     id: 'live',
-                    label: 'Live',
+                    label: t('qfLive'),
                     icon: Activity,
                     count: quickFilterCounts.live,
                     activeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm ring-1 ring-emerald-500/30',
                   },
                   {
                     id: 'prematch',
-                    label: 'Прематч',
+                    label: t('qfPrematch'),
                     icon: Clock,
                     count: quickFilterCounts.prematch,
                     activeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/50 shadow-sm ring-1 ring-blue-500/30',
                   },
                   {
                     id: 'over25',
-                    label: 'ТБ 2.5',
+                    label: t('qfOver25'),
                     icon: Flame,
                     count: quickFilterCounts.over25,
                     activeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm ring-1 ring-amber-500/30',
                   },
                   {
                     id: 'odds_drop',
-                    label: 'Прогруз',
+                    label: t('qfOddsDrop'),
                     icon: TrendingDown,
                     count: quickFilterCounts.odds_drop,
                     activeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-sm ring-1 ring-rose-500/30',
                   },
                   {
                     id: 'corners',
-                    label: 'Угловые',
+                    label: t('qfCorners'),
                     icon: Flag,
                     count: quickFilterCounts.corners,
                     activeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-sm ring-1 ring-purple-500/30',
                   },
                   {
                     id: 'pressure',
-                    label: 'Штурм',
+                    label: t('qfPressure'),
                     icon: Zap,
                     count: quickFilterCounts.pressure,
                     activeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm ring-1 ring-cyan-500/30',
@@ -5558,7 +5555,7 @@ export default function App() {
                           ? btn.activeClass
                           : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
                       }`}
-                      title={`Фильтровать и сортировать матчи: ${btn.label}`}
+                      title={`${btn.label}`}
                     >
                       {Icon && <Icon className={`h-3 w-3 ${isSelected ? 'animate-pulse' : ''}`} />}
                       <span>{btn.label}</span>
@@ -5581,7 +5578,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <span className={`h-2 w-2 rounded-full ${dataSourceConfig.activeSource !== 'simulated' ? 'bg-cyan-400' : 'bg-emerald-400'}`} />
                   <span>
-                    Источник: <strong className="text-slate-200">{
+                    {t('feedActiveSource')}: <strong className="text-slate-200">{
                       dataSourceConfig.activeSource === 'fonbet' ? '🔴 Фонбет Live (Легальная РФ Линия • Реальный эфир)' :
                       dataSourceConfig.activeSource === '1xbet' ? '🔷 1xBet Live (Широкая роспись)' :
                       dataSourceConfig.activeSource === 'flashscore' ? '⚡ Flashscore Live (Парсер)' :
@@ -5598,7 +5595,7 @@ export default function App() {
                   onClick={() => setIsDataSourcesModalOpen(true)}
                   className="text-cyan-400 hover:underline font-medium text-[10px]"
                 >
-                  Сменить / Настроить →
+                  {t('feedChangeBtn')}
                 </button>
               </div>
 
@@ -5614,11 +5611,11 @@ export default function App() {
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                       </span>
                       <span>
-                        <strong>{triggeredCount} {triggeredCount === 1 ? 'матч' : triggeredCount < 5 ? 'матча' : 'матчей'}</strong> со сработавшими фильтрами подняты <strong>в верхний список</strong>
+                        <strong>{triggeredCount} {triggeredCount === 1 ? 'match' : 'matches'}</strong> {t('priorityMatchesTop')}
                       </span>
                     </div>
                     <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40">
-                      Вверху списка ⬆
+                      {t('topOfListBadge')}
                     </span>
                   </div>
                 );
