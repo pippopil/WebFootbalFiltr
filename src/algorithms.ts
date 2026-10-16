@@ -999,18 +999,20 @@ export function evaluateFilterRule(
     }
   }
 
-  // 20. Exclude Youth, Women & Lower Leagues (Стратегии 4, 5, 12)
+  // 20. Exclude Youth, Women & Lower / Reserve Leagues (Стратегии 4, 5, 12, 21)
   if (rule.excludeYouthAndWomen) {
     totalCriteria++;
     const textToCheck = `${match.league} ${match.homeTeam} ${match.awayTeam}`.toLowerCase();
-    const isYouthOrWomen =
-      /women|жен|wom|ladies|femen|u17|u18|u19|u20|u21|u23|юнош|молод|youth|reserve|дубл|tercera|3\. liga/i.test(
+    const isYouthOrWomenOrReserve =
+      /women|жен|wom|ladies|femen|u15|u16|u17|u18|u19|u20|u21|u23|юнош|молод|youth|reserve|дубл|резерв|tercera|3\. liga/i.test(
         textToCheck
-      );
-    if (!isYouthOrWomen) {
+      ) ||
+      /\b(ii|b|c|u\d+|sub-?\d+)\b/i.test(textToCheck) ||
+      /\s(2|ii)\s*($|\/|-|vs)/i.test(textToCheck);
+    if (!isYouthOrWomenOrReserve) {
       passedCount++;
     } else {
-      unmetCriteria.push(`Лига исключена фильтром (молодёжная/женская/низшая)`);
+      unmetCriteria.push(`Лига исключена фильтром (молодёжная/женская/резервная/низшая)`);
     }
   }
 

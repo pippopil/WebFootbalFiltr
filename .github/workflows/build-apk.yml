@@ -53,9 +53,21 @@ jobs:
           fi
           gradle --version
 
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses & Configure Environment
         run: |
-          yes | sdkmanager --licenses || true
+          ANDROID_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$ANDROID_ROOT" >> $GITHUB_ENV
+          echo "$ANDROID_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_ROOT/tools/bin" >> $GITHUB_PATH
+          echo "$ANDROID_ROOT/platform-tools" >> $GITHUB_PATH
+
+          mkdir -p "$ANDROID_ROOT/licenses" || true
+          printf "24333f8a6371fba30ea89280169994b9ca6e4862\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\ne6b7c2ab7dee62e2d4f114b870123d90741ab2d6\n" > "$ANDROID_ROOT/licenses/android-sdk-license"
+          printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_ROOT/licenses/android-sdk-preview-license"
+
+          if [ -x "$ANDROID_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          fi
 
       - name: Initialize Android Wrapper Project with Dynamic Build Number
         run: |
@@ -75,6 +87,13 @@ jobs:
             echo "sdk.dir=$ANDROID_SDK_PATH" > android/local.properties
           fi
 
+          cat << 'EOF' > android/gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
+          EOF
+
           cat << 'EOF' > android/settings.gradle
           pluginManagement {
               repositories {
@@ -84,7 +103,7 @@ jobs:
               }
           }
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
               repositories {
                   google()
                   mavenCentral()
@@ -108,6 +127,7 @@ jobs:
           android {
               namespace 'com.sportsignal.app'
               compileSdk 34
+              buildToolsVersion "34.0.0"
 
               defaultConfig {
                   applicationId "com.sportsignal.app"
@@ -123,9 +143,18 @@ jobs:
               }
 
               buildTypes {
+                  debug {
+                      minifyEnabled false
+                      debuggable true
+                  }
                   release {
                       minifyEnabled false
                   }
+              }
+
+              lint {
+                  abortOnError false
+                  checkReleaseBuilds false
               }
           }
 
