@@ -81,6 +81,7 @@ import {
   Trophy,
   BellRing,
   Smartphone,
+  ArrowUpCircle,
 } from 'lucide-react';
 import {
   createCleanBlankFilter,
@@ -178,6 +179,9 @@ import {
 } from './services/analyticsService';
 import { SiteAnalyticsData } from './types';
 import { SearchMatchCounterBadge } from './components/SearchMatchCounterBadge';
+import { InAppUpdateModal } from './components/InAppUpdateModal';
+import { checkAppUpdate, AppReleaseInfo } from './services/appUpdateService';
+import { safeFetchJson } from './services/apiClient';
 
 // Real signals start clean - no synthetic dummy seed alerts
 const INITIAL_SIGNALS: SignalAlert[] = [];
@@ -2336,6 +2340,19 @@ export default function App() {
     });
   };
 
+  // In-app updater states
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState<boolean>(false);
+  const [availableUpdate, setAvailableUpdate] = useState<AppReleaseInfo | null>(null);
+
+  // Auto-check for updates on launch
+  useEffect(() => {
+    checkAppUpdate().then((info) => {
+      if (info && info.isNewer) {
+        setAvailableUpdate(info);
+      }
+    });
+  }, []);
+
   const playSignalSound = useCallback(() => {
     if (!isSoundAlertsEnabled) return;
     try {
@@ -2420,9 +2437,8 @@ export default function App() {
         query += `&football_data_token=${encodeURIComponent(dataSourceConfig.footballData.apiToken)}`;
       }
 
-      const res = await fetch(`/api/datasources/live${query}`);
-      const data = await res.json();
-      if (res.ok && data.ok && Array.isArray(data.matches) && data.matches.length > 0) {
+      const { ok, data, error: apiError } = await safeFetchJson<any>(`/api/datasources/live${query}`);
+      if (ok && data && data.ok && Array.isArray(data.matches) && data.matches.length > 0) {
         setMatches((prev) => {
           const updated = data.matches.map((newM: Match) => {
             const prevM = prev.find((m) => m.id === newM.id);
@@ -2465,11 +2481,11 @@ export default function App() {
         } else {
           setDataSourceFallbackInfo(null);
         }
-      } else if (data.matches && data.matches.length === 0) {
+      } else if (data && data.matches && data.matches.length === 0) {
         setDataSourceError(`В источнике сейчас нет активных матчей для вида спорта «${targetSport}».`);
         setDataSourceFallbackInfo(null);
       } else {
-        setDataSourceError(data.error || 'Ошибка при получении матчей из источника');
+        setDataSourceError(data?.error || apiError || 'Ошибка при получении матчей из источника');
         setDataSourceFallbackInfo(null);
       }
     } catch (err: any) {
@@ -4305,6 +4321,37 @@ export default function App() {
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingMatches ? 'animate-spin text-emerald-400' : ''}`} />
               </button>
+              {/* In-App Update Button */}
+              <button
+                type="button"
+                onClick={() => setIsUpdateModalOpen(true)}
+                className={`p-1 rounded transition relative ${
+                  availableUpdate?.isNewer
+                    ? 'text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 ring-1 ring-emerald-500/50'
+                    : 'text-slate-400 hover:text-cyan-400 hover:bg-slate-800'
+                }`}
+                title={
+                  availableUpdate?.isNewer
+                    ? `Доступно обновление v${availableUpdate.version}! Нажмите для установки в 1 клик`
+                    : 'Центр обновлений приложения'
+                }
+              >
+                <ArrowUpCircle className="h-3.5 w-3.5" />
+                {availableUpdate?.isNewer && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                )}
+              </button>
+              {availableUpdate?.isNewer && (
+                <button
+                  type="button"
+                  onClick={() => setIsUpdateModalOpen(true)}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold hover:bg-emerald-500/30 transition flex items-center gap-1 animate-pulse"
+                  title="Нажмите для установки обновления без переустановки"
+                >
+                  <ArrowUpCircle className="h-3 w-3" />
+                  <span>v{availableUpdate.version}</span>
+                </button>
+              )}
             </div>
 
             {/* Language Switcher (RU, EN, TR, IT, ZH) */}
@@ -9621,6 +9668,13 @@ export default function App() {
               )
             );
           }}
+        />
+
+        {/* In-App Application Self-Update Modal */}
+        <InAppUpdateModal
+          isOpen={isUpdateModalOpen}
+          onClose={() => setIsUpdateModalOpen(false)}
+          onUpdateAvailable={(release) => setAvailableUpdate(release)}
         />
       </div>
 

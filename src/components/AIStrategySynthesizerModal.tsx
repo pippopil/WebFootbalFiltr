@@ -21,6 +21,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { FilterRule, UserProfile, SportType, ScoreCondition, FilterCategory } from '../types';
+import { safeFetchJson } from '../services/apiClient';
 
 interface AIStrategySynthesizerModalProps {
   isOpen: boolean;
@@ -169,7 +170,7 @@ export const AIStrategySynthesizerModal: React.FC<AIStrategySynthesizerModalProp
 
     try {
       // 1. Call server-side Vision API (Gemini 3.1 Flash-Lite / Flash with Token Optimization)
-      const res = await fetch('/api/ai/synthesize-strategy', {
+      const { ok, data, error: apiError } = await safeFetchJson<any>('/api/ai/synthesize-strategy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,13 +180,11 @@ export const AIStrategySynthesizerModal: React.FC<AIStrategySynthesizerModalProp
         }),
       });
 
-      const data = await res.json();
-
-      if (data.tokenStats) {
+      if (data?.tokenStats) {
         setLastTokenStats(data.tokenStats);
       }
 
-      if (res.ok && data.ok && data.strategy) {
+      if (ok && data?.ok && data?.strategy) {
         const s = data.strategy;
         const isChecklist = Boolean(s.isChecklist || s.checklistItems?.length);
 

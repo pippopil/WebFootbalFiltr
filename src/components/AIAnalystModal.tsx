@@ -15,6 +15,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { LiveMatch, PressureAnalysis, AIMatchAnalysis, TelegramConfig } from '../types';
+import { safeFetchJson } from '../services/apiClient';
 
 interface AIAnalystModalProps {
   isOpen: boolean;
@@ -102,7 +103,7 @@ export const AIAnalystModal: React.FC<AIAnalystModalProps> = ({
         }
       } else {
         // Direct API call fallback
-        const res = await fetch('/api/telegram/send', {
+        const { ok, data, error: apiError } = await safeFetchJson<any>('/api/telegram/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -111,11 +112,10 @@ export const AIAnalystModal: React.FC<AIAnalystModalProps> = ({
             chat_id: telegramConfig.channelId || undefined,
           }),
         });
-        const data = await res.json();
-        if (data.ok) {
+        if (ok && data?.ok) {
           setTgStatus(`✅ Разбор опубликован в Telegram (#${data.messageId || 'OK'})`);
         } else {
-          setTgStatus(`❌ Ошибка: ${data.error || 'Не удалось отправить'}`);
+          setTgStatus(`❌ Ошибка: ${data?.error || apiError || 'Не удалось отправить'}`);
         }
       }
     } catch (err: any) {

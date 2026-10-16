@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { DataSourceConfig, DataSourceType, DataSourceStatus } from '../types';
 import { fetchSofascoreFromBrowserRelay } from '../services/browserRelay';
+import { safeFetchJson } from '../services/apiClient';
 
 interface DataSourcesModalProps {
   isOpen: boolean;
@@ -106,14 +107,13 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
         body.token = draftConfig.footballData.apiToken;
       }
 
-      const res = await fetch('/api/datasources/test', {
+      const { ok, data, error: apiError } = await safeFetchJson<any>('/api/datasources/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
-      if (res.ok && data.ok) {
+      if (ok && data && data.ok) {
         setTestStatus({
           source: sourceType,
           configured: true,
@@ -129,8 +129,8 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
           configured: false,
           status: 'error',
           matchesCount: 0,
-          latencyMs: data.latencyMs,
-          error: data.error || 'Ошибка проверки соединения',
+          latencyMs: data?.latencyMs,
+          error: data?.error || apiError || 'Ошибка проверки соединения',
         });
       }
     } catch (err: any) {
