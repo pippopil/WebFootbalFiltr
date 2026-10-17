@@ -12,6 +12,7 @@ import {
   getInitialStrategyMetric,
   resolveStrategyMetric,
   formatResolvedTelegramAlert,
+  evaluateSignalOutcome,
 } from '../src/algorithms';
 import { Match, FilterRule, SignalAlert } from '../src/types';
 
@@ -451,6 +452,98 @@ const resolvedCardTgHtml = formatResolvedTelegramAlert(
 );
 assert(resolvedCardTgHtml.includes('РЕЗУЛЬТАТ ПО СТРАТЕГИИ (ЖЁЛТЫЕ КАРТОЧКИ)'), 'Resolved alert contains card strategy result header');
 assert(resolvedCardTgHtml.includes('+2 ЖК'), 'Resolved alert specifies +2 ЖК delta');
+
+// ----------------------------------------------------
+// TEST GROUP 9: Strategy 40 & Strict Card/False-Signal Protection
+// ----------------------------------------------------
+console.log('\n--- Test Group 9: Strategy 40 & Strict Card / False-Signal Protection ---');
+
+const strat40Rule: FilterRule = {
+  id: 'strat-yellow-cards-derby',
+  name: '🟨 «ЖК ТБ во 2-м тайме» (Накал страстей и грубая игра ~1.82)',
+  category: 'cards',
+  ruleType: 'LIVE',
+  enabled: true,
+  minMinute: 50,
+  maxMinute: 75,
+  scoreCondition: 'ANY',
+  maxScoreDiff: 1,
+  minYellowCardsTotal: 3,
+  targetMarket: 'ЖК ТБ 3.5 / 4.5 (~1.80)',
+  defaultOdds: 1.8,
+};
+
+const matchOnly1Card: Match = {
+  ...minimalMatch,
+  minute: 50,
+  score: [1, 2],
+  stats: {
+    ...minimalMatch.stats!,
+    yellowCards: [1, 0], // Only 1 card!
+  },
+};
+
+const evalStrat40Fail = evaluateFilterRule(matchOnly1Card, strat40Rule);
+assert(evalStrat40Fail.matches === false, 'Strategy 40 correctly rejects match with only 1 yellow card');
+assert(
+  evalStrat40Fail.unmetCriteria.some((c) => c.includes('Жёлтых карточек в матче') && c.includes('< требуемых 3')),
+  'Strategy 40 reports unmet criteria when yellow cards < 3'
+);
+
+const match3Cards: Match = {
+  ...matchOnly1Card,
+  stats: {
+    ...matchOnly1Card.stats!,
+    yellowCards: [2, 1], // 3 cards
+  },
+};
+const evalStrat40Pass = evaluateFilterRule(match3Cards, strat40Rule);
+assert(evalStrat40Pass.matches === true, 'Strategy 40 successfully matches when match actually has >= 3 cards');
+
+const match5Cards: Match = {
+  ...matchOnly1Card,
+  stats: {
+    ...matchOnly1Card.stats!,
+    yellowCards: [3, 2], // 5 cards
+  },
+};
+const cardPassedCheck = checkMarketAlreadyPassed(strat40Rule.targetMarket, match5Cards, strat40Rule);
+assert(cardPassedCheck.isPassed === true, 'checkMarketAlreadyPassed correctly blocks ЖК ТБ 3.5 when 5 cards already shown');
+
+const signalAt3Cards: SignalAlert = {
+  ...cardSignal,
+  id: 'sig-40-eval-test',
+  minute: 50,
+  score: '1:2',
+  ruleId: strat40Rule.id,
+  ruleName: strat40Rule.name,
+  marketSuggestion: strat40Rule.targetMarket,
+  statsSnapshot: {
+    ...cardSignal.statsSnapshot!,
+    yellowCards: [2, 1], // 3 cards at signal
+  },
+};
+
+// Match ends with NO new cards (+0 after signal)
+const outcome0Cards = evaluateSignalOutcome(
+  signalAt3Cards,
+  [1, 2],
+  true, // FT
+  [3, 1],
+  { yellowCards: [2, 1] } as any
+);
+assert(outcome0Cards.outcome === 'LOSS', 'Card signal with +0 cards after signal correctly resolves as LOSS');
+assert(outcome0Cards.note?.includes('+0 после сигнала'), 'Resolution note confirms 0 new cards shown after signal');
+
+// Match ends with +1 card (4 total) -> ТБ 3.5 hit!
+const outcome1Card = evaluateSignalOutcome(
+  signalAt3Cards,
+  [1, 2],
+  true, // FT
+  [3, 1],
+  { yellowCards: [2, 2] } as any
+);
+assert(outcome1Card.outcome === 'WIN', 'Card signal with +1 card after signal correctly resolves as WIN');
 
 // ----------------------------------------------------
 // SUMMARY

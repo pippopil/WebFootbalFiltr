@@ -458,6 +458,36 @@ export function checkMarketAlreadyPassed(
     }
   }
 
+  // 14. Yellow Cards Over (ЖК ТБ 3.5 / 4.5)
+  if (/(?:жк|карточ)\s*(?:тб|больше)\s*(\d+(?:\.5)?)/i.test(rawMarket)) {
+    const cardMatch = rawMarket.match(/(?:жк|карточ)\s*(?:тб|больше)\s*(\d+(?:\.5)?)/i);
+    if (cardMatch) {
+      const threshold = parseFloat(cardMatch[1]);
+      const currentCards = (match.stats?.yellowCards?.[0] ?? 0) + (match.stats?.yellowCards?.[1] ?? 0);
+      if (currentCards >= Math.ceil(threshold)) {
+        return {
+          isPassed: true,
+          reason: `Событие уже наступило: в матче уже показано ${currentCards} ЖК (рынок ${cardMatch[0]} уже сыграл).`,
+        };
+      }
+    }
+  }
+
+  // 15. Corners Over (Угловые ТБ 8.5 / 9.5 / 10.5)
+  if (/(?:угл|corner)\s*(?:тб|больше)\s*(\d+(?:\.5)?)/i.test(rawMarket)) {
+    const cornerMatch = rawMarket.match(/(?:угл|corner)\s*(?:тб|больше)\s*(\d+(?:\.5)?)/i);
+    if (cornerMatch) {
+      const threshold = parseFloat(cornerMatch[1]);
+      const currentCorners = (match.stats?.corners?.[0] ?? 0) + (match.stats?.corners?.[1] ?? 0);
+      if (currentCorners >= Math.ceil(threshold)) {
+        return {
+          isPassed: true,
+          reason: `Событие уже наступило: в матче уже подано ${currentCorners} угловых (рынок ${cornerMatch[0]} уже сыграл).`,
+        };
+      }
+    }
+  }
+
   return { isPassed: false };
 }
 
@@ -735,6 +765,7 @@ export function evaluateFilterRule(
   const corn = stats.corners || [0, 0];
   const poss = stats.possession || [50, 50];
   const rc = stats.redCards || [0, 0];
+  const yc = stats.yellowCards || [0, 0];
 
   // 3. Dangerous Attacks Difference
   if (rule.minDangerousAttacksDiff !== undefined) {
@@ -908,6 +939,31 @@ export function evaluateFilterRule(
     } else if (rule.redCardCondition === 'NO_RED_CARDS') {
       if (!hasRed) passedCount++;
       else unmetCriteria.push(`В матче есть удаление`);
+    }
+  }
+
+  // 13b. Yellow Card Conditions (Стратегия 40 «ЖК ТБ во 2-м тайме»)
+  if (rule.minYellowCardsTotal !== undefined) {
+    totalCriteria++;
+    const totalYellow = (yc[0] ?? 0) + (yc[1] ?? 0);
+    if (totalYellow >= rule.minYellowCardsTotal) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(
+        `Жёлтых карточек в матче (${totalYellow}) < требуемых ${rule.minYellowCardsTotal} (ЖК: ${yc[0] ?? 0}:${yc[1] ?? 0})`
+      );
+    }
+  }
+
+  if (rule.maxYellowCardsTotal !== undefined) {
+    totalCriteria++;
+    const totalYellow = (yc[0] ?? 0) + (yc[1] ?? 0);
+    if (totalYellow <= rule.maxYellowCardsTotal) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(
+        `Жёлтых карточек в матче (${totalYellow}) > ${rule.maxYellowCardsTotal}`
+      );
     }
   }
 
@@ -2619,7 +2675,8 @@ export function evaluateSignalOutcome(
       const targetThreshold = tbMatch ? parseFloat(tbMatch[1]) : (initYellow + 1.0);
       const targetInt = Math.ceil(targetThreshold);
 
-      if (curYellow >= targetInt || newYellow >= 2 || (newYellow >= 1 && curYellow >= (initYellow + 1))) {
+      // In-play resolution: WIN strictly requires new cards shown after signal (newYellow >= 1)
+      if ((curYellow >= targetInt && newYellow >= 1) || newYellow >= 2) {
         return {
           outcome: 'WIN',
           note: `ЖК ТБ сыграл: показано ${curYellow} ЖК (+${newYellow} после сигнала, цель: ≥ ${targetInt})`,
@@ -2627,16 +2684,16 @@ export function evaluateSignalOutcome(
         };
       }
       if (isMatchFinished) {
-        if (curYellow >= targetThreshold) {
+        if (curYellow >= targetThreshold && newYellow >= 1) {
           return {
             outcome: 'WIN',
-            note: `Итоговый тотал ЖК ${curYellow} >= ${targetThreshold}`,
+            note: `Итоговый тотал ЖК ${curYellow} >= ${targetThreshold} (+${newYellow} после сигнала)`,
             shouldResolve: true,
           };
         }
         return {
           outcome: 'LOSS',
-          note: `Недостаточно карточек: всего ${curYellow} ЖК (цель: > ${targetThreshold})`,
+          note: `Недостаточно карточек: всего ${curYellow} ЖК (+${newYellow} после сигнала, цель: > ${targetThreshold})`,
           shouldResolve: true,
         };
       }
@@ -2811,18 +2868,24 @@ export function evaluateSignalOutcome(
     market.includes('over')
   ) {
     if (market.includes('тб 1.5') && !market.includes('во 2-м тайме') && !market.includes('1т')) {
-      if (currentTotalGoals >= 2) {
-        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 1.5`, shouldResolve: true };
+      if (currentTotalGoals >= 2 && goalsSinceSignal > 0) {
+        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 1.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
       }
       if (isMatchFinished) {
-        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 1.5`, shouldResolve: true };
+        if (currentTotalGoals >= 2 && goalsSinceSignal > 0) {
+          return { outcome: 'WIN', note: `Итоговый тотал ${currentTotalGoals} >= 1.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
+        }
+        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 1.5 (или нет голов после сигнала)`, shouldResolve: true };
       }
     } else if (market.includes('тб 2.5')) {
-      if (currentTotalGoals >= 3) {
-        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 2.5`, shouldResolve: true };
+      if (currentTotalGoals >= 3 && goalsSinceSignal > 0) {
+        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 2.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
       }
       if (isMatchFinished) {
-        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 2.5`, shouldResolve: true };
+        if (currentTotalGoals >= 3 && goalsSinceSignal > 0) {
+          return { outcome: 'WIN', note: `Итоговый тотал ${currentTotalGoals} >= 2.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
+        }
+        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 2.5 (или нет голов после сигнала)`, shouldResolve: true };
       }
     } else {
       // General goal after signal (ТБ 0.5 во 2Т / Гол в матче / Поздний гол)

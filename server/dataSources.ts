@@ -129,14 +129,13 @@ export function generateLiveStatsForMatch(minute: number, scoreHome: number, sco
   const possH = totalDang > 0 ? Math.min(75, Math.max(25, Math.round((dangH / totalDang) * 100))) : 50;
   const possA = 100 - possH;
 
-  const yellowBase = Math.floor(m * 0.04);
-  const intensityFouls = Math.abs(diff) <= 1 ? 1 : 0;
-  const yellowH = Math.min(5, Math.max(0, Math.floor(yellowBase * (diff > 0 ? 0.8 : 1.2)) + (m > 40 ? 1 : 0) + (m > 70 && intensityFouls ? 1 : 0)));
-  const yellowA = Math.min(5, Math.max(0, Math.floor(yellowBase * (diff < 0 ? 0.8 : 1.2)) + (m > 45 ? 1 : 0) + (m > 75 && intensityFouls ? 1 : 0)));
-
-  const totalYellow = yellowH + yellowA;
-  const redH = (m > 55 && totalYellow >= 4 && (diff < -1 || intensityFouls) && ((scoreHome + scoreAway + m) % 11 === 0)) ? 1 : 0;
-  const redA = (m > 60 && totalYellow >= 4 && (diff > 1 || intensityFouls) && ((scoreHome + scoreAway + m) % 13 === 0)) ? 1 : 0;
+  // Disciplinary cards (yellow/red) MUST NEVER be fabricated or guessed!
+  // If the upstream live feed did not explicitly supply real card statistics,
+  // keep them at 0 to prevent false signals and incorrect betting alerts.
+  const yellowH = 0;
+  const yellowA = 0;
+  const redH = 0;
+  const redA = 0;
 
   const xgH = Number((scoreHome * 0.75 + sotH * 0.12).toFixed(2));
   const xgA = Number((scoreAway * 0.75 + sotA * 0.12).toFixed(2));
@@ -230,7 +229,7 @@ export function generateLiveStatsForSport(
       shotsOnTarget: [sotH, sotA],
       shotsOffTarget: [Math.round(sotH * 0.4), Math.round(sotA * 0.4)],
       corners: [0, 0],
-      yellowCards: [Math.min(5, Math.floor(m * 0.05)), Math.min(5, Math.floor(m * 0.05))], // 2-min penalties
+      yellowCards: [0, 0],
       redCards: [0, 0],
       xg: [Number((scoreHome * 0.85 + sotH * 0.08).toFixed(2)), Number((scoreAway * 0.85 + sotA * 0.08).toFixed(2))],
     };
@@ -250,7 +249,7 @@ export function generateLiveStatsForSport(
       shotsOnTarget: [fgMadeH, fgMadeA], // FG made
       shotsOffTarget: [Math.round(fgMadeH * 0.8), Math.round(fgMadeA * 0.8)], // FG missed
       corners: [0, 0],
-      yellowCards: [Math.min(25, Math.floor(m * 0.35)), Math.min(25, Math.floor(m * 0.35))], // Fouls
+      yellowCards: [0, 0],
       redCards: [0, 0],
       xg: [Number((scoreHome / 60).toFixed(2)), Number((scoreAway / 60).toFixed(2))],
     };
@@ -283,7 +282,7 @@ export function generateLiveStatsForSport(
       shotsOnTarget: [Math.round(m * 0.35), Math.round(m * 0.32)],
       shotsOffTarget: [Math.round(m * 0.15), Math.round(m * 0.15)],
       corners: [0, 0],
-      yellowCards: [0, 1],
+      yellowCards: [0, 0],
       redCards: [0, 0],
       xg: [1.0, 1.0],
     };
@@ -1177,11 +1176,11 @@ export async function fetchPublicLiveMatches(options?: {
         const shotsOnTargetHome = Math.round(getStat(homeStatsRaw, 'shotsOnTarget', Math.max(1, Math.floor(shotsHome * 0.4))));
         const shotsOnTargetAway = Math.round(getStat(awayStatsRaw, 'shotsOnTarget', Math.max(1, Math.floor(shotsAway * 0.38))));
 
-        const cornersHome = Math.round(getStat(homeStatsRaw, 'wonCorners', Math.max(1, Math.floor(calcMinute * 0.08))));
-        const cornersAway = Math.round(getStat(awayStatsRaw, 'wonCorners', Math.max(0, Math.floor(calcMinute * 0.06))));
+        const cornersHome = Math.round(getStat(homeStatsRaw, 'wonCorners', 0));
+        const cornersAway = Math.round(getStat(awayStatsRaw, 'wonCorners', 0));
 
-        const yellowHome = Math.round(getStat(homeStatsRaw, 'yellowCards', Math.floor(calcMinute * 0.025)));
-        const yellowAway = Math.round(getStat(awayStatsRaw, 'yellowCards', Math.floor(calcMinute * 0.03)));
+        const yellowHome = Math.round(getStat(homeStatsRaw, 'yellowCards', 0));
+        const yellowAway = Math.round(getStat(awayStatsRaw, 'yellowCards', 0));
 
         const redHome = Math.round(getStat(homeStatsRaw, 'redCards', 0));
         const redAway = Math.round(getStat(awayStatsRaw, 'redCards', 0));
@@ -1502,7 +1501,7 @@ export async function fetchFootballDataMatches(apiToken: string): Promise<{ ok: 
           shotsOnTarget: [sotH, sotA],
           shotsOffTarget: [Math.max(1, sotH - 1), Math.max(1, sotA - 1)],
           corners: [Math.max(1, Math.floor(elapsed * 0.07)), Math.max(1, Math.floor(elapsed * 0.05))],
-          yellowCards: [1, 2],
+          yellowCards: [0, 0],
           redCards: [0, 0],
           xg: [Number((sotH * 0.25).toFixed(2)), Number((sotA * 0.25).toFixed(2))],
         },
@@ -1773,7 +1772,7 @@ export async function fetchTheOddsApiMatches(options?: {
           shotsOnTarget: [sotH, sotA],
           shotsOffTarget: [Math.max(1, Math.round(sotH * 0.7)), Math.max(1, Math.round(sotA * 0.7))],
           corners: [cornersH, cornersA],
-          yellowCards: [Math.floor(mEff / 35), Math.floor(mEff / 32)],
+          yellowCards: [0, 0],
           redCards: [0, 0],
           xg: [
             Number((scoreHome * 0.7 + sotH * 0.12).toFixed(2)),
