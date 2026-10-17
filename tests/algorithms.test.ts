@@ -8,8 +8,12 @@ import {
   calculateMatchOddsFlows,
   calculatePressureAnalysis,
   checkMarketAlreadyPassed,
+  detectStrategyMetricCategory,
+  getInitialStrategyMetric,
+  resolveStrategyMetric,
+  formatResolvedTelegramAlert,
 } from '../src/algorithms';
-import { Match, FilterRule } from '../src/types';
+import { Match, FilterRule, SignalAlert } from '../src/types';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -308,6 +312,145 @@ assert(
   allHighPassRate,
   `All 50 strategies have winRate >= 80% on real historical matches (Lowest: ${lowestWinRate}%)`
 );
+
+// ----------------------------------------------------
+// TEST GROUP 8: Strategy-Specific Metric Tracking (Corners, Yellow Cards, Goals)
+// ----------------------------------------------------
+console.log('\n--- Test Group 8: Strategy-Specific Metric Tracking (Corners, Cards, Goals) ---');
+
+// 1. Corners Strategy Detection & Resolution
+const cornerRule: FilterRule = {
+  id: 'strat-corner-storm-60',
+  name: 'Стратегия 38: Штурм угловых',
+  category: 'corners',
+  ruleType: 'LIVE',
+  enabled: true,
+  targetMarket: 'Угловые ТБ (+2)',
+};
+
+const matchAtMinute65: Match = {
+  id: 'm-corners-test',
+  country: 'Германия',
+  league: '3. Лига',
+  homeTeam: 'Ферль',
+  awayTeam: 'Ян Регенсбург',
+  minute: 65,
+  score: [1, 0],
+  status: 'LIVE',
+  stats: {
+    attacks: [80, 60],
+    dangerousAttacks: [50, 30],
+    shotsOnTarget: [5, 2],
+    shotsOffTarget: [4, 3],
+    corners: [4, 2], // 6 total
+    yellowCards: [1, 2],
+    redCards: [0, 0],
+    possession: [58, 42],
+  },
+};
+
+const cornerCat = detectStrategyMetricCategory(cornerRule);
+assert(cornerCat === 'corners', 'detectStrategyMetricCategory correctly classifies corner strategy as "corners"');
+
+const initialCornerMetric = getInitialStrategyMetric(cornerRule, matchAtMinute65);
+assert(initialCornerMetric.initialTotal === 6, 'Initial corner snapshot correctly records 6 total corners at signal dispatch');
+assert(initialCornerMetric.initialBreakdown === '4:2', 'Initial corner snapshot records 4:2 team breakdown');
+
+const cornerSignal: SignalAlert = {
+  id: 'sig-corners-test',
+  timestamp: '14:20:00',
+  matchId: matchAtMinute65.id,
+  matchName: 'Ферль vs Ян Регенсбург',
+  league: '3. Лига',
+  country: 'Германия',
+  minute: 65,
+  score: '1:0',
+  ruleId: cornerRule.id,
+  ruleName: cornerRule.name,
+  marketSuggestion: cornerRule.targetMarket,
+  outcome: 'PENDING',
+  odds: 1.85,
+  stake: 1000,
+  sentToTelegram: true,
+  statsSnapshot: {
+    homeScore: 1,
+    awayScore: 0,
+    attacks: [80, 60],
+    dangerousAttacks: [50, 30],
+    shotsOnTarget: [5, 2],
+    shotsOffTarget: [4, 3],
+    corners: [4, 2],
+    yellowCards: [1, 2],
+    redCards: [0, 0],
+  },
+  message: 'Corner alert',
+};
+
+const finalCornersStats = {
+  corners: [6, 4] as [number, number], // 10 total (+4 delta)
+  yellowCards: [2, 3] as [number, number],
+  redCards: [0, 0] as [number, number],
+};
+
+const resolvedCornerMetric = resolveStrategyMetric(cornerSignal, [2, 1], finalCornersStats);
+assert(resolvedCornerMetric.finalTotal === 10, 'Final corner count correctly resolved to 10 corners');
+assert(resolvedCornerMetric.delta === 4, 'Corner delta correctly calculated as +4 corners');
+assert(resolvedCornerMetric.deltaText?.includes('+4 угловых'), 'Corner delta text explains increase: +4 угловых');
+
+const resolvedCornerTgHtml = formatResolvedTelegramAlert(
+  { ...cornerSignal, outcome: 'WIN', profit: 850 },
+  '2:1',
+  'WIN',
+  { homeTeam: 'Ферль', awayTeam: 'Ян Регенсбург', league: '3. Лига', country: 'Германия' },
+  finalCornersStats
+);
+
+assert(resolvedCornerTgHtml.includes('РЕЗУЛЬТАТ ПО СТРАТЕГИИ (УГЛОВЫЕ)'), 'Resolved Telegram alert contains corner strategy result header');
+assert(resolvedCornerTgHtml.includes('На момент сигнала:'), 'Resolved alert specifies corners at signal dispatch');
+assert(resolvedCornerTgHtml.includes('По завершению:'), 'Resolved alert specifies final corners at match finish');
+assert(resolvedCornerTgHtml.includes('+4 угловых'), 'Resolved alert specifies +4 delta after signal');
+
+// 2. Yellow Cards Strategy Detection & Resolution
+const cardRule: FilterRule = {
+  id: 'strat-cards-test',
+  name: 'Стратегия 23: ЖК ТБ в дерби',
+  category: 'cards',
+  ruleType: 'LIVE',
+  enabled: true,
+  targetMarket: 'ЖК ТБ 4.5',
+};
+
+const cardCat = detectStrategyMetricCategory(cardRule);
+assert(cardCat === 'cards', 'detectStrategyMetricCategory correctly classifies card strategy as "cards"');
+
+const initialCardMetric = getInitialStrategyMetric(cardRule, matchAtMinute65);
+assert(initialCardMetric.initialTotal === 3, 'Initial yellow cards snapshot correctly records 3 cards');
+
+const cardSignal: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-cards-test',
+  ruleId: cardRule.id,
+  ruleName: cardRule.name,
+  marketSuggestion: cardRule.targetMarket,
+  statsSnapshot: {
+    ...cornerSignal.statsSnapshot!,
+    yellowCards: [1, 2], // 3 total
+  },
+};
+
+const resolvedCardMetric = resolveStrategyMetric(cardSignal, [1, 1], finalCornersStats);
+assert(resolvedCardMetric.finalTotal === 5, 'Final yellow card count correctly resolved to 5 cards');
+assert(resolvedCardMetric.delta === 2, 'Card delta correctly calculated as +2 cards');
+
+const resolvedCardTgHtml = formatResolvedTelegramAlert(
+  { ...cardSignal, outcome: 'WIN', profit: 800 },
+  '1:1',
+  'WIN',
+  { homeTeam: 'Ферль', awayTeam: 'Ян Регенсбург', league: '3. Лига', country: 'Германия' },
+  finalCornersStats
+);
+assert(resolvedCardTgHtml.includes('РЕЗУЛЬТАТ ПО СТРАТЕГИИ (ЖЁЛТЫЕ КАРТОЧКИ)'), 'Resolved alert contains card strategy result header');
+assert(resolvedCardTgHtml.includes('+2 ЖК'), 'Resolved alert specifies +2 ЖК delta');
 
 // ----------------------------------------------------
 // SUMMARY

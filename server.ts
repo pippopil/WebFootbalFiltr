@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -70,7 +71,7 @@ function setToAICache<T>(cache: Map<string, AICacheItem<T>>, key: string, data: 
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -576,6 +577,12 @@ async function startServer() {
     odds: number;
     outcome: 'WIN' | 'LOSS' | 'REFUND' | 'PENDING';
     profit: number;
+    score?: string;
+    finalScore?: string;
+    metricSummary?: string;
+    botId?: string;
+    botToken?: string;
+    chatId?: string;
   }
 
   // Real live match events recorded for Telegram bots (strictly genuine, zero fake seeds)
@@ -644,7 +651,7 @@ async function startServer() {
       ? (uniqueEvents.reduce((acc, e) => acc + (e.odds || 1.75), 0) / total).toFixed(2)
       : '1.75';
 
-    // List of the ACTUAL real unique signals that triggered in THIS bot
+    // List of the ACTUAL real unique signals that triggered in THIS bot with strategy metric result
     const signalsList = uniqueEvents
       .slice(0, 15)
       .map((e, idx) => {
@@ -657,9 +664,12 @@ async function startServer() {
             : e.outcome === 'REFUND'
             ? `[0.00ф]`
             : `[LIVE]`;
+        const metricDetail = e.metricSummary
+          ? `\n     └ 📊 <i>Итог стратегии: ${e.metricSummary}</i>`
+          : (e.finalScore ? ` | FT: ${e.finalScore}` : '');
         return (
           `  ${idx + 1}. ${icon} <b>${e.matchName}</b>\n` +
-          `     ↳ <i>${e.ruleName}</i> | Кэф: ${e.odds.toFixed(2)} | ${e.targetMarket || 'Исход'} ${outcomeLabel}`
+          `     ↳ <i>${e.ruleName}</i> | Кэф: ${e.odds.toFixed(2)} | ${e.targetMarket || 'Исход'} ${outcomeLabel}${metricDetail}`
         );
       })
       .join('\n');
@@ -778,6 +788,9 @@ async function startServer() {
         odds: Number(s.odds) || 1.75,
         outcome: s.outcome || 'PENDING',
         profit: s.profit !== undefined ? s.profit : s.outcome === 'WIN' ? Number(((s.odds || 1.75) - 1).toFixed(2)) : s.outcome === 'LOSS' ? -1 : 0,
+        score: s.score,
+        finalScore: s.finalScore,
+        metricSummary: s.strategyMetricSnapshot?.deltaText || s.strategyMetricSnapshot?.finalValueText || (s.resolutionNote ? s.resolutionNote : undefined),
         botId: s.botId || bot_id,
         botToken: s.botToken || token,
         chatId: s.chatId || targetChatId,
@@ -2267,17 +2280,50 @@ async function startServer() {
   });
 
   // Vite middleware for development or static serving for production
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.K_SERVICE !== undefined ||
+    process.env.IS_DOCKER !== undefined;
+
+  const candidateDirs = [
+    path.join(process.cwd(), 'dist'),
+    __dirname,
+    path.join(__dirname, 'dist'),
+    path.join(process.cwd()),
+  ];
+  const resolvedDistDir =
+    candidateDirs.find((d) => fs.existsSync(path.join(d, 'index.html'))) || path.join(process.cwd(), 'dist');
+
+  if (!isProduction) {
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (err) {
+      console.warn('Vite dev middleware failed to initialize, falling back to static build:', err);
+      app.use(express.static(resolvedDistDir));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) return next();
+        const indexPath = path.join(resolvedDistDir, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).send('Application page not found. Please build the frontend.');
+        }
+      });
+    }
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.use(express.static(resolvedDistDir));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      const indexPath = path.join(resolvedDistDir, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Application page not found. Please build the frontend.');
+      }
     });
   }
 

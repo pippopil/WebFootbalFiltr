@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SignalAlert, Match, SignalOutcome, SportType } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { resolveStrategyMetric } from '../algorithms';
 import {
   Play,
   Square,
@@ -247,6 +248,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                 <th className="py-2.5 px-2 text-center font-bold">{t('colCorners')}</th>
                 <th className="py-2.5 px-2 text-center font-bold">{t('colCards')}</th>
                 <th className="py-2.5 px-3 font-bold text-amber-400">{t('colOutcome')}</th>
+                <th className="py-2.5 px-3 font-bold text-emerald-400 whitespace-nowrap">{t('colStrategyMetricResult')}</th>
                 <th className="py-2.5 px-3 font-bold text-center text-emerald-400">{t('colBetStatus')}</th>
                 <th className="py-2.5 px-3 font-bold">{t('colTelegram')}</th>
                 <th className="py-2.5 px-2.5 text-center font-bold">{t('colLoggedAt')}</th>
@@ -256,7 +258,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             <tbody className="divide-y divide-slate-800/60 font-medium">
               {filteredSignals.length === 0 ? (
                 <tr>
-                  <td colSpan={20} className="py-12 text-center text-slate-500">
+                  <td colSpan={21} className="py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Filter className="h-7 w-7 text-slate-600" />
                       <span>{t('noSignalsRecorded')}</span>
@@ -413,6 +415,51 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                           <span className="tracking-wide">{sig.marketSuggestion || 'ТБ 0.5'}</span>
                         </div>
                       </td>
+
+                      {/* Конечный результат по стратегии (угловые / желтые / голы) */}
+                      {(() => {
+                        const curScore: [number, number] = matchObj ? matchObj.score : [0, 0];
+                        const curStats = matchObj?.stats || sig.finalStats;
+                        const metric = sig.strategyMetricSnapshot || resolveStrategyMetric(sig, curScore, curStats);
+
+                        return (
+                          <td className="py-2.5 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-1.5 text-[11px]">
+                                <span className="text-sm shrink-0">{metric.icon}</span>
+                                <span className="text-slate-400 font-medium">{metric.label}:</span>
+                                <span
+                                  className="font-mono text-amber-300 font-bold bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-[11px]"
+                                  title="Значение на момент выдачи сигнала"
+                                >
+                                  {metric.initialValueText}
+                                </span>
+                                <span className="text-slate-500 font-black">➔</span>
+                                <span
+                                  className={`font-mono font-bold px-1.5 py-0.5 rounded border text-[11px] ${
+                                    sig.outcome === 'WIN'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                      : sig.outcome === 'LOSS'
+                                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                      : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                                  }`}
+                                  title={sig.outcome !== 'PENDING' ? 'Конечный результат по завершению матча' : 'Текущее значение (матч в игре)'}
+                                >
+                                  {sig.outcome !== 'PENDING' ? 'Финал: ' : 'Сейчас: '}
+                                  {metric.finalValueText || (metric.finalTotal !== undefined ? `${metric.finalTotal}` : '—')}
+                                </span>
+                              </div>
+                              {metric.deltaText && (
+                                <div className="text-[10px] font-mono text-slate-400 pl-5">
+                                  <span className={metric.delta && metric.delta > 0 ? 'text-emerald-400 font-semibold' : 'text-slate-400'}>
+                                    {metric.deltaText}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })()}
 
                       {/* Bet Outcome (Зашел / Минус / Возврат / В игре) */}
                       <td className="py-2.5 px-3 whitespace-nowrap text-center" onClick={(e) => e.stopPropagation()}>

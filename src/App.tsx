@@ -143,6 +143,9 @@ import {
   calculateMatchOddsFlows,
   inferSportFromRule,
   inferSportFromMatch,
+  getInitialStrategyMetric,
+  resolveStrategyMetric,
+  detectStrategyMetricCategory,
 } from './algorithms';
 import { FilterBuilderModal } from './components/FilterBuilderModal';
 import { FilterBacktestModal } from './components/FilterBacktestModal';
@@ -2543,12 +2546,38 @@ export default function App() {
       const match = matches.find((m) => m.id === target.matchId);
       const scoreToUse = target.finalScore || (match ? `${match.score[0]}:${match.score[1]}` : target.score);
 
+      const finalStats = match?.stats
+        ? {
+            homeScore: match.score[0],
+            awayScore: match.score[1],
+            attacks: [match.stats.attacks[0], match.stats.attacks[1]] as [number, number],
+            dangerousAttacks: [match.stats.dangerousAttacks[0], match.stats.dangerousAttacks[1]] as [number, number],
+            shotsOnTarget: [match.stats.shotsOnTarget[0], match.stats.shotsOnTarget[1]] as [number, number],
+            shotsOffTarget: [match.stats.shotsOffTarget[0], match.stats.shotsOffTarget[1]] as [number, number],
+            corners: [match.stats.corners[0], match.stats.corners[1]] as [number, number],
+            yellowCards: [match.stats.yellowCards[0], match.stats.yellowCards[1]] as [number, number],
+            redCards: [match.stats.redCards[0], match.stats.redCards[1]] as [number, number],
+            possession: [match.stats.possession[0], match.stats.possession[1]] as [number, number],
+          }
+        : target.finalStats;
+
+      const scoreParts = scoreToUse.split(':').map((s) => parseInt(s.trim(), 10));
+      const curScoreTuple: [number, number] = [
+        isNaN(scoreParts[0]) ? 0 : scoreParts[0],
+        isNaN(scoreParts[1]) ? 0 : scoreParts[1],
+      ];
+      const strategyMetricSnapshot = outcome !== 'PENDING'
+        ? resolveStrategyMetric(target, curScoreTuple, finalStats)
+        : target.strategyMetricSnapshot;
+
       const updatedSig: SignalAlert = {
         ...target,
         outcome,
         odds: finalOdds,
         profit,
         finalScore: scoreToUse,
+        finalStats,
+        strategyMetricSnapshot,
         resolvedAt: outcome !== 'PENDING' ? new Date().toLocaleTimeString('ru-RU') : undefined,
       };
 
@@ -2570,7 +2599,8 @@ export default function App() {
                 league: match.league,
                 country: match.country,
               }
-            : undefined
+            : undefined,
+          finalStats
         );
 
         const botTokenToUse = target.botToken || telegramConfig.botToken;
@@ -3127,8 +3157,30 @@ export default function App() {
         ? -stake
         : 0;
 
+    const finalStats = match?.stats
+      ? {
+          homeScore: match.score[0],
+          awayScore: match.score[1],
+          attacks: [match.stats.attacks[0], match.stats.attacks[1]] as [number, number],
+          dangerousAttacks: [match.stats.dangerousAttacks[0], match.stats.dangerousAttacks[1]] as [number, number],
+          shotsOnTarget: [match.stats.shotsOnTarget[0], match.stats.shotsOnTarget[1]] as [number, number],
+          shotsOffTarget: [match.stats.shotsOffTarget[0], match.stats.shotsOffTarget[1]] as [number, number],
+          corners: [match.stats.corners[0], match.stats.corners[1]] as [number, number],
+          yellowCards: [match.stats.yellowCards[0], match.stats.yellowCards[1]] as [number, number],
+          redCards: [match.stats.redCards[0], match.stats.redCards[1]] as [number, number],
+          possession: [match.stats.possession[0], match.stats.possession[1]] as [number, number],
+        }
+      : sig.finalStats;
+
+    const scoreParts = scoreToUse.split(':').map((s) => parseInt(s.trim(), 10));
+    const curScoreTuple: [number, number] = [
+      isNaN(scoreParts[0]) ? 0 : scoreParts[0],
+      isNaN(scoreParts[1]) ? 0 : scoreParts[1],
+    ];
+    const strategyMetricSnapshot = resolveStrategyMetric(sig, curScoreTuple, finalStats);
+
     const resolvedHtml = formatResolvedTelegramAlert(
-      { ...sig, outcome: outcomeToUse, profit },
+      { ...sig, outcome: outcomeToUse, profit, finalStats, strategyMetricSnapshot },
       scoreToUse,
       outcomeToUse,
       match
@@ -3138,7 +3190,8 @@ export default function App() {
             league: match.league,
             country: match.country,
           }
-        : undefined
+        : undefined,
+      finalStats
     );
 
     const botTokenToUse = sig.botToken || telegramConfig.botToken;
@@ -3157,6 +3210,8 @@ export default function App() {
                 outcome: outcomeToUse,
                 profit,
                 finalScore: scoreToUse,
+                finalStats,
+                strategyMetricSnapshot,
                 telegramEdited: true,
                 telegramEditedAt: new Date().toLocaleTimeString('ru-RU'),
                 telegramStatusText: `Обновлено в TG (${outcomeToUse === 'WIN' ? '✅ WIN' : '❌ LOSS'})`,
@@ -3267,11 +3322,29 @@ export default function App() {
             ? -stake
             : 0;
 
+        const finalStats = {
+          homeScore: match.score[0],
+          awayScore: match.score[1],
+          attacks: [match.stats.attacks[0], match.stats.attacks[1]] as [number, number],
+          dangerousAttacks: [match.stats.dangerousAttacks[0], match.stats.dangerousAttacks[1]] as [number, number],
+          shotsOnTarget: [match.stats.shotsOnTarget[0], match.stats.shotsOnTarget[1]] as [number, number],
+          shotsOffTarget: [match.stats.shotsOffTarget[0], match.stats.shotsOffTarget[1]] as [number, number],
+          corners: [match.stats.corners[0], match.stats.corners[1]] as [number, number],
+          yellowCards: [match.stats.yellowCards[0], match.stats.yellowCards[1]] as [number, number],
+          redCards: [match.stats.redCards[0], match.stats.redCards[1]] as [number, number],
+          possession: [match.stats.possession[0], match.stats.possession[1]] as [number, number],
+        };
+
+        const scoreTuple: [number, number] = [match.score[0], match.score[1]];
+        const strategyMetricSnapshot = resolveStrategyMetric(sig, scoreTuple, match.stats);
+
         const updatedSignal: SignalAlert = {
           ...sig,
           outcome: evalRes.outcome,
           finalScore: finalScoreStr,
           profit,
+          finalStats,
+          strategyMetricSnapshot,
           resolvedAt: new Date().toLocaleTimeString('ru-RU'),
           resolutionNote: evalRes.note,
         };
@@ -3286,7 +3359,8 @@ export default function App() {
               awayTeam: match.awayTeam,
               league: match.league,
               country: match.country,
-            }
+            },
+            match.stats
           );
 
           const botTokenToUse = sig.botToken || telegramConfig.botToken;
@@ -3514,6 +3588,7 @@ export default function App() {
             redCards: [match.stats.redCards[0], match.stats.redCards[1]],
             possession: [match.stats.possession[0], match.stats.possession[1]],
           },
+          strategyMetricSnapshot: getInitialStrategyMetric(rule, match),
           message: signalMessage,
           sentToTelegram: shouldSendTg,
           telegramStatusText: shouldSendTg ? `Отправка в TG (${targetBotName})...` : 'Локальный сигнал',
@@ -4162,6 +4237,7 @@ export default function App() {
         redCards: [selectedMatch.stats.redCards[0], selectedMatch.stats.redCards[1]],
         possession: [selectedMatch.stats.possession[0], selectedMatch.stats.possession[1]],
       },
+      strategyMetricSnapshot: getInitialStrategyMetric(activeRule || { targetMarket: 'ТБ 0.5' }, selectedMatch),
       message: displayMsg,
       sentToTelegram: res.ok,
       telegramStatusText: res.ok ? `Доставлено в TG (#${res.messageId}) - ожидает расчета` : (res.error || 'Ошибка отправки'),
@@ -4217,6 +4293,7 @@ export default function App() {
         redCards: [selectedMatch.stats.redCards[0], selectedMatch.stats.redCards[1]],
         possession: [selectedMatch.stats.possession[0], selectedMatch.stats.possession[1]],
       },
+      strategyMetricSnapshot: getInitialStrategyMetric(activeRule || { targetMarket: 'ТБ 0.5' }, selectedMatch),
       message: `🔔 Сигнал отправлен (#${res.messageId}). Ожидание завершения матча для переписывания...`,
       sentToTelegram: true,
       telegramStatusText: `Доставлено (#${res.messageId}) - перепишется через 3 сек...`,
@@ -4227,8 +4304,20 @@ export default function App() {
     // Simulate match completion and edit Telegram message after 3 seconds
     setTimeout(async () => {
       const finalScoreStr = `${selectedMatch.score[0] + 1}:${selectedMatch.score[1]}`;
+      const finalCorners: [number, number] = [selectedMatch.stats.corners[0] + 2, selectedMatch.stats.corners[1] + 1];
+      const finalYellowCards: [number, number] = [selectedMatch.stats.yellowCards[0] + 1, selectedMatch.stats.yellowCards[1] + 1];
+      const simulatedFinalStats = {
+        ...selectedMatch.stats,
+        homeScore: selectedMatch.score[0] + 1,
+        awayScore: selectedMatch.score[1],
+        corners: finalCorners,
+        yellowCards: finalYellowCards,
+      };
+      const scoreTuple: [number, number] = [selectedMatch.score[0] + 1, selectedMatch.score[1]];
+      const resolvedMetricSnapshot = resolveStrategyMetric(testAlert, scoreTuple, simulatedFinalStats);
+
       const resolvedHtml = formatResolvedTelegramAlert(
-        { ...testAlert, outcome: 'WIN', profit: 850, finalScore: finalScoreStr },
+        { ...testAlert, outcome: 'WIN', profit: 850, finalScore: finalScoreStr, finalStats: simulatedFinalStats, strategyMetricSnapshot: resolvedMetricSnapshot },
         finalScoreStr,
         'WIN',
         {
@@ -4236,7 +4325,8 @@ export default function App() {
           awayTeam: selectedMatch.awayTeam,
           league: selectedMatch.league,
           country: selectedMatch.country,
-        }
+        },
+        simulatedFinalStats
       );
 
       const editRes = await editTelegramMessage(res.messageId!, resolvedHtml);
@@ -4248,6 +4338,8 @@ export default function App() {
                 outcome: 'WIN',
                 profit: 850,
                 finalScore: finalScoreStr,
+                finalStats: simulatedFinalStats,
+                strategyMetricSnapshot: resolvedMetricSnapshot,
                 resolvedAt: new Date().toLocaleTimeString('ru-RU'),
                 resolutionNote: 'Матч завершен (FT) - ставка успешно сыграла!',
                 telegramEdited: editRes.ok,
@@ -8391,6 +8483,50 @@ export default function App() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Strategy Target Metric: Initial vs Final (Corners, Cards, Goals) */}
+                      {(() => {
+                        const liveMatch = matches.find((m) => m.id === sig.matchId);
+                        const curScore: [number, number] = liveMatch ? liveMatch.score : [0, 0];
+                        const curStats = liveMatch?.stats || sig.finalStats;
+                        const metric = sig.strategyMetricSnapshot || resolveStrategyMetric(sig, curScore, curStats);
+
+                        return (
+                          <div className="bg-slate-950/80 rounded-lg px-3 py-2 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center flex-wrap gap-2">
+                              <span className="text-sm">{metric.icon}</span>
+                              <span className="text-slate-400 font-medium">
+                                {metric.label} по стратегии:
+                              </span>
+                              <span className="font-mono text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 text-[11px]">
+                                Сигнал: <b className="text-amber-300">{metric.initialValueText}</b>
+                              </span>
+                              <span className="text-slate-600">➔</span>
+                              <span className="font-mono text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 text-[11px]">
+                                {sig.outcome !== 'PENDING' ? 'Итог:' : 'Текущие:'}{' '}
+                                <b
+                                  className={
+                                    sig.outcome === 'WIN'
+                                      ? 'text-emerald-400'
+                                      : sig.outcome === 'LOSS'
+                                      ? 'text-rose-400'
+                                      : 'text-sky-300'
+                                  }
+                                >
+                                  {metric.finalValueText || (metric.finalTotal !== undefined ? `${metric.finalTotal}` : '—')}
+                                </b>
+                              </span>
+                            </div>
+                            {metric.deltaText && (
+                              <div className="font-mono font-semibold text-[11px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-1 self-start sm:self-auto">
+                                <span className={metric.delta && metric.delta > 0 ? 'text-emerald-400' : 'text-slate-300'}>
+                                  {metric.deltaText}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Profit and Resolution Note */}
                       <div className="flex items-center justify-between text-xs bg-slate-950/70 px-3 py-2 rounded-lg border border-slate-800/80">

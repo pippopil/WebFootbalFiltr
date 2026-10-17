@@ -426,6 +426,22 @@ export interface ScannerMatrixConfig {
 
 export type SignalOutcome = 'WIN' | 'LOSS' | 'PENDING' | 'REFUND';
 
+export type StrategyMetricCategory = 'corners' | 'cards' | 'goals' | 'other';
+
+export interface StrategyMetricSnapshot {
+  category: StrategyMetricCategory;
+  label: string;
+  icon: string;
+  initialValueText: string;
+  initialTotal: number;
+  initialBreakdown?: string;
+  finalValueText?: string;
+  finalTotal?: number;
+  finalBreakdown?: string;
+  delta?: number;
+  deltaText?: string;
+}
+
 export interface SignalAlert {
   id: string;
   timestamp: string;
@@ -449,6 +465,19 @@ export interface SignalAlert {
     redCards: [number, number];
     possession?: [number, number];
   };
+  finalStats?: {
+    homeScore?: number;
+    awayScore?: number;
+    attacks?: [number, number];
+    dangerousAttacks?: [number, number];
+    shotsOnTarget?: [number, number];
+    shotsOffTarget?: [number, number];
+    corners?: [number, number];
+    yellowCards?: [number, number];
+    redCards?: [number, number];
+    possession?: [number, number];
+  };
+  strategyMetricSnapshot?: StrategyMetricSnapshot;
   ruleId?: string;
   ruleName: string;
   ruleCategory?: string;

@@ -1,4 +1,4 @@
-import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats, SportType, MatchStatus } from './types';
+import { Match, FilterRule, PressureAnalysis, SignalAlert, SignalOutcome, BetType, OddsDropData, MatchStats, SportType, MatchStatus, StrategyMetricCategory, StrategyMetricSnapshot } from './types';
 import { getStrategyCardDisplayName, PRESET_STRATEGY_NUMBER_BY_ID } from './utils/filterDefaults';
 
 /**
@@ -1925,6 +1925,227 @@ export function escapeTelegramHtml(str: string): string {
 }
 
 /**
+ * Detects whether a strategy / rule focuses on corners, cards, goals, or another metric.
+ */
+export function detectStrategyMetricCategory(
+  ruleOrSignal: {
+    id?: string;
+    ruleId?: string;
+    name?: string;
+    ruleName?: string;
+    targetMarket?: string;
+    marketSuggestion?: string;
+    category?: string;
+    ruleCategory?: string;
+  }
+): StrategyMetricCategory {
+  const id = (ruleOrSignal.ruleId || ruleOrSignal.id || '').toLowerCase();
+  const name = (ruleOrSignal.ruleName || ruleOrSignal.name || '').toLowerCase();
+  const market = (ruleOrSignal.marketSuggestion || ruleOrSignal.targetMarket || '').toLowerCase();
+  const cat = (ruleOrSignal.ruleCategory || ruleOrSignal.category || '').toLowerCase();
+
+  // 1. Corners (угловые)
+  if (
+    cat === 'corners' ||
+    market.includes('угл') ||
+    market.includes('corner') ||
+    name.includes('угл') ||
+    name.includes('corner') ||
+    name.includes('корнер') ||
+    id.includes('corner') ||
+    id === 'strat-18' ||
+    id === 'strat-38' ||
+    id === 'f-2' ||
+    id === 'f-6' ||
+    id === 'f-16' ||
+    id === 'f-17'
+  ) {
+    return 'corners';
+  }
+
+  // 2. Yellow cards / Red cards (карточки, ЖК, КК, удаления)
+  if (
+    cat === 'cards' ||
+    market.includes('жк') ||
+    market.includes('карточ') ||
+    market.includes('удален') ||
+    market.includes('красн') ||
+    market.includes('желт') ||
+    market.includes('большинств') ||
+    name.includes('жк') ||
+    name.includes('карточ') ||
+    name.includes('удален') ||
+    name.includes('красн') ||
+    name.includes('желт') ||
+    name.includes('большинств') ||
+    id.includes('card') ||
+    id === 'strat-23' ||
+    id === 'f-8'
+  ) {
+    return 'cards';
+  }
+
+  // 3. Goals / score (голы, ТБ, ТМ, победы, обе забьют, таймы)
+  return 'goals';
+}
+
+/**
+ * Creates an initial snapshot of the strategy's target metric at the time the signal is triggered.
+ */
+export function getInitialStrategyMetric(
+  rule: FilterRule | { id?: string; name?: string; targetMarket?: string; category?: string },
+  match: Match
+): StrategyMetricSnapshot {
+  const cat = detectStrategyMetricCategory(rule);
+
+  if (cat === 'corners') {
+    const h = match.stats?.corners?.[0] ?? 0;
+    const a = match.stats?.corners?.[1] ?? 0;
+    const total = h + a;
+    return {
+      category: 'corners',
+      label: 'Угловые',
+      icon: '🚩',
+      initialTotal: total,
+      initialBreakdown: `${h}:${a}`,
+      initialValueText: `${total} (Хозяева ${h} : ${a} Гости) на ${match.minute}'`,
+    };
+  }
+
+  if (cat === 'cards') {
+    const yh = match.stats?.yellowCards?.[0] ?? 0;
+    const ya = match.stats?.yellowCards?.[1] ?? 0;
+    const totalY = yh + ya;
+    const rh = match.stats?.redCards?.[0] ?? 0;
+    const ra = match.stats?.redCards?.[1] ?? 0;
+    const totalR = rh + ra;
+    return {
+      category: 'cards',
+      label: 'Жёлтые карточки',
+      icon: '🟨',
+      initialTotal: totalY,
+      initialBreakdown: `${yh}:${ya}`,
+      initialValueText: `${totalY} ЖК (${yh}:${ya})${totalR > 0 ? ` | 🟥 ${totalR} КК` : ''} на ${match.minute}'`,
+    };
+  }
+
+  // Default: goals / score
+  const h = match.score[0] ?? 0;
+  const a = match.score[1] ?? 0;
+  const total = h + a;
+  const goalsWord = total === 1 ? 'гол' : (total >= 2 && total <= 4 ? 'гола' : 'голов');
+  return {
+    category: 'goals',
+    label: 'Счёт / Голы',
+    icon: '⚽',
+    initialTotal: total,
+    initialBreakdown: `${h}:${a}`,
+    initialValueText: `${h}:${a} (${total} ${goalsWord}) на ${match.minute}'`,
+  };
+}
+
+/**
+ * Resolves the strategy metric, computing initial value, final value, delta and descriptions.
+ */
+export function resolveStrategyMetric(
+  signal: SignalAlert,
+  currentScoreTuple: [number, number],
+  currentStats?: MatchStats | {
+    corners?: [number, number];
+    yellowCards?: [number, number];
+    redCards?: [number, number];
+    shotsOnTarget?: [number, number];
+    dangerousAttacks?: [number, number];
+  }
+): StrategyMetricSnapshot {
+  const cat = detectStrategyMetricCategory(signal);
+
+  if (cat === 'corners') {
+    const initH = signal.statsSnapshot?.corners?.[0] ?? 0;
+    const initA = signal.statsSnapshot?.corners?.[1] ?? 0;
+    const initTotal = initH + initA;
+
+    const finalH = currentStats?.corners?.[0] ?? signal.finalStats?.corners?.[0] ?? initH;
+    const finalA = currentStats?.corners?.[1] ?? signal.finalStats?.corners?.[1] ?? initA;
+    const finalTotal = finalH + finalA;
+    const delta = finalTotal - initTotal;
+    const deltaSign = delta >= 0 ? `+${delta}` : `${delta}`;
+
+    return {
+      category: 'corners',
+      label: 'Угловые',
+      icon: '🚩',
+      initialTotal: initTotal,
+      initialBreakdown: `${initH}:${initA}`,
+      initialValueText: `${initTotal} (${initH}:${initA}) на ${signal.minute}'`,
+      finalTotal,
+      finalBreakdown: `${finalH}:${finalA}`,
+      finalValueText: `${finalTotal} (${finalH}:${finalA})`,
+      delta,
+      deltaText: `${deltaSign} угловых после сигнала (было ${initTotal} ➔ стало ${finalTotal})`,
+    };
+  }
+
+  if (cat === 'cards') {
+    const initYH = signal.statsSnapshot?.yellowCards?.[0] ?? 0;
+    const initYA = signal.statsSnapshot?.yellowCards?.[1] ?? 0;
+    const initTotalY = initYH + initYA;
+
+    const finalYH = currentStats?.yellowCards?.[0] ?? signal.finalStats?.yellowCards?.[0] ?? initYH;
+    const finalYA = currentStats?.yellowCards?.[1] ?? signal.finalStats?.yellowCards?.[1] ?? initYA;
+    const finalTotalY = finalYH + finalYA;
+
+    const finalRH = currentStats?.redCards?.[0] ?? signal.finalStats?.redCards?.[0] ?? (signal.statsSnapshot?.redCards?.[0] ?? 0);
+    const finalRA = currentStats?.redCards?.[1] ?? signal.finalStats?.redCards?.[1] ?? (signal.statsSnapshot?.redCards?.[1] ?? 0);
+    const finalTotalR = finalRH + finalRA;
+
+    const delta = finalTotalY - initTotalY;
+    const deltaSign = delta >= 0 ? `+${delta}` : `${delta}`;
+
+    return {
+      category: 'cards',
+      label: 'Жёлтые карточки',
+      icon: '🟨',
+      initialTotal: initTotalY,
+      initialBreakdown: `${initYH}:${initYA}`,
+      initialValueText: `${initTotalY} ЖК (${initYH}:${initYA}) на ${signal.minute}'`,
+      finalTotal: finalTotalY,
+      finalBreakdown: `${finalYH}:${finalYA}`,
+      finalValueText: `${finalTotalY} ЖК (${finalYH}:${finalYA})${finalTotalR > 0 ? ` | 🟥 ${finalTotalR} КК` : ''}`,
+      delta,
+      deltaText: `${deltaSign} ЖК после сигнала (было ${initTotalY} ➔ стало ${finalTotalY})`,
+    };
+  }
+
+  // Default: goals / score
+  const scoreParts = (signal.score || '0:0').split(':').map((s) => parseInt(s.trim(), 10));
+  const initH = isNaN(scoreParts[0]) ? (signal.statsSnapshot?.homeScore ?? 0) : scoreParts[0];
+  const initA = isNaN(scoreParts[1]) ? (signal.statsSnapshot?.awayScore ?? 0) : scoreParts[1];
+  const initTotal = initH + initA;
+
+  const finalH = currentScoreTuple[0] ?? initH;
+  const finalA = currentScoreTuple[1] ?? initA;
+  const finalTotal = finalH + finalA;
+  const delta = finalTotal - initTotal;
+  const deltaSign = delta >= 0 ? `+${delta}` : `${delta}`;
+  const goalsWord = delta === 1 ? 'гол' : (delta >= 2 && delta <= 4 ? 'гола' : 'голов');
+
+  return {
+    category: 'goals',
+    label: 'Счёт / Голы',
+    icon: '⚽',
+    initialTotal: initTotal,
+    initialBreakdown: `${initH}:${initA}`,
+    initialValueText: `${initH}:${initA} (${initTotal} ${initTotal === 1 ? 'гол' : 'голов'}) на ${signal.minute}'`,
+    finalTotal,
+    finalBreakdown: `${finalH}:${finalA}`,
+    finalValueText: `${finalH}:${finalA} (${finalTotal} ${finalTotal === 1 ? 'гол' : 'голов'})`,
+    delta,
+    deltaText: `${deltaSign} ${goalsWord} после сигнала (было ${initH}:${initA} ➔ стало ${finalH}:${finalA})`,
+  };
+}
+
+/**
  * Enhanced Telegram Alert formatter with separation for Live vs Pre-match bets.
  */
 export function formatExtendedTelegramAlert(
@@ -1972,6 +2193,15 @@ export function formatExtendedTelegramAlert(
     `🎯 <b>РЕКОМЕНДОВАННЫЙ ИСХОД:</b>\n` +
     `👉 <b><u>🔥  ${escapeTelegramHtml(marketDisplay)}  🔥</u></b>\n` +
     `💰 <b>Рынок:</b> ${escapeTelegramHtml(rawMarket)}   |   📈 <b>Кэф: ~${oddsEstimate}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`
+  );
+
+  // Strategy-specific metric at initial alert dispatch time (corners, cards, goals)
+  const metricSnapshot = getInitialStrategyMetric(rule, match);
+  const metricInitialBlock = (
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${metricSnapshot.icon} <b>ПОКАЗАТЕЛЬ СТРАТЕГИИ НА МОМЕНТ СИГНАЛА:</b>\n` +
+    `   • <b>${metricSnapshot.label}:</b> <b>${metricSnapshot.initialValueText}</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`
   );
 
@@ -2048,6 +2278,7 @@ export function formatExtendedTelegramAlert(
     `🏆 <b>${match.countryCode} ${country} | ${league}</b>\n` +
     `⚔️ <b>${homeTeam} vs ${awayTeam}</b> ${matchTimeDisplay}\n` +
     `${marketLine}` +
+    `${metricInitialBlock}` +
     `${quickGoalsPatternLine}` +
     `${strat7PatternLine}` +
     `${oddsDropPatternLine}` +
@@ -2061,12 +2292,23 @@ export function formatExtendedTelegramAlert(
 /**
  * Formats Telegram message when match completes or signal resolves with outcome (WIN / LOSS / REFUND).
  * Rewrites/updates the original Telegram alert with official match result.
+ * Shows the final result specifically concerning the strategy according to which the signal triggered:
+ * - Corners: initial corners -> final corners (+delta)
+ * - Yellow cards: initial cards -> final cards (+delta)
+ * - Goals/score: initial score -> final score (+delta)
  */
 export function formatResolvedTelegramAlert(
   signal: SignalAlert,
   finalScore: string,
   outcome: SignalOutcome,
-  matchDetails?: { homeTeam?: string; awayTeam?: string; league?: string; country?: string }
+  matchDetails?: { homeTeam?: string; awayTeam?: string; league?: string; country?: string },
+  finalStats?: MatchStats | {
+    corners?: [number, number];
+    yellowCards?: [number, number];
+    redCards?: [number, number];
+    shotsOnTarget?: [number, number];
+    dangerousAttacks?: [number, number];
+  }
 ): string {
   const isWin = outcome === 'WIN';
   const isLoss = outcome === 'LOSS';
@@ -2095,6 +2337,15 @@ export function formatResolvedTelegramAlert(
   const ruleName = escapeTelegramHtml(signal.ruleName);
   const marketSuggestion = escapeTelegramHtml(signal.marketSuggestion || '');
 
+  const scoreParts = finalScore.split(':').map((s) => parseInt(s.trim(), 10));
+  const curScoreTuple: [number, number] = [
+    isNaN(scoreParts[0]) ? 0 : scoreParts[0],
+    isNaN(scoreParts[1]) ? 0 : scoreParts[1],
+  ];
+
+  // Strategy-specific metric resolution (Corners, Yellow Cards, Goals, etc.)
+  const metric = resolveStrategyMetric(signal, curScoreTuple, finalStats || signal.finalStats);
+
   const scoreChangeNote =
     signal.score !== finalScore
       ? `<i>(на момент сигнала: ${signal.score} на ${signal.minute}')</i>`
@@ -2122,6 +2373,38 @@ export function formatResolvedTelegramAlert(
   const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
   const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
 
+  // Formatted Strategy Metric Block for the Telegram message
+  let metricSection = '';
+  if (metric.category === 'corners') {
+    metricSection =
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🚩 <b>РЕЗУЛЬТАТ ПО СТРАТЕГИИ (УГЛОВЫЕ):</b>\n` +
+      `   • <b>На момент сигнала:</b> <b>${metric.initialValueText}</b>\n` +
+      `   • <b>По завершению:</b> <b>${metric.finalValueText}</b>\n` +
+      `   • <b>Итоговая динамика:</b> <b><u>${metric.deltaText}</u></b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  } else if (metric.category === 'cards') {
+    metricSection =
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🟨 <b>РЕЗУЛЬТАТ ПО СТРАТЕГИИ (ЖЁЛТЫЕ КАРТОЧКИ):</b>\n` +
+      `   • <b>На момент сигнала:</b> <b>${metric.initialValueText}</b>\n` +
+      `   • <b>По завершению:</b> <b>${metric.finalValueText}</b>\n` +
+      `   • <b>Итоговая динамика:</b> <b><u>${metric.deltaText}</u></b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  } else {
+    metricSection =
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⚽ <b>РЕЗУЛЬТАТ ПО СТРАТЕГИИ (ГОЛЫ / СЧЁТ):</b>\n` +
+      `   • <b>Счёт на момент сигнала:</b> <b>${metric.initialValueText}</b>\n` +
+      `   • <b>Итог матча:</b> <b>${metric.finalValueText}</b>\n` +
+      `   • <b>Итоговая динамика:</b> <b><u>${metric.deltaText}</u></b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  }
+
+  const resolutionNoteLine = signal.resolutionNote
+    ? `\n📌 <i>Детали: ${escapeTelegramHtml(signal.resolutionNote)}</i>\n`
+    : '';
+
   return (
     `${statusHeader}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -2136,9 +2419,11 @@ export function formatResolvedTelegramAlert(
         `👉 <b><u>🔥  ${escapeTelegramHtml(marketSuggestion.toUpperCase())}  🔥</u></b>\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
       : '') +
+    `${metricSection}` +
     `📈 <b>Коэффициент:</b> <b>${signal.odds.toFixed(2)}</b>\n` +
-    `💰 <b>${outcomeLabel}</b> <b>${isWin ? '✅ ПРОШЛО' : isLoss ? '❌ НЕ ПРОШЛО' : '🔄 ВОЗВРАТ'}</b> [${profitText}]\n\n` +
-    `⏱ <i>Результат зафиксирован: ${new Date().toLocaleTimeString('ru-RU')}</i>`
+    `💰 <b>${outcomeLabel}</b> <b>${isWin ? '✅ ПРОШЛО' : isLoss ? '❌ НЕ ПРОШЛО' : '🔄 ВОЗВРАТ'}</b> [${profitText}]\n` +
+    `${resolutionNoteLine}` +
+    `\n⏱ <i>Результат зафиксирован: ${new Date().toLocaleTimeString('ru-RU')}</i>`
   );
 }
 

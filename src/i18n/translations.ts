@@ -275,6 +275,7 @@ export interface Translations {
   colCorners: string;
   colCards: string;
   colOutcome: string;
+  colStrategyMetricResult: string;
   colBetStatus: string;
   colTelegram: string;
   colLoggedAt: string;
@@ -568,6 +569,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     colCorners: 'Углы',
     colCards: 'ЖК/КК',
     colOutcome: 'Исход',
+    colStrategyMetricResult: 'Конечный результат по стратегии',
     colBetStatus: 'Статус ставки',
     colTelegram: 'Telegram / Бот',
     colLoggedAt: 'Фиксация',
@@ -858,6 +860,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     colCorners: 'Corners',
     colCards: 'YC/RC',
     colOutcome: 'Outcome',
+    colStrategyMetricResult: 'Strategy Final Result',
     colBetStatus: 'Bet Status',
     colTelegram: 'Telegram / Bot',
     colLoggedAt: 'Logged At',
@@ -1148,6 +1151,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     colCorners: 'Korner',
     colCards: 'Sarı/Kırmızı',
     colOutcome: 'Tahmin',
+    colStrategyMetricResult: 'Strateji Nihai Sonucu',
     colBetStatus: 'Bahis Durumu',
     colTelegram: 'Telegram / Bot',
     colLoggedAt: 'Kayıt Zamanı',
@@ -1438,6 +1442,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     colCorners: 'Angoli',
     colCards: 'Gialli/Rossi',
     colOutcome: 'Esito',
+    colStrategyMetricResult: 'Risultato Finale Strategia',
     colBetStatus: 'Stato scommessa',
     colTelegram: 'Telegram / Bot',
     colLoggedAt: 'Ora segnale',
@@ -1728,6 +1733,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     colCorners: '角球',
     colCards: '黄/红牌',
     colOutcome: '推荐项',
+    colStrategyMetricResult: '策略最终结果',
     colBetStatus: '注单结果',
     colTelegram: '电报机器人',
     colLoggedAt: '触发时间',
