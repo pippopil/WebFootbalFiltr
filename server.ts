@@ -1,7 +1,16 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+
+const appDirname = (() => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+  }
+})();
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import {
@@ -71,7 +80,7 @@ function setToAICache<T>(cache: Map<string, AICacheItem<T>>, key: string, data: 
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -2287,8 +2296,8 @@ async function startServer() {
 
   const candidateDirs = [
     path.join(process.cwd(), 'dist'),
-    __dirname,
-    path.join(__dirname, 'dist'),
+    appDirname,
+    path.join(appDirname, 'dist'),
     path.join(process.cwd()),
   ];
   const resolvedDistDir =
