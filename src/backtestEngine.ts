@@ -715,9 +715,13 @@ function snapshotMatchesRule(
       ? flows.filter((f) => {
           if (f.market === targetMarketFilter) return true;
           const fm = (f.market || '').toUpperCase();
-          if (targetMarketFilter === 'HOME' && (fm.includes('П1') || fm.includes('HOME'))) return true;
-          if (targetMarketFilter === 'AWAY' && (fm.includes('П2') || fm.includes('AWAY'))) return true;
-          if (targetMarketFilter === 'DRAW' && (fm.includes('НИЧЬ') || fm.includes('DRAW') || fm === 'X')) return true;
+          const fName = (f.marketName || '').toUpperCase();
+          if (targetMarketFilter === 'HOME' && (fm.includes('П1') || fm.includes('HOME') || fName.includes('П1'))) return true;
+          if (targetMarketFilter === 'AWAY' && (fm.includes('П2') || fm.includes('AWAY') || fName.includes('П2'))) return true;
+          if (targetMarketFilter === 'DRAW' && (fm.includes('НИЧЬ') || fm.includes('DRAW') || fm === 'X' || fName.includes('НИЧЬ'))) return true;
+          if (targetMarketFilter === 'OVER' && (fm.includes('OVER') || fm.includes('ТБ') || fName.includes('ТБ') || fName.includes('OVER'))) return true;
+          if (targetMarketFilter === 'UNDER' && (fm.includes('UNDER') || fm.includes('ТМ') || fName.includes('ТМ') || fName.includes('UNDER'))) return true;
+          if (targetMarketFilter === 'BTTS' && (fm.includes('BTTS') || fm.includes('ОЗ') || fName.includes('ОБЕ'))) return true;
           return false;
         })
       : flows;

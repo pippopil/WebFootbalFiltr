@@ -1203,8 +1203,8 @@ export function evaluateFilterRule(
   // 22a-2. Require Score at Halftime Low (0:0, 1:0 или 0:1)
   if (rule.requireScoreAtHalftimeLow) {
     totalCriteria++;
-    const h = match.score[0];
-    const a = match.score[1];
+    const h = match.score ? (match.score[0] ?? 0) : 0;
+    const a = match.score ? (match.score[1] ?? 0) : 0;
     const isLowScore = (h === 0 && a === 0) || (h === 1 && a === 0) || (h === 0 && a === 1);
     if (isLowScore) {
       passedCount++;
@@ -1216,10 +1216,12 @@ export function evaluateFilterRule(
   // 22b. Require No Goals in 2nd Half (Гол во 2-м тайме ещё не был забит)
   if (rule.requireNoGoalsInSecondHalf) {
     totalCriteria++;
-    const htHome = match.history?.firstHalfScore?.[0] ?? (match.minute >= 45 ? match.score[0] : 0);
-    const htAway = match.history?.firstHalfScore?.[1] ?? (match.minute >= 45 ? match.score[1] : 0);
+    const scoreH = match.score ? (match.score[0] ?? 0) : 0;
+    const scoreA = match.score ? (match.score[1] ?? 0) : 0;
+    const htHome = match.history?.firstHalfScore?.[0] ?? (match.minute >= 45 ? scoreH : 0);
+    const htAway = match.history?.firstHalfScore?.[1] ?? (match.minute >= 45 ? scoreA : 0);
     const htTotal = htHome + htAway;
-    const currentTotal = match.score[0] + match.score[1];
+    const currentTotal = scoreH + scoreA;
     
     // Если явно флаг noGoalsInSecondHalf выставлен или текущий тотал равен счёту 1Т
     const noGoals2H = match.history?.noGoalsInSecondHalf !== undefined
@@ -1229,7 +1231,7 @@ export function evaluateFilterRule(
     if (noGoals2H) {
       passedCount++;
     } else {
-      unmetCriteria.push(`Во 2-м тайме уже был забит гол (счёт 1Т: ${htHome}:${htAway}, текущий счёт: ${match.score[0]}:${match.score[1]})`);
+      unmetCriteria.push(`Во 2-м тайме уже был забит гол (счёт 1Т: ${htHome}:${htAway}, текущий счёт: ${scoreH}:${scoreA})`);
     }
   }
 
