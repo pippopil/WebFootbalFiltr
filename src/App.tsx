@@ -171,6 +171,7 @@ import { MatchMomentumRadarModal } from './components/MatchMomentumRadarModal';
 import { voiceAnnouncer } from './services/voiceAlertAnnouncer';
 import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { StrategyAuditLogModal } from './components/StrategyAuditLogModal';
+import { MatchXgTimelineChart } from './components/MatchXgTimelineChart';
 import { logStrategyTrigger, logStrategyResolution } from './services/strategyAuditLogger';
 import { runDailyPrematchAnalysis } from './services/prematchScheduler';
 import { AppLogo } from './components/AppLogo';
@@ -6613,12 +6614,12 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* xG Model */}
+                    {/* xG Model Summary */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-xs font-semibold">
-                        <span className="font-mono">{selectedMatch.stats.xg[0]}</span>
-                        <span className="text-slate-400 font-normal">Ожидаемые голы (xG)</span>
-                        <span className="font-mono">{selectedMatch.stats.xg[1]}</span>
+                        <span className="font-mono text-emerald-400 font-bold">{selectedMatch.stats.xg[0]} xG</span>
+                        <span className="text-slate-400 font-normal">Ожидаемые голы (xG Баланс)</span>
+                        <span className="font-mono text-blue-400 font-bold">{selectedMatch.stats.xg[1]} xG</span>
                       </div>
                       <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden flex">
                         <div
@@ -6644,6 +6645,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Recharts In-Depth xG Timeline & Attack Danger Dynamics */}
+                  <MatchXgTimelineChart match={selectedMatch} />
 
                   {/* Live Odds */}
                   <div className="border-t border-slate-800 pt-4">
