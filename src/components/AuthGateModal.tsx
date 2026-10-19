@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Lock,
   Unlock,
@@ -7,25 +7,50 @@ import {
   Zap,
   ArrowRight,
   Sparkles,
-  TrendingUp,
-  Activity,
-  Bot,
-  UserCheck,
   CheckCircle2,
+  AlertCircle,
   Crown,
   UserPlus,
   Mail,
   User,
   Check,
+  Clock,
+  ShieldCheck,
+  Smartphone,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { UserProfile, UserSubscriptionDetails } from '../types';
 import { AppLogo } from './AppLogo';
+import {
+  getDeviceFingerprint,
+  markTrialClaimedOnDevice,
+  verifyServerDeviceTrial,
+} from '../services/deviceFingerprintService';
 
 interface AuthGateModalProps {
   allUsers: UserProfile[];
   onLogin: (user: UserProfile) => void;
   onRegisterUser?: (newUser: UserProfile) => void;
   isOpen: boolean;
+}
+
+// Fast browser-safe SHA-256 hashing helper
+async function sha256(message: string): Promise<string> {
+  try {
+    const msgBuffer = new TextEncoder().encode(message + '::footbalmonitor_salt_2026');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // Fallback simple hash for older environments
+    let hash = 0;
+    for (let i = 0; i < message.length; i++) {
+      hash = (hash << 5) - hash + message.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16);
+  }
 }
 
 export const AuthGateModal: React.FC<AuthGateModalProps> = ({
@@ -38,14 +63,63 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
   const [customKey, setCustomKey] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Registration Form State
-  const [regName, setRegName] = useState('');
-  const [regUsername, setRegUsername] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regPlan, setRegPlan] = useState<'FREE' | 'PRO_ANALYST' | 'VIP_CLUB'>('PRO_ANALYST');
-  const [regBotName, setRegBotName] = useState('');
+  // Minimal Registration Form: only Email/Login & Password
+  const [emailOrUsername, setEmailOrUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [claimTrial, setClaimTrial] = useState(true);
+
+  // Anti-abuse Device Fingerprint State
+  const [deviceHash, setDeviceHash] = useState<string>('');
+  const [isTrialAlreadyUsed, setIsTrialAlreadyUsed] = useState<boolean>(false);
+  const [isCheckingDevice, setIsCheckingDevice] = useState<boolean>(true);
+
+  // Brute-force protection state
+  const [failedAttempts, setFailedAttempts] = useState<number>(0);
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
+  const [lockoutTimer, setLockoutTimer] = useState<number>(0);
+
+  // Check device fingerprint on mount
+  useEffect(() => {
+    if (!isOpen) return;
+
+    try {
+      const fp = getDeviceFingerprint();
+      setDeviceHash(fp.fingerprintHash);
+      if (fp.isTrialClaimedOnDevice) {
+        setIsTrialAlreadyUsed(true);
+        setClaimTrial(false);
+        setIsCheckingDevice(false);
+      } else {
+        // Also verify with server registry
+        verifyServerDeviceTrial(fp.fingerprintHash)
+          .then((claimed) => {
+            if (claimed) {
+              setIsTrialAlreadyUsed(true);
+              setClaimTrial(false);
+            }
+          })
+          .finally(() => setIsCheckingDevice(false));
+      }
+    } catch {
+      setIsCheckingDevice(false);
+    }
+  }, [isOpen]);
+
+  // Brute force lockout timer countdown
+  useEffect(() => {
+    if (!lockoutUntil) return;
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
+      setLockoutTimer(remaining);
+      if (remaining <= 0) {
+        setLockoutUntil(null);
+        setFailedAttempts(0);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutUntil]);
 
   if (!isOpen) return null;
 
@@ -57,6 +131,11 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
 
   const handleDevKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (lockoutUntil && Date.now() < lockoutUntil) {
+      setErrorMsg(`Слишком много попыток. Подождите ${lockoutTimer} сек.`);
+      return;
+    }
+
     const key = customKey.trim().toLowerCase();
     if (key === 'god' || key === 'root' || key === 'developer' || key === 'creator' || key === 'admin') {
       if (godUser) {
@@ -65,71 +144,134 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
         onLogin(allUsers[0]);
       }
     } else {
-      setErrorMsg('Неверный ключ доступа. Попробуйте "god" или выберите аккаунт из списка.');
+      const nextFailures = failedAttempts + 1;
+      setFailedAttempts(nextFailures);
+      if (nextFailures >= 5) {
+        const lockoutTime = Date.now() + 60000;
+        setLockoutUntil(lockoutTime);
+        setLockoutTimer(60);
+        setErrorMsg('Превышено количество попыток. Защита заблокировала ввод на 60 секунд.');
+      } else {
+        setErrorMsg(`Неверный ключ доступа (осталось попыток: ${5 - nextFailures}). Попробуйте "god" или выберите аккаунт.`);
+      }
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    const name = regName.trim();
-    const username = regUsername.trim().replace(/^@/, '') || name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-    const email = regEmail.trim();
-
-    if (!name) {
-      setErrorMsg('Пожалуйста, укажите имя или никнейм');
-      return;
-    }
-    if (!email || !email.includes('@')) {
-      setErrorMsg('Пожалуйста, укажите корректный адрес электронной почты');
+    if (lockoutUntil && Date.now() < lockoutUntil) {
+      setErrorMsg(`Слишком много попыток. Подождите ${lockoutTimer} сек.`);
       return;
     }
 
-    // Check email uniqueness
+    const input = emailOrUsername.trim();
+    if (!input) {
+      setErrorMsg('Пожалуйста, укажите Email или логин');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMsg('Пароль должен содержать не менее 6 символов для защиты аккаунта');
+      return;
+    }
+
+    // Check duplicate
     const exists = allUsers.some(
-      (u) => u.email.toLowerCase() === email.toLowerCase() || u.username.toLowerCase() === username.toLowerCase()
+      (u) =>
+        u.email.toLowerCase() === input.toLowerCase() ||
+        u.username.toLowerCase() === input.toLowerCase()
     );
     if (exists) {
-      setErrorMsg('Пользователь с таким email или логином уже зарегистрирован');
+      setErrorMsg('Пользователь с таким email или логином уже зарегистрирован. Войдите в аккаунт.');
       return;
     }
+
+    // Hash password securely with salt
+    const hashedPassword = await sha256(password);
+
+    // Determine trial validity:
+    // If device hasn't used trial before, grant 3-Day Full PRO Access
+    const isTrialEligible = claimTrial && !isTrialAlreadyUsed;
+    const now = new Date();
+    const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+    const subscription: UserSubscriptionDetails = isTrialEligible
+      ? {
+          plan: 'PRO_ANALYST',
+          isTrial: true,
+          trialStartedAt: now.toISOString(),
+          trialExpiresAt: threeDaysLater.toISOString(),
+          startedAt: now.toISOString(),
+          expiresAt: threeDaysLater.toISOString().slice(0, 10),
+          daysRemaining: 3,
+          paymentMethod: 'TRIAL',
+          amountPaidRub: 0,
+          status: 'TRIAL_ACTIVE',
+          notified3DaysLeft: false,
+          deviceFingerprint: deviceHash,
+        }
+      : {
+          plan: 'FREE',
+          isTrial: false,
+          startedAt: now.toISOString(),
+          expiresAt: '2099-12-31',
+          daysRemaining: 9999,
+          paymentMethod: 'FREE',
+          amountPaidRub: 0,
+          status: 'ACTIVE',
+          deviceFingerprint: deviceHash,
+        };
+
+    const isEmail = input.includes('@');
+    const generatedUsername = isEmail
+      ? input.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
+      : input.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_');
+    const displayName = isEmail ? input.split('@')[0] : input;
 
     const defaultBotId = `bot-${Date.now()}`;
     const newUser: UserProfile = {
       id: `user-${Date.now()}`,
-      username: username || `user_${Date.now().toString().slice(-4)}`,
-      displayName: name,
-      email: email,
-      role: regPlan === 'VIP_CLUB' ? 'vip' : regPlan === 'PRO_ANALYST' ? 'pro' : 'user',
-      plan: regPlan,
-      planExpiresAt: regPlan === 'FREE' ? undefined : '2026-12-31',
-      registeredAt: new Date().toLocaleDateString('ru-RU'),
-      balanceRub: regPlan === 'VIP_CLUB' ? 500000 : regPlan === 'PRO_ANALYST' ? 100000 : 25000,
+      username: generatedUsername || `trader_${Date.now().toString().slice(-4)}`,
+      displayName: displayName,
+      email: isEmail ? input : `${generatedUsername}@footbalmonitor.local`,
+      passwordHash: hashedPassword,
+      role: isTrialEligible ? 'pro' : 'user',
+      plan: isTrialEligible ? 'PRO_ANALYST' : 'FREE',
+      planExpiresAt: isTrialEligible ? threeDaysLater.toISOString().slice(0, 10) : undefined,
+      subscriptionDetails: subscription,
+      deviceFingerprint: deviceHash,
+      registeredAt: now.toLocaleDateString('ru-RU'),
+      balanceRub: isTrialEligible ? 50000 : 10000,
       notificationSound: true,
       adPreferences: {
-        showBanners: regPlan === 'FREE',
+        showBanners: !isTrialEligible,
         compactAds: true,
       },
       telegramBots: [
         {
           id: defaultBotId,
-          name: regBotName.trim() || `🤖 Личный Бот (${name})`,
+          name: `🤖 Личный Бот (${displayName})`,
           botToken: '',
           channelId: '',
           isDefault: true,
           active: true,
           status: 'untested',
-          createdAt: new Date().toLocaleDateString('ru-RU'),
+          createdAt: now.toLocaleDateString('ru-RU'),
         },
       ],
       stats: {
         totalSignalsGenerated: 0,
-        winRate: 80.0,
-        favoriteLeague: 'Английская Премьер-Лига',
+        winRate: 82.5,
+        favoriteLeague: 'Все лиги (Сканер)',
         signalsToday: 0,
       },
     };
+
+    // Mark trial claimed on device so it cannot be abused
+    if (isTrialEligible) {
+      await markTrialClaimedOnDevice(newUser.email, deviceHash);
+    }
 
     if (onRegisterUser) {
       onRegisterUser(newUser);
@@ -137,49 +279,56 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
       onLogin(newUser);
     }
 
-    setSuccessMsg(`Добро пожаловать, ${name}! Аккаунт успешно создан.`);
+    setSuccessMsg(
+      isTrialEligible
+        ? `🎉 Добро пожаловать, ${displayName}! Вам активирован бесплатный пробный период PRO на 3 дня.`
+        : `Добро пожаловать, ${displayName}! Аккаунт успешно создан.`
+    );
   };
 
   return (
     <div
       id="auth-gate-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-xl overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/95 backdrop-blur-xl overflow-y-auto"
     >
       {/* Dynamic Animated Ambient Background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-purple-600/15 rounded-full blur-3xl animate-pulse delay-1000" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl animate-pulse delay-700" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
       </div>
 
-      <div className="relative w-full max-w-2xl bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-emerald-950/30 space-y-6 my-auto">
-        {/* Brand Header */}
-        <div className="text-center flex flex-col items-center space-y-3">
-          <AppLogo
-            size="lg"
-            animated={true}
-            tagline="Live Football Scanner & Smart Money Detection Platform"
-          />
-          <p className="text-xs sm:text-sm text-slate-400 max-w-md">
-            Для защиты алгоритмов, коэффициентов и Telegram-ботов полный функционал платформы доступен после авторизации в личном аккаунте.
+      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-5 my-auto">
+        {/* Top Header & Branding */}
+        <div className="text-center space-y-2">
+          <div className="flex justify-center">
+            <AppLogo size="lg" showSubtitle />
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+            {authMode === 'login' ? 'Вход в профессиональный сканер' : 'Быстрая регистрация (1 клик)'}
+          </h2>
+          <p className="text-xs text-slate-400 max-w-sm mx-auto">
+            {authMode === 'login'
+              ? 'Выберите профиль аналитика, введите мастер-код разработчика или создайте новый аккаунт'
+              : 'Минимум данных: только Email/логин и пароль. Надежная защита и 3 дня PRO-доступа бесплатно'}
           </p>
         </div>
 
-        {/* Mode Selector Tabs: Вход / Регистрация */}
-        <div className="flex items-center p-1 bg-slate-950/80 rounded-2xl border border-slate-800">
+        {/* Auth Mode Toggle Bar */}
+        <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold">
           <button
             type="button"
             onClick={() => {
               setAuthMode('login');
               setErrorMsg(null);
             }}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+            className={`py-2 rounded-xl transition flex items-center justify-center gap-1.5 ${
               authMode === 'login'
                 ? 'bg-slate-800 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <UserCheck className="h-3.5 w-3.5 text-emerald-400" />
+            <Lock className="w-3.5 h-3.5" />
             <span>Вход в аккаунт</span>
           </button>
           <button
@@ -188,71 +337,69 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
               setAuthMode('register');
               setErrorMsg(null);
             }}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+            className={`py-2 rounded-xl transition flex items-center justify-center gap-1.5 ${
               authMode === 'register'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <UserPlus className="h-3.5 w-3.5 text-emerald-300" />
-            <span>Регистрация трейдера</span>
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Регистрация + 3 дня PRO</span>
           </button>
         </div>
 
+        {/* Error / Success Notifications */}
+        {errorMsg && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 animate-shake">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
         {successMsg && (
-          <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs text-emerald-200 flex items-center gap-2 animate-fadeIn font-semibold">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
             <span>{successMsg}</span>
           </div>
         )}
 
         {authMode === 'login' ? (
-          <>
-            {/* GOD MODE Quick Access Highlight */}
+          /* LOGIN VIEW */
+          <div className="space-y-4">
+            {/* Developer Fast Access */}
             {godUser && (
-              <div className="bg-gradient-to-r from-purple-950/60 via-indigo-950/40 to-slate-900 border-2 border-purple-500/50 rounded-2xl p-4 sm:p-5 relative overflow-hidden group hover:border-purple-400 transition-all shadow-xl">
-                <div className="absolute -top-12 -right-12 w-32 h-32 bg-purple-500/20 rounded-full blur-2xl pointer-events-none" />
-
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-amber-500 flex items-center justify-center text-white shadow-lg border border-purple-300/40 shrink-0">
-                      <Zap className="h-6 w-6 animate-pulse" />
+              <button
+                type="button"
+                onClick={() => handleQuickLogin(godUser)}
+                className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-purple-900/40 via-indigo-900/30 to-slate-900 border border-purple-500/50 hover:border-purple-400 text-left transition active:scale-98 group flex items-center justify-between shadow-lg shadow-purple-950/30"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 font-black">
+                    ⚡
+                  </div>
+                  <div>
+                    <div className="font-extrabold text-white text-xs flex items-center gap-1.5">
+                      {godUser.displayName}
+                      <span className="px-1.5 py-0.2 rounded bg-purple-500/30 text-purple-300 text-[10px] font-mono border border-purple-500/40">
+                        GOD MODE
+                      </span>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-black text-white text-sm sm:text-base">
-                          {godUser.displayName}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-purple-500/30 text-purple-300 border border-purple-400/60">
-                          ДОСТУП УРОВНЯ «БОГ»
-                        </span>
-                      </div>
-                      <p className="text-xs text-purple-200/80 mt-0.5">
-                        Прямой вход разработчика: безлимитные боты, вброс прогрузов и ручное управление
-                      </p>
+                    <div className="text-[11px] text-purple-200/70">
+                      Полный доступ разработчика, 50 стратегий, Telegram боты & API
                     </div>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickLogin(godUser)}
-                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-purple-950/60 flex items-center justify-center gap-2 transition active:scale-95 shrink-0"
-                  >
-                    <Crown className="h-4 w-4 text-amber-300" />
-                    <span>Войти как Разработчик</span>
-                  </button>
                 </div>
-              </div>
+                <ArrowRight className="w-4 h-4 text-purple-400 group-hover:translate-x-1 transition-transform" />
+              </button>
             )}
 
-            {/* Regular Account Profiles Selection */}
-            <div className="space-y-3">
+            {/* Existing Trader Accounts List */}
+            <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400 font-bold px-1">
-                <span>Или выберите аккаунт трейдера:</span>
-                <span>{allUsers.filter((u) => u.role !== 'god').length} доступно</span>
+                <span>Или войдите под аккаунтом:</span>
+                <span>{allUsers.filter((u) => u.role !== 'god').length} готовых</span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-48 overflow-y-auto pr-1">
                 {allUsers
                   .filter((u) => u.role !== 'god')
                   .map((user) => (
@@ -260,30 +407,22 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
                       key={user.id}
                       type="button"
                       onClick={() => handleQuickLogin(user)}
-                      className="p-3 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/60 hover:bg-slate-900/90 rounded-2xl flex items-center justify-between gap-3 text-left transition group"
+                      className="p-2.5 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/60 hover:bg-slate-900/90 rounded-xl flex items-center justify-between gap-2 text-left transition group"
                     >
-                      <div className="flex items-center gap-2.5">
-                        {user.avatarUrl ? (
-                          <img
-                            src={user.avatarUrl}
-                            alt={user.displayName}
-                            className="w-9 h-9 rounded-xl object-cover border border-slate-700"
-                          />
-                        ) : (
-                          <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-white text-xs">
-                            {user.displayName.charAt(0)}
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-bold text-white text-xs group-hover:text-emerald-400 transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center font-bold text-white text-xs shrink-0">
+                          {user.displayName.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-white text-xs truncate group-hover:text-emerald-400 transition-colors">
                             {user.displayName}
                           </div>
-                          <div className="text-[10px] text-slate-500">@{user.username}</div>
+                          <div className="text-[10px] text-slate-500 truncate">@{user.username}</div>
                         </div>
                       </div>
 
                       <span
-                        className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
                           user.plan === 'VIP_CLUB'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : user.plan === 'PRO_ANALYST'
@@ -312,177 +451,152 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
                     setCustomKey(e.target.value);
                     setErrorMsg(null);
                   }}
-                  placeholder="Секретный мастер-код разработчика (введите 'god')..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  disabled={Boolean(lockoutUntil && Date.now() < lockoutUntil)}
+                  placeholder="Мастер-код разработчика ('god')..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 disabled:opacity-50"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0"
+                disabled={Boolean(lockoutUntil && Date.now() < lockoutUntil)}
+                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50"
               >
                 <Unlock className="h-3.5 w-3.5 text-purple-400" />
-                <span>Активировать God Mode</span>
+                <span>
+                  {lockoutTimer > 0 ? `Блок ${lockoutTimer}с` : 'Войти (God)'}
+                </span>
               </button>
             </form>
-          </>
+          </div>
         ) : (
-          /* REGISTRATION FORM VIEW */
+          /* MINIMAL REGISTRATION FORM (Only Email/Username + Password) */
           <form onSubmit={handleRegisterSubmit} className="space-y-4 animate-fadeIn">
-            <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
-                    <User className="h-3 w-3 text-emerald-400" />
-                    Ваше имя или никнейм:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={regName}
-                    onChange={(e) => setRegName(e.target.value)}
-                    placeholder="Например: Артём Трейдер"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
+            {/* 3-Day Trial Status Banner & Device Fingerprint Anti-Abuse */}
+            <div
+              className={`p-3.5 rounded-2xl border transition ${
+                isTrialAlreadyUsed
+                  ? 'bg-slate-950 border-slate-800 text-slate-400'
+                  : 'bg-gradient-to-r from-emerald-950/40 via-teal-950/30 to-slate-950 border-emerald-500/40'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <div
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                    isTrialAlreadyUsed
+                      ? 'bg-slate-800 text-slate-400'
+                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                  }`}
+                >
+                  {isTrialAlreadyUsed ? <Clock className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
-                    <Mail className="h-3 w-3 text-emerald-400" />
-                    Электронная почта (Email):
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={regEmail}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="artem@example.com"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-300">
-                    Логин (username):
-                  </label>
-                  <input
-                    type="text"
-                    value={regUsername}
-                    onChange={(e) => setRegUsername(e.target.value)}
-                    placeholder="artem_bet (необязательно)"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
-                    <Lock className="h-3 w-3 text-slate-400" />
-                    Пароль для входа:
-                  </label>
-                  <input
-                    type="password"
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1 pt-1">
-                <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
-                  <Bot className="h-3 w-3 text-cyan-400" />
-                  Название первого Telegram-бота (опционально):
-                </label>
-                <input
-                  type="text"
-                  value={regBotName}
-                  onChange={(e) => setRegBotName(e.target.value)}
-                  placeholder="Например: Smart Money Alert Bot"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {/* Plan Choice Cards */}
-              <div className="space-y-1.5 pt-1">
-                <label className="text-[11px] font-bold text-slate-300">
-                  Стартовый тарифный план:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRegPlan('FREE')}
-                    className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                      regPlan === 'FREE'
-                        ? 'bg-slate-800 border-emerald-500 text-white ring-1 ring-emerald-500/40'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <div className="font-bold text-xs">FREE</div>
-                    <div className="text-[10px] text-slate-400">1 бот • 0 ₽</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setRegPlan('PRO_ANALYST')}
-                    className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                      regPlan === 'PRO_ANALYST'
-                        ? 'bg-emerald-950/40 border-emerald-500 text-white ring-1 ring-emerald-500/40'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <div className="font-bold text-xs text-emerald-400">PRO Analyst</div>
-                    <div className="text-[10px] text-slate-400">5 ботов • Без рекламы</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setRegPlan('VIP_CLUB')}
-                    className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                      regPlan === 'VIP_CLUB'
-                        ? 'bg-amber-950/40 border-amber-500 text-white ring-1 ring-amber-500/40'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <div className="font-bold text-xs text-amber-400">VIP Syndicate</div>
-                    <div className="text-[10px] text-slate-400">15 ботов • Max Bank</div>
-                  </button>
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-white">
+                      {isTrialAlreadyUsed
+                        ? 'Пробный период на устройстве исчерпан'
+                        : '🎁 Пробный период: 3 дня PRO бесплатно'}
+                    </span>
+                    {!isTrialAlreadyUsed && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-extrabold text-[10px] border border-emerald-500/30">
+                        0 ₽ / 72 часа
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    {isTrialAlreadyUsed
+                      ? 'На данном оборудовании 3-дневный пробный период уже был активирован ранее. Аккаунт будет создан с тарифом FREE (1 бот, 0 сек задержки).'
+                      : 'Для новых пользователей доступен полный функционал тарифа PRO Analyst: подключение до 5 ботов, отключение рекламы и доступ ко всем 50 стратегиям.'}
+                  </p>
+                  {!isTrialAlreadyUsed && (
+                    <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={claimTrial}
+                        onChange={(e) => setClaimTrial(e.target.checked)}
+                        className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-900"
+                      />
+                      <span className="text-xs font-bold text-emerald-300">
+                        Активировать 3 дня PRO бесплатно при регистрации
+                      </span>
+                    </label>
+                  )}
                 </div>
               </div>
             </div>
 
+            {/* Input 1: Email or Username */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Mail className="h-3 w-3 text-emerald-400" />
+                  Email или логин в Telegram:
+                </span>
+                <span className="text-[10px] text-slate-500">Минимум данных</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={emailOrUsername}
+                onChange={(e) => setEmailOrUsername(e.target.value)}
+                placeholder="ivan@mail.ru или @ivan_pro"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {/* Input 2: Password with strong hashing */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Lock className="h-3 w-3 text-emerald-400" />
+                  Пароль для защиты аккаунта:
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">SHA-256 + Salt</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Минимум 6 символов"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Device Protection Notice */}
+            <div className="flex items-center justify-between text-[10px] text-slate-500 px-1 pt-1">
+              <div className="flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Защита от мультиаккаунтов (Hardware Hash active)</span>
+              </div>
+              <span className="font-mono">{deviceHash ? `${deviceHash.slice(0, 8)}...` : 'ID-защита'}</span>
+            </div>
+
+            {/* Submit Button */}
             <button
               type="submit"
-              className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-950/60 transition active:scale-95 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-950/50 transition active:scale-95 flex items-center justify-center gap-2"
             >
-              <UserPlus className="h-4 w-4" />
-              <span>Создать аккаунт и войти в систему</span>
+              <span>Зарегистрироваться и войти</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         )}
 
-        {errorMsg && (
-          <p className="text-xs text-red-400 text-center font-medium animate-fadeIn">
-            {errorMsg}
-          </p>
-        )}
-
-        {/* Footer Features badges */}
-        <div className="pt-2 flex items-center justify-center gap-4 text-[11px] text-slate-500 flex-wrap">
-          <span className="flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-            Flashscore & SStats API
-          </span>
-          <span className="flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-            Smart Money & Odds Flow
-          </span>
-          <span className="flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-            Мгновенные Telegram Боты
-          </span>
+        {/* Security & Legal Disclaimer Footer */}
+        <div className="pt-2 border-t border-slate-800/80 text-center text-[10px] text-slate-500 flex items-center justify-center gap-2">
+          <Shield className="w-3 h-3 text-emerald-400" />
+          <span>Конфиденциальность: данные не передаются третьим лицам • Без привязки карт</span>
         </div>
       </div>
     </div>

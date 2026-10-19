@@ -151,6 +151,74 @@ export function enrichMatchWithOddsTracker(match: Match, prevMatch?: Match): Mat
 }
 
 /**
+ * Resolves the real live bookmaker odds for a triggered strategy rule on a match.
+ * Prioritizes real live market odds over static fallbacks.
+ */
+export function getRealSignalOdds(rule: FilterRule, match: Match): number {
+  const market = (rule.targetMarket || '').toLowerCase();
+
+  // 1. Check direct match 1X2 market
+  if (market.includes('победа 1') || market.includes('п1') || market.includes('победа хозяев')) {
+    if (match.odds?.home && match.odds.home >= 1.15) return match.odds.home;
+  }
+  if (market.includes('ничья') || market.includes(' х ') || market.includes(' x ') || market.includes('исход x')) {
+    if (match.odds?.draw && match.odds.draw >= 1.15) return match.odds.draw;
+  }
+  if (market.includes('победа 2') || market.includes('п2') || market.includes('победа гостей')) {
+    if (match.odds?.away && match.odds.away >= 1.15) return match.odds.away;
+  }
+
+  // 2. Total Over 2.5 and Under 2.5
+  if (market.includes('2.5') && (market.includes('тб') || market.includes('больше') || market.includes('over'))) {
+    if (match.odds?.over25 && match.odds.over25 >= 1.15) return match.odds.over25;
+  }
+  if (market.includes('2.5') && (market.includes('тм') || market.includes('меньше') || market.includes('under'))) {
+    if (match.odds?.under25 && match.odds.under25 >= 1.15) return match.odds.under25;
+  }
+
+  // 3. Total Over 1.5 and Under 1.5
+  if (market.includes('1.5') && (market.includes('тб') || market.includes('больше'))) {
+    if (match.odds?.over15 && match.odds.over15 >= 1.15) return match.odds.over15;
+  }
+  if (market.includes('1.5') && (market.includes('тм') || market.includes('меньше'))) {
+    if (match.odds?.under15 && match.odds.under15 >= 1.15) return match.odds.under15;
+  }
+
+  // 4. Both Teams to Score (Обе забьют)
+  if (market.includes('обе забьют') || market.includes('btts')) {
+    if (match.odds?.btts && match.odds.btts >= 1.15) return match.odds.btts;
+  }
+
+  // 5. Active live odds drop or live market flow
+  if (match.oddsDrop?.currentOdds && match.oddsDrop.currentOdds >= 1.25) {
+    return match.oddsDrop.currentOdds;
+  }
+
+  // 6. Configured rule defaultOdds if realistic
+  if (rule.defaultOdds && rule.defaultOdds >= 1.40) {
+    return rule.defaultOdds;
+  }
+
+  // 7. Dynamic minute-adjusted odds
+  if (market.includes('угл')) {
+    if (match.minute >= 80) return 1.95;
+    if (match.minute >= 75) return 1.85;
+    return 1.80;
+  }
+  if (market.includes('жк') || market.includes('карточк')) {
+    if (match.minute >= 70) return 1.90;
+    return 1.82;
+  }
+  if (market.includes('во 2-м тайме') || market.includes('2т')) {
+    if (match.minute >= 75) return 1.95;
+    if (match.minute >= 60) return 1.82;
+    return 1.75;
+  }
+
+  return 1.80;
+}
+
+/**
  * Calculates in-depth match pressure, momentum index, and goal probability.
  */
 export function calculatePressureAnalysis(match: Match): PressureAnalysis {

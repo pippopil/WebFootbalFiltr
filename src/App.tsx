@@ -146,6 +146,7 @@ import {
   getInitialStrategyMetric,
   resolveStrategyMetric,
   detectStrategyMetricCategory,
+  getRealSignalOdds,
 } from './algorithms';
 import { FilterBuilderModal } from './components/FilterBuilderModal';
 import { FilterBacktestModal } from './components/FilterBacktestModal';
@@ -168,7 +169,10 @@ import { SignalsBankrollProgressChart } from './components/SignalsBankrollProgre
 import { OddsMovementRadarModal } from './components/OddsMovementRadarModal';
 import { MatchMomentumRadarModal } from './components/MatchMomentumRadarModal';
 import { voiceAnnouncer } from './services/voiceAlertAnnouncer';
-// import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
+import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
+import { StrategyAuditLogModal } from './components/StrategyAuditLogModal';
+import { logStrategyTrigger, logStrategyResolution } from './services/strategyAuditLogger';
+import { runDailyPrematchAnalysis } from './services/prematchScheduler';
 import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
 import { GodModeConsole } from './components/GodModeConsole';
@@ -1740,8 +1744,30 @@ export default function App() {
   const [filterViewMode, setFilterViewMode] = useState<'matrix' | 'cards' | 'prematch'>('matrix');
   const [selectedSport, setSelectedSport] = useState<SportType | 'all'>('football');
   const [signalsViewMode, setSignalsViewMode] = useState<'table' | 'cards'>('table');
+  const [isStrategyAuditLogOpen, setIsStrategyAuditLogOpen] = useState<boolean>(false);
+  const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [matchQuickFilter, setMatchQuickFilter] = useState<'all' | 'live' | 'prematch' | 'over25' | 'odds_drop' | 'corners' | 'pressure'>('all');
+
+  // Window scroll listener for instant scroll-to-top button
+  useEffect(() => {
+    const handleScroll = () => {
+      if (typeof window !== 'undefined') {
+        setShowScrollTop(window.scrollY > 300);
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Daily Prematch Analysis: Run once per day at startup or match refresh
+  useEffect(() => {
+    if (matches.length > 0 && filters.length > 0) {
+      try {
+        runDailyPrematchAnalysis(matches, filters);
+      } catch {}
+    }
+  }, [matches.length, filters.length]);
 
   // Site Analytics & Yandex Metrika state
   const [analytics, setAnalytics] = useState<SiteAnalyticsData>(() => loadAndRegisterSiteVisit());
@@ -2581,6 +2607,20 @@ export default function App() {
         resolvedAt: outcome !== 'PENDING' ? new Date().toLocaleTimeString('ru-RU') : undefined,
       };
 
+      // Record final strategy resolution in audit log
+      if (outcome !== 'PENDING') {
+        try {
+          logStrategyResolution(
+            target.id,
+            scoreToUse,
+            finalStats,
+            outcome,
+            `Ручной/панельный расчет: ${outcome}`,
+            profit
+          );
+        } catch {}
+      }
+
       // Auto-rewrite existing Telegram message if message ID exists
       if (
         target.telegramMessageId &&
@@ -3338,6 +3378,18 @@ export default function App() {
         const scoreTuple: [number, number] = [match.score[0], match.score[1]];
         const strategyMetricSnapshot = resolveStrategyMetric(sig, scoreTuple, match.stats);
 
+        // Audit Logging: Record final strategy results (goals, corners, cards) upon resolution
+        try {
+          logStrategyResolution(
+            sig.id,
+            finalScoreStr,
+            finalStats,
+            evalRes.outcome,
+            evalRes.note,
+            profit
+          );
+        } catch {}
+
         const updatedSignal: SignalAlert = {
           ...sig,
           outcome: evalRes.outcome,
@@ -3494,7 +3546,8 @@ export default function App() {
         // Check if alert already recorded in current state list (deterministic per match + strategy)
         const isPrematch = getBetTypeForSignal(rule, match.minute, match) === 'PREMATCH' || match.status === 'PREMATCH';
         const alertId = isPrematch ? `${match.id}-${rule.id}-prematch-60` : `${match.id}-${rule.id}`;
-        const estimatedOdds = getEstimatedOdds(rule.targetMarket, match.minute);
+        // Resolve real live bookmaker odds on the match at signal arrival
+        const estimatedOdds = getRealSignalOdds(rule, match);
 
         // Determine destination bot for this rule
         let targetBotToken = '';
@@ -3593,6 +3646,11 @@ export default function App() {
           sentToTelegram: shouldSendTg,
           telegramStatusText: shouldSendTg ? `Отправка в TG (${targetBotName})...` : 'Локальный сигнал',
         };
+
+        // Strategy Audit Logging: Record initial metrics (goals, corners, cards) at signal arrival
+        try {
+          logStrategyTrigger(newAlert, match, rule);
+        } catch {}
 
         setSignals((prev) => {
           if (prev.some((s) => s.id === alertId || (s.matchId === match.id && s.ruleId === rule.id))) return prev;
@@ -4243,6 +4301,9 @@ export default function App() {
       telegramStatusText: res.ok ? `Доставлено в TG (#${res.messageId}) - ожидает расчета` : (res.error || 'Ошибка отправки'),
       telegramMessageId: res.messageId,
     };
+    try {
+      logStrategyTrigger(testAlert, selectedMatch, activeRule);
+    } catch {}
     setSignals((prev) => [testAlert, ...prev]);
   };
 
@@ -4299,6 +4360,9 @@ export default function App() {
       telegramStatusText: `Доставлено (#${res.messageId}) - перепишется через 3 сек...`,
       telegramMessageId: res.messageId,
     };
+    try {
+      logStrategyTrigger(testAlert, selectedMatch, activeRule);
+    } catch {}
     setSignals((prev) => [testAlert, ...prev]);
 
     // Simulate match completion and edit Telegram message after 3 seconds
@@ -4315,6 +4379,17 @@ export default function App() {
       };
       const scoreTuple: [number, number] = [selectedMatch.score[0] + 1, selectedMatch.score[1]];
       const resolvedMetricSnapshot = resolveStrategyMetric(testAlert, scoreTuple, simulatedFinalStats);
+
+      try {
+        logStrategyResolution(
+          testAlert.id,
+          finalScoreStr,
+          simulatedFinalStats,
+          'WIN',
+          'Демо-резолюция: гол зафиксирован',
+          850
+        );
+      } catch {}
 
       const resolvedHtml = formatResolvedTelegramAlert(
         { ...testAlert, outcome: 'WIN', profit: 850, finalScore: finalScoreStr, finalStats: simulatedFinalStats, strategyMetricSnapshot: resolvedMetricSnapshot },
@@ -8085,10 +8160,55 @@ export default function App() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold shadow-sm">
-                      <Target className="h-3.5 w-3.5" />
-                      <span>Карточки Win Rate & ROI</span>
+                    {/* View mode toggle: Cards vs Table */}
+                    <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSignalsViewMode('cards');
+                          triggerTgHaptic('light');
+                        }}
+                        className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
+                          signalsViewMode === 'cards'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Карточки Win Rate & ROI"
+                      >
+                        <Target className="h-3.5 w-3.5" />
+                        <span>Карточки</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSignalsViewMode('table');
+                          triggerTgHaptic('light');
+                        }}
+                        className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
+                          signalsViewMode === 'table'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Интерактивная таблица сигналов и расчета"
+                      >
+                        <TableProperties className="h-3.5 w-3.5" />
+                        <span>Таблица</span>
+                      </button>
                     </div>
+
+                    {/* Audit Strategy Execution Log Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerTgHaptic('light');
+                        setIsStrategyAuditLogOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center gap-1.5 transition shadow-sm active:scale-95"
+                      title="Аудит выполнения стратегий (фиксация ID сигнала, ID стратегии, голов, угловых, карточек на момент сигнала и по завершению)"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>Аудит стратегий</span>
+                    </button>
 
                     <button
                       type="button"
@@ -8280,8 +8400,26 @@ export default function App() {
                   </div>
                 </div>
 
-              {/* Signals Cards Feed */}
-              {filteredSignalsList.length === 0 ? (
+              {/* Signals Content: Table View or Cards View */}
+              {signalsViewMode === 'table' ? (
+                <ScannerSignalsTableView
+                  signals={signals}
+                  matches={matches}
+                  isMonitoringActive={isMonitoringActive}
+                  onToggleMonitoring={() => setIsMonitoringActive(!isMonitoringActive)}
+                  onClearSignals={handleClearSignals}
+                  onOpenAIAnalyst={(m) => handleOpenAIAnalyst(m)}
+                  onSelectMatch={(mId) => handleSelectMatch(mId, true)}
+                  onNavigateToMatch={(mId, mName, sig) => handleNavigateToMatchFromSignal(mId, mName, sig)}
+                  onDeleteSignal={(id) => setSignals((prev) => prev.filter((s) => s.id !== id))}
+                  onUpdateOutcome={(id, out) => updateSignalOutcome(id, out)}
+                  onExportCsv={handleExportSignalsCsv}
+                  onOpenAuditLog={() => setIsStrategyAuditLogOpen(true)}
+                />
+              ) : (
+                <>
+                  {/* Signals Cards Feed */}
+                  {filteredSignalsList.length === 0 ? (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center space-y-3">
                   <Bell className="h-8 w-8 text-slate-600 mx-auto" />
                   <p className="text-sm text-slate-400">Нет сигналов по выбранным критериям фильтра.</p>
@@ -8589,6 +8727,8 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+              )}
+                </>
               )}
             </div>
           </div>
@@ -9687,6 +9827,13 @@ export default function App() {
           onActivateTopStrategies={handleActivateNoviceSafeTop3}
         />
 
+        {/* Strategy Execution Audit Log Modal */}
+        <StrategyAuditLogModal
+          isOpen={isStrategyAuditLogOpen}
+          onClose={() => setIsStrategyAuditLogOpen(false)}
+          signals={signals}
+        />
+
         {/* Viral Proof-of-Win Share Card Modal */}
         <ProofOfWinShareModal
           isOpen={isProofShareOpen}
@@ -10133,6 +10280,20 @@ export default function App() {
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
+                setIsStrategyAuditLogOpen(true);
+              }}
+              className="p-3 rounded-2xl bg-slate-950/80 border border-indigo-500/40 flex items-center gap-2.5 text-indigo-300 text-left active:scale-95 transition"
+            >
+              <ShieldCheck className="h-4 w-4 text-indigo-400 shrink-0" />
+              <div className="truncate">
+                <div className="font-bold text-white text-xs">Аудит стратегий</div>
+                <div className="text-[10px] text-indigo-300 truncate">Лог голов, ЖК, угловых</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsMobileToolsDrawerOpen(false);
                 setIsLeaderboardOpen(true);
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-purple-500/40 flex items-center gap-2.5 text-purple-300 text-left active:scale-95 transition"
@@ -10212,6 +10373,18 @@ export default function App() {
         handleLogin(newUser);
       }}
     />
+
+    {/* Quick Scroll to Top Button */}
+    {showScrollTop && (
+      <button
+        type="button"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        className="fixed bottom-20 lg:bottom-8 right-6 z-40 p-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl shadow-emerald-950/60 transition-all transform hover:scale-110 active:scale-95 border border-emerald-400/40 flex items-center justify-center animate-in fade-in duration-200"
+        title="Быстрый возврат наверх"
+      >
+        <ArrowUp className="h-5 w-5" />
+      </button>
+    )}
     </div>
   );
 }

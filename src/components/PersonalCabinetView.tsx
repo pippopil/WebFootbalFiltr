@@ -37,8 +37,10 @@ import {
   Gift,
   Share2,
   FileText,
+  Clock,
 } from 'lucide-react';
 import { UserProfile, TelegramBotProfile, FilterRule, AdBannerItem } from '../types';
+import { SubscriptionPaymentModal } from './SubscriptionPaymentModal';
 
 interface PersonalCabinetViewProps {
   currentUser: UserProfile;
@@ -81,6 +83,17 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   const [testingBotId, setTestingBotId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ botId: string; ok: boolean; message: string } | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [paymentModalPlan, setPaymentModalPlan] = useState<'PRO_ANALYST' | 'VIP_CLUB' | null>(null);
+
+  // Subscription days remaining and 3-day reminder calculation
+  const daysLeft = React.useMemo(() => {
+    if (currentUser.plan === 'FREE' || currentUser.role === 'god') return null;
+    const expiryStr = currentUser.subscriptionDetails?.expiresAt || currentUser.planExpiresAt;
+    if (!expiryStr) return null;
+    const expiryDate = new Date(expiryStr);
+    const diffTime = expiryDate.getTime() - Date.now();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }, [currentUser.plan, currentUser.planExpiresAt, currentUser.subscriptionDetails]);
 
   // New Bot Form State
   const [isAddingBot, setIsAddingBot] = useState(false);
@@ -950,6 +963,70 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
             </div>
           </div>
 
+          {/* Subscription Status & 3-Day Expiry Warning Banner */}
+          {currentUser.plan !== 'FREE' && currentUser.role !== 'god' && (
+            <div className="space-y-3">
+              {daysLeft !== null && daysLeft <= 3 && (
+                <div className="p-4 rounded-2xl border border-amber-500/60 bg-gradient-to-r from-amber-950/70 via-slate-900 to-slate-950 text-xs shadow-xl animate-pulse-slow">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                        <AlertCircle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-black text-amber-300 text-sm flex items-center gap-2">
+                          ⚠️ Внимание: подписка истекает через {daysLeft <= 0 ? 'менее 24 часов' : `${daysLeft} дн.`}!
+                          {currentUser.subscriptionDetails?.isTrial && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                              Пробный период (Trial)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-300 mt-0.5">
+                          Срок действия истекает {currentUser.planExpiresAt || currentUser.subscriptionDetails?.expiresAt}. После окончания тарифа аккаунт автоматически перейдет на базовый FREE (1 бот). Вы можете продлить подписку в один клик без автосписаний.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setPaymentModalPlan(currentUser.plan === 'VIP_CLUB' ? 'VIP_CLUB' : 'PRO_ANALYST')}
+                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs shrink-0 shadow-lg transition active:scale-95 flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Продлить подписку</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Active Subscription Details Card */}
+              <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold">
+                    ✓
+                  </div>
+                  <div>
+                    <div className="font-bold text-white flex items-center gap-2">
+                      <span>Активная подписка: {currentUser.plan === 'PRO_ANALYST' ? 'PRO Analyst' : 'VIP Syndicate'}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
+                        {daysLeft !== null && daysLeft > 0 ? `Осталось ${daysLeft} дн.` : 'Активна'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Действует до: <strong className="text-slate-300">{currentUser.planExpiresAt || currentUser.subscriptionDetails?.expiresAt || '2026-12-31'}</strong> • 🔒 Карта не сохраняется
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setPaymentModalPlan(currentUser.plan === 'VIP_CLUB' ? 'VIP_CLUB' : 'PRO_ANALYST')}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl font-bold text-xs transition"
+                >
+                  Продлить / Сменить тариф
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Pricing Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {/* PLAN 1: FREE */}
@@ -1117,18 +1194,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                   </button>
                 ) : (
                   <button
-                    onClick={() => {
-                      onUpdateCurrentUser({
-                        ...currentUser,
-                        plan: 'PRO_ANALYST',
-                        role: 'pro',
-                        adPreferences: {
-                          ...currentUser.adPreferences,
-                          showBanners: false,
-                        },
-                      });
-                      alert('Тариф PRO Analyst успешно активирован! Доступно подключение до 5 ботов и отключены рекламные баннеры.');
-                    }}
+                    onClick={() => setPaymentModalPlan('PRO_ANALYST')}
                     className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-950/40 transition active:scale-95 flex items-center justify-center gap-1.5"
                   >
                     <span>Активировать PRO (1 490 ₽)</span>
@@ -1205,18 +1271,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                   </button>
                 ) : (
                   <button
-                    onClick={() => {
-                      onUpdateCurrentUser({
-                        ...currentUser,
-                        plan: 'VIP_CLUB',
-                        role: 'vip',
-                        adPreferences: {
-                          ...currentUser.adPreferences,
-                          showBanners: false,
-                        },
-                      });
-                      alert('Тариф VIP Syndicate успешно активирован! Доступно до 15 ботов и Webhook API.');
-                    }}
+                    onClick={() => setPaymentModalPlan('VIP_CLUB')}
                     className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-xs transition active:scale-95"
                   >
                     Подключить VIP (3 990 ₽)
@@ -1826,18 +1881,8 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  onUpdateCurrentUser({
-                    ...currentUser,
-                    plan: 'PRO_ANALYST',
-                    role: 'pro',
-                    adPreferences: {
-                      ...currentUser.adPreferences,
-                      showBanners: false,
-                    },
-                  });
                   setShowUpgradeModal(false);
-                  setIsAddingBot(true);
-                  alert('Тариф PRO успешно активирован! Теперь вы можете добавить до 5 ботов.');
+                  setPaymentModalPlan('PRO_ANALYST');
                 }}
                 className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-950/40 transition active:scale-95 flex items-center justify-center gap-1.5"
               >
@@ -1855,6 +1900,20 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Subscription Payment & Checkout Modal (No card binding) */}
+      {paymentModalPlan && (
+        <SubscriptionPaymentModal
+          isOpen={Boolean(paymentModalPlan)}
+          onClose={() => setPaymentModalPlan(null)}
+          targetPlan={paymentModalPlan}
+          currentUser={currentUser}
+          onPaymentSuccess={(updated) => {
+            onUpdateCurrentUser(updated);
+            setPaymentModalPlan(null);
+          }}
+        />
       )}
     </div>
   );

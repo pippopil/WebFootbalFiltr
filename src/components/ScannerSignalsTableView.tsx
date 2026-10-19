@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   XCircle,
   Target,
+  ShieldCheck,
 } from 'lucide-react';
 
 export interface ScannerSignalsTableViewProps {
@@ -30,6 +31,7 @@ export interface ScannerSignalsTableViewProps {
   onDeleteSignal?: (id: string) => void;
   onUpdateOutcome?: (signalId: string, outcome: SignalOutcome) => void;
   onExportCsv?: () => void;
+  onOpenAuditLog?: () => void;
 }
 
 export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = ({
@@ -44,6 +46,7 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
   onDeleteSignal,
   onUpdateOutcome,
   onExportCsv,
+  onOpenAuditLog,
 }) => {
   const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
@@ -135,6 +138,17 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             >
               <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
               <span>CSV</span>
+            </button>
+          )}
+
+          {onOpenAuditLog && (
+            <button
+              onClick={onOpenAuditLog}
+              className="px-3 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+              title="Журнал аудита выполнения стратегий (голы, угловые, карты в момент сигнала и по завершению)"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
+              <span>Аудит</span>
             </button>
           )}
 

@@ -106,6 +106,24 @@ export interface Match {
     goalsAtFirstHalfQuick?: number;
     noGoalsSinceQuickGoals?: boolean;
     twoQuickGoalsMinute?: number;
+    homeRecentMatchesLast6?: Array<{
+      opponent: string;
+      score: [number, number];
+      isHome: boolean;
+      result: 'W' | 'D' | 'L';
+      date?: string;
+      over25?: boolean;
+      tournament?: string;
+    }>;
+    awayRecentMatchesLast6?: Array<{
+      opponent: string;
+      score: [number, number];
+      isHome: boolean;
+      result: 'W' | 'D' | 'L';
+      date?: string;
+      over25?: boolean;
+      tournament?: string;
+    }>;
   };
 }
 
@@ -301,6 +319,11 @@ export interface FilterRule {
   color: string;
   isPreset?: boolean;
   requiredPlan?: 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
+
+  // Синергии и комбинации взаимодополняющих стратегий (Combo / Ensemble)
+  isSynergy?: boolean;
+  synergyParentRuleIds?: string[];
+  synergyWinRateGain?: string; // e.g. "+12.4% прирост проходимости"
 
   // Привязка бота к фильтру (пользовательский бот или кастомные реквизиты)
   botId?: string;             // ID привязанного бота из личного кабинета (например, 'bot-main', 'bot-corners')
@@ -509,6 +532,52 @@ export interface SignalAlert {
   telegramEditedAt?: string;
 }
 
+export interface StrategyExecutionAuditLog {
+  id: string;
+  signalId: string;
+  strategyId: string;
+  strategyNumber?: number;
+  strategyName: string;
+  strategyCategory: string;
+  matchId: string;
+  matchName: string;
+  league: string;
+  country: string;
+  sport: SportType;
+  targetMarket?: string;
+  odds: number;
+  status: 'TRIGGERED' | 'RESOLVED';
+  outcome: SignalOutcome;
+  triggeredAt: string;
+  resolvedAt?: string;
+
+  // В момент поступления сигнала
+  initialMinute: number;
+  initialScore: string;
+  initialGoals: { home: number; away: number; total: number };
+  initialCorners: { home: number; away: number; total: number };
+  initialYellowCards: { home: number; away: number; total: number };
+  initialRedCards: { home: number; away: number; total: number };
+
+  // По завершению матча
+  finalMinute?: number;
+  finalScore?: string;
+  finalGoals?: { home: number; away: number; total: number };
+  finalCorners?: { home: number; away: number; total: number };
+  finalYellowCards?: { home: number; away: number; total: number };
+  finalRedCards?: { home: number; away: number; total: number };
+
+  // Динамика (прирост от момента сигнала до свистка)
+  deltaGoals: number;
+  deltaCorners: number;
+  deltaYellowCards: number;
+  deltaRedCards: number;
+
+  metricSummary?: string;
+  resolutionNote?: string;
+  profit?: number;
+}
+
 export type DeduplicationMode = 'once-per-match' | 'cooldown' | 'score-change' | 'disabled';
 
 export interface TelegramBotProfile {
@@ -526,15 +595,33 @@ export interface TelegramBotProfile {
 
 export type UserPlan = 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
 
+export interface UserSubscriptionDetails {
+  plan: UserPlan;
+  isTrial: boolean;
+  trialStartedAt?: string;
+  trialExpiresAt?: string;
+  startedAt: string;
+  expiresAt: string;
+  daysRemaining: number;
+  paymentMethod: 'SBP' | 'TPAY' | 'SBERPAY' | 'CRYPTO_USDT' | 'CRYPTO_TON' | 'STRIPE' | 'TRIAL' | 'FREE';
+  amountPaidRub: number;
+  status: 'ACTIVE' | 'EXPIRING_SOON' | 'EXPIRED' | 'TRIAL_ACTIVE';
+  notified3DaysLeft?: boolean;
+  deviceFingerprint?: string;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
   displayName: string;
   email: string;
+  passwordHash?: string;
   avatarUrl?: string;
   role: 'user' | 'pro' | 'admin' | 'vip' | 'god';
   plan: UserPlan;
   planExpiresAt?: string;
+  subscriptionDetails?: UserSubscriptionDetails;
+  deviceFingerprint?: string;
   registeredAt: string;
   balanceRub: number;
   telegramBots: TelegramBotProfile[];

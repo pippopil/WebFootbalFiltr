@@ -90,6 +90,105 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // ==========================================
+  // STRATEGY EXECUTION AUDIT LOG API
+  // ==========================================
+  const AUDIT_LOG_FILE = path.join(process.cwd(), 'strategy_audit_logs.json');
+  let inMemoryAuditLogs: any[] = [];
+  try {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      const fileData = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+      inMemoryAuditLogs = JSON.parse(fileData);
+    }
+  } catch {}
+
+  const persistAuditLogs = () => {
+    try {
+      fs.writeFileSync(AUDIT_LOG_FILE, JSON.stringify(inMemoryAuditLogs.slice(0, 1000), null, 2), 'utf-8');
+    } catch {}
+  };
+
+  app.get('/api/strategy-audit-logs', (req, res) => {
+    let result = [...inMemoryAuditLogs];
+    const { strategyId, outcome, limit } = req.query;
+    if (strategyId) {
+      result = result.filter((l) => l.strategyId === strategyId || String(l.strategyNumber) === String(strategyId));
+    }
+    if (outcome) {
+      result = result.filter((l) => l.outcome === outcome);
+    }
+    const max = limit ? parseInt(limit as string, 10) : 500;
+    res.json({ ok: true, logs: result.slice(0, max), total: result.length });
+  });
+
+  app.post('/api/strategy-audit-logs', (req, res) => {
+    const entry = req.body;
+    if (!entry || !entry.signalId) {
+      return res.status(400).json({ ok: false, error: 'Missing signalId or entry payload' });
+    }
+    const idx = inMemoryAuditLogs.findIndex((l) => l.signalId === entry.signalId);
+    if (idx !== -1) {
+      inMemoryAuditLogs[idx] = { ...inMemoryAuditLogs[idx], ...entry };
+    } else {
+      inMemoryAuditLogs.unshift(entry);
+    }
+    persistAuditLogs();
+    res.json({ ok: true, log: inMemoryAuditLogs[idx !== -1 ? idx : 0] });
+  });
+
+  app.delete('/api/strategy-audit-logs', (req, res) => {
+    const { id, signalId } = req.query;
+    if (id || signalId) {
+      inMemoryAuditLogs = inMemoryAuditLogs.filter((l) => l.id !== id && l.signalId !== signalId);
+    } else {
+      inMemoryAuditLogs = [];
+    }
+    persistAuditLogs();
+    res.json({ ok: true, message: 'Logs cleared successfully' });
+  });
+
+  // ==========================================
+  // ANTI-ABUSE TRIAL DEVICE REGISTRY API
+  // ==========================================
+  const TRIAL_REGISTRY_FILE = path.join(process.cwd(), 'trial_devices_registry.json');
+  let trialDeviceRegistry: Record<string, { email: string; claimedAt: string; ip?: string }> = {};
+  try {
+    if (fs.existsSync(TRIAL_REGISTRY_FILE)) {
+      trialDeviceRegistry = JSON.parse(fs.readFileSync(TRIAL_REGISTRY_FILE, 'utf-8'));
+    }
+  } catch {}
+
+  const persistTrialRegistry = () => {
+    try {
+      fs.writeFileSync(TRIAL_REGISTRY_FILE, JSON.stringify(trialDeviceRegistry, null, 2), 'utf-8');
+    } catch {}
+  };
+
+  app.get('/api/trial-registry', (req, res) => {
+    const hash = (req.query.hash as string) || '';
+    const record = trialDeviceRegistry[hash];
+    res.json({
+      ok: true,
+      alreadyClaimed: Boolean(record),
+      claimedAt: record?.claimedAt,
+    });
+  });
+
+  app.post('/api/trial-registry', (req, res) => {
+    const { deviceHash, email } = req.body || {};
+    if (!deviceHash) {
+      return res.status(400).json({ ok: false, error: 'deviceHash required' });
+    }
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    trialDeviceRegistry[deviceHash] = {
+      email: email || 'anonymous',
+      claimedAt: new Date().toISOString(),
+      ip: String(ip),
+    };
+    persistTrialRegistry();
+    res.json({ ok: true, registered: true });
+  });
+
   // Telegram bot status & getMe verification
   app.get('/api/telegram/status', async (req, res) => {
     const queryToken = req.query.token as string | undefined;

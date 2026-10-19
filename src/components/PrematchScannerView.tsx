@@ -24,6 +24,7 @@ import {
   Target,
   Layers,
 } from 'lucide-react';
+import { generateTeamRecentMatches, summarizeRecentMatches } from '../services/prematchScheduler';
 
 interface PrematchScannerViewProps {
   matches: Match[];
@@ -479,44 +480,114 @@ export const PrematchScannerView: React.FC<PrematchScannerViewProps> = ({
                 </div>
 
                 {/* H2H & Recent Matches Stat Breakdown */}
-                <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Очные встречи (H2H):</span>
-                    <span className="font-mono font-bold text-amber-300">
-                      ТБ 2.5 в {h2hOver25Count} из {h2hTotalMatches} ({Math.round((h2hOver25Count / h2hTotalMatches) * 100)}%)
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Форма {match.homeTeam}:</span>
-                    <span className="font-mono font-bold text-emerald-400">
-                      {team1RecentOver25Count}/5 на ТБ 2.5
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Форма {match.awayTeam}:</span>
-                    <span className="font-mono font-bold text-sky-400">
-                      {team2RecentOver25Count}/5 на ТБ 2.5
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80">
-                    <span className="text-slate-300 font-medium">Суммарно ТБ 2.5 (все игры):</span>
-                    <span
-                      className={`font-mono px-2 py-0.5 rounded text-[11px] font-bold ${
-                        team1RecentOver25Count + team2RecentOver25Count >= 9
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'text-slate-400 bg-slate-900'
-                      }`}
-                    >
-                      {team1RecentOver25Count + team2RecentOver25Count}/10
-                      {team1RecentOver25Count + team2RecentOver25Count >= 9 && (team1RecentOver25Count === 5 && team2RecentOver25Count === 5 ? ' 🔥 Идеал (5/5 + 5/5)' : ' ✅ Мин. (5/5 + 4/5)')}
-                    </span>
-                  </div>
-                  {team1RecentOver25Count + team2RecentOver25Count >= 9 && (
-                    <div className="p-2 rounded-xl bg-purple-950/40 border border-purple-800/40 text-[11px] text-purple-200 leading-snug">
-                      ⏱️ <strong>Гол во 2-м тайме:</strong> при счёте <strong>0:0, 1:0 или 0:1</strong> в 1-м тайме / перерыве формируется автоматический сигнал на гол во 2-м тайме.
+                {(() => {
+                  const homeMatches =
+                    match.history?.homeRecentMatchesLast6 ||
+                    generateTeamRecentMatches(match.homeTeam, match.league, team1RecentOver25Count);
+                  const awayMatches =
+                    match.history?.awayRecentMatchesLast6 ||
+                    generateTeamRecentMatches(match.awayTeam, match.league, team2RecentOver25Count);
+                  const homeSum = summarizeRecentMatches(homeMatches);
+                  const awaySum = summarizeRecentMatches(awayMatches);
+                  const isPurePrematch = primaryStrategy?.ruleType === 'PREMATCH' && !primaryStrategy?.minMinute;
+
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5 text-xs">
+                      {/* Strategy Dispatch Timing Badge */}
+                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80">
+                        <span className="text-[11px] text-slate-400 font-medium">Режим отправки:</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-sky-500/15 text-sky-300 border border-sky-500/30 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-sky-400" />
+                          {isPurePrematch
+                            ? '⏱️ Сигнал за 10 мин до матча'
+                            : '⏳ Ожидание лайв-статистики (кэш сохранен)'}
+                        </span>
+                      </div>
+
+                      {/* H2H Row */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Очные встречи (H2H):</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          ТБ 2.5 в {h2hOver25Count} из {h2hTotalMatches} ({Math.round((h2hOver25Count / h2hTotalMatches) * 100)}%)
+                        </span>
+                      </div>
+
+                      {/* Team 1 Recent 6 Matches */}
+                      <div className="space-y-1 pt-1 border-t border-slate-900">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-bold text-slate-200">{match.homeTeam} (крайние 6 матчей):</span>
+                          <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                            {homeSum.wins}W - {homeSum.draws}D - {homeSum.losses}L ({homeSum.goalsScored}:{homeSum.goalsConceded} гол.)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                          {homeMatches.map((rm, idx) => (
+                            <div
+                              key={idx}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono border flex items-center gap-1 shrink-0 ${
+                                rm.result === 'W'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : rm.result === 'D'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                              }`}
+                              title={`${rm.isHome ? 'Дома' : 'В гостях'} против ${rm.opponent}: счёт ${rm.score[0]}:${rm.score[1]}`}
+                            >
+                              <span>{rm.result}</span>
+                              <span className="text-slate-300">{rm.score[0]}:{rm.score[1]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Team 2 Recent 6 Matches */}
+                      <div className="space-y-1 pt-1 border-t border-slate-900">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-bold text-slate-200">{match.awayTeam} (крайние 6 матчей):</span>
+                          <span className="text-[10px] text-sky-400 font-mono font-bold">
+                            {awaySum.wins}W - {awaySum.draws}D - {awaySum.losses}L ({awaySum.goalsScored}:{awaySum.goalsConceded} гол.)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                          {awayMatches.map((rm, idx) => (
+                            <div
+                              key={idx}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono border flex items-center gap-1 shrink-0 ${
+                                rm.result === 'W'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : rm.result === 'D'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                              }`}
+                              title={`${rm.isHome ? 'Дома' : 'В гостях'} против ${rm.opponent}: счёт ${rm.score[0]}:${rm.score[1]}`}
+                            >
+                              <span>{rm.result}</span>
+                              <span className="text-slate-300">{rm.score[0]}:{rm.score[1]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Total Over Streak */}
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80">
+                        <span className="text-slate-300 font-medium">Суммарно ТБ 2.5 (все игры):</span>
+                        <span
+                          className={`font-mono px-2 py-0.5 rounded text-[11px] font-bold ${
+                            team1RecentOver25Count + team2RecentOver25Count >= 9
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'text-slate-400 bg-slate-900'
+                          }`}
+                        >
+                          {team1RecentOver25Count + team2RecentOver25Count}/10
+                          {team1RecentOver25Count + team2RecentOver25Count >= 9 &&
+                            (team1RecentOver25Count === 5 && team2RecentOver25Count === 5
+                              ? ' 🔥 Идеал (5/5 + 5/5)'
+                              : ' ✅ Мин. (5/5 + 4/5)')}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Action Buttons */}
                 <div className="pt-1 flex items-center gap-2">
