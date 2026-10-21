@@ -927,6 +927,17 @@ export function evaluateFilterRule(
     }
   }
 
+  // 8b. Corners Total Max (Сушка / ТМ угловых / ТМ 0.5 1Т)
+  if (rule.maxTotalCorners !== undefined) {
+    totalCriteria++;
+    const corners = (corn[0] ?? 0) + (corn[1] ?? 0);
+    if (corners <= rule.maxTotalCorners) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Всего угловых ${corners} > ${rule.maxTotalCorners} (слишком много угловых для ТМ)`);
+    }
+  }
+
   // 9. Corners Diff
   if (rule.minCornersDiff !== undefined) {
     totalCriteria++;
@@ -1140,6 +1151,50 @@ export function evaluateFilterRule(
     }
   }
 
+  // 20b. Exclude Friendlies (Стратегия 51, 53)
+  if (rule.excludeFriendlies) {
+    totalCriteria++;
+    const textToCheck = `${match.league} ${match.homeTeam} ${match.awayTeam}`.toLowerCase();
+    const isFriendly = /friendly|товар|товарищ|club friendlies|int. friendly/i.test(textToCheck);
+    if (!isFriendly) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Лига исключена фильтром (товарищеский матч)`);
+    }
+  }
+
+  // 20c. Exclude Cups (Стратегия 53: все кроме кубков и товарок)
+  if (rule.excludeCups) {
+    totalCriteria++;
+    const textToCheck = `${match.league}`.toLowerCase();
+    const isCup = /cup|кубок|copa|pokal|coppa|coupe|taça|trophy|league cup/i.test(textToCheck);
+    if (!isCup) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Лига исключена фильтром (кубковый матч)`);
+    }
+  }
+
+  // 20d. Operating Hours Filter (Стратегия 51: время работы бота с 6:00 до 00:00 по МСК)
+  if (rule.operatingHours?.enabled) {
+    totalCriteria++;
+    try {
+      const now = new Date();
+      // UTC+3 for Moscow Time
+      const mskHour = (now.getUTCHours() + 3) % 24;
+      const start = rule.operatingHours.startHour;
+      const end = rule.operatingHours.endHour === 0 ? 24 : rule.operatingHours.endHour;
+      const isWithinHours = mskHour >= start && mskHour < end;
+      if (isWithinHours) {
+        passedCount++;
+      } else {
+        unmetCriteria.push(`Вне времени работы стратегии (${rule.operatingHours.startHour}:00 - ${rule.operatingHours.endHour}:00 МСК, сейчас ${mskHour}:00 МСК)`);
+      }
+    } catch {
+      passedCount++;
+    }
+  }
+
   // 21. Mathematical Model IPT (Стратегия 7 «Алгоритм на ТБ 2,5»)
   if (rule.minModelIpt !== undefined) {
     totalCriteria++;
@@ -1232,6 +1287,30 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Во 2-м тайме уже был забит гол (счёт 1Т: ${htHome}:${htAway}, текущий счёт: ${scoreH}:${scoreA})`);
+    }
+  }
+
+  // 22g. Max Draws in Last 5-6 Matches & H2H (Стратегия 54: максимум 1 ничья)
+  if (rule.maxDrawsInLast5or6 !== undefined) {
+    totalCriteria++;
+    const homeDraws = match.history?.homeDrawsLast6 ??
+      (match.history?.homeRecentMatchesLast6 ? match.history.homeRecentMatchesLast6.filter((m) => m.result === 'D').length : 0);
+    const awayDraws = match.history?.awayDrawsLast6 ??
+      (match.history?.awayRecentMatchesLast6 ? match.history.awayRecentMatchesLast6.filter((m) => m.result === 'D').length : 0);
+    if (homeDraws <= rule.maxDrawsInLast5or6 && awayDraws <= rule.maxDrawsInLast5or6) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Слишком много ничьих в последних матчах (Хозяева: ${homeDraws}, Гости: ${awayDraws} > ${rule.maxDrawsInLast5or6})`);
+    }
+  }
+
+  if (rule.maxH2hDrawsInLast5or6 !== undefined) {
+    totalCriteria++;
+    const h2hDraws = match.history?.h2hDrawsLast6 ?? 0;
+    if (h2hDraws <= rule.maxH2hDrawsInLast5or6) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(`Слишком много ничьих в очных встречах (${h2hDraws} > ${rule.maxH2hDrawsInLast5or6})`);
     }
   }
 
@@ -2356,12 +2435,14 @@ export function formatExtendedTelegramAlert(
 
   let cleanStratName = ruleName.trim();
   cleanStratName = cleanStratName.replace(/^(?:стратегия\s*[:：]\s*)+(стратегия)/iu, '$1');
-  if (/^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*$/iu.test(cleanStratName)) {
+  // Clean out any accidental Date.now() timestamp numbers (e.g. 1791999434970)
+  cleanStratName = cleanStratName.replace(/(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*\d{4,}/gi, '').trim();
+  if (/^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*$/iu.test(cleanStratName) || !cleanStratName) {
     const num = rule.id ? PRESET_STRATEGY_NUMBER_BY_ID[rule.id] : undefined;
     cleanStratName = num !== undefined ? `Стратегия ${num}` : (rule.name || cleanStratName);
   }
   const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
-  const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
+  const strategyTag = hasStrategyWord ? cleanStratName : (cleanStratName ? `Стратегия: ${cleanStratName}` : 'Стратегия');
 
   const headerTag = isPrematch
     ? `📋 <b>[ПРЕДМАТЧЕВЫЙ ОТБОР]</b>\n💡 <b>${strategyTag}</b>\n⏱ <i>До начала: ${match.startsInMinutes ?? 60} мин${match.startTime ? ` (${escapeTelegramHtml(match.startTime)})` : ''}</i>`
@@ -2492,12 +2573,13 @@ export function formatResolvedTelegramAlert(
 
   let cleanStratName = ruleName.trim();
   cleanStratName = cleanStratName.replace(/^(?:стратегия\s*[:：]\s*)+(стратегия)/iu, '$1');
-  if (/^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*$/iu.test(cleanStratName)) {
+  cleanStratName = cleanStratName.replace(/(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*\d{4,}/gi, '').trim();
+  if (/^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*$/iu.test(cleanStratName) || !cleanStratName) {
     const num = signal.ruleId ? PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] : undefined;
-    cleanStratName = num !== undefined ? `Стратегия ${num}` : cleanStratName;
+    cleanStratName = num !== undefined ? `Стратегия ${num}` : (signal.ruleName || cleanStratName);
   }
   const hasStrategyWord = /^(?:\p{Emoji}|\s)*(?:стратегия|strategy|strateji|strategia|策略)/iu.test(cleanStratName);
-  const strategyTag = hasStrategyWord ? cleanStratName : `Стратегия: ${cleanStratName}`;
+  const strategyTag = hasStrategyWord ? cleanStratName : (cleanStratName ? `Стратегия: ${cleanStratName}` : 'Стратегия');
 
   // Formatted Strategy Metric Block for the Telegram message
   let metricSection = '';
@@ -2582,24 +2664,65 @@ export function evaluateSignalOutcome(
   const market = (signal.marketSuggestion || signal.ruleName).toLowerCase();
   const ruleNameLower = signal.ruleName.toLowerCase();
 
-  // ⏱️ First-half signal detection: must be evaluated when the 1st half ends, NOT waiting for full match finish!
-  const isFirstHalfSignal =
-    signal.period === '1-й тайм' ||
-    signal.ruleCategory === 'halftime' ||
-    market.includes('1-й тайм') ||
-    market.includes('1 тайм') ||
-    market.includes('1-м тайм') ||
-    market.includes('1-го тайм') ||
-    market.includes('первом тайм') ||
-    market.includes('первый тайм') ||
-    market.includes('1т') ||
-    market.includes('1ht') ||
-    market.includes('ht') ||
-    ruleNameLower.includes('1-й тайм') ||
-    ruleNameLower.includes('1 тайм') ||
-    ruleNameLower.includes('1т') ||
-    ruleNameLower.includes('первом тайм') ||
-    (signal.minute <= 45 && (market.includes('тб 0.5') || market.includes('гол в')));
+  // 🎯 Check if the strategy explicitly targets the 2nd half or the entire match (Strategies 14/12, 21, 55, 42, 54, etc.)
+  const isTargetingSecondHalfOrFullMatch =
+    market.includes('во 2-м') ||
+    market.includes('во 2м') ||
+    market.includes('во 2т') ||
+    market.includes('2-м тайме') ||
+    market.includes('2-й тайм') ||
+    market.includes('2 тайм') ||
+    market.includes('во втором') ||
+    market.includes('второй тайм') ||
+    market.includes('в матче') ||
+    market.includes('до конца матча') ||
+    market.includes('весь матч') ||
+    market.includes('матча') ||
+    market.includes('в концовке') ||
+    market.includes('после 70') ||
+    market.includes('после 75') ||
+    market.includes('после 80') ||
+    market.includes('12') ||
+    market.includes('ничьей не будет') ||
+    market.includes('ничьи не будет') ||
+    market.includes('следующий гол') ||
+    ruleNameLower.includes('во 2-м') ||
+    ruleNameLower.includes('во 2м') ||
+    ruleNameLower.includes('во втором') ||
+    ruleNameLower.includes('второй тайм') ||
+    ruleNameLower.includes('решето') ||
+    ruleNameLower.includes('весь матч') ||
+    ruleNameLower.includes('в матче') ||
+    ruleNameLower.includes('тренд тб 2.5') ||
+    ruleNameLower.includes('доминант') ||
+    signal.ruleId === 'strat-12' ||
+    signal.ruleId === 'strat-second-half-sieve' ||
+    signal.ruleId === 'strat-underdog-55-halftime' ||
+    signal.ruleId === 'strat-synergy-goal-storm' ||
+    signal.ruleId === 'strat-54' ||
+    signal.ruleId === 'strat-draw-over5';
+
+  // ⏱️ Exclusive First-half ONLY bets (evaluated at HT break):
+  // Must explicitly target the 1st half and NOT target the 2nd half or full match!
+  const isExclusiveFirstHalfBet =
+    !isTargetingSecondHalfOrFullMatch &&
+    (
+      signal.ruleId === 'strat-2' ||
+      signal.ruleId === 'strat-8' ||
+      signal.ruleId === 'strat-52' ||
+      signal.ruleId === 'strat-53' ||
+      market.includes('тм 0.5 в 1-м тайме') ||
+      market.includes('победа фаворита в 1-м тайме') ||
+      market.includes('1-м тайме') ||
+      market.includes('1-го тайма') ||
+      market.includes('первом тайме') ||
+      market.includes('1т)') ||
+      market.includes('1т ') ||
+      market.endsWith('1т') ||
+      ruleNameLower.includes('гол в 1-м тайме') ||
+      ruleNameLower.includes('победа фаворита в 1-м тайме') ||
+      ruleNameLower.includes('тм 0.5 в 1-м тайме')
+    );
 
   // Did the first half finish (HT break, second half begun >= 46', or FT)?
   const isHalfTimeEnded =
@@ -2609,8 +2732,51 @@ export function evaluateSignalOutcome(
     (matchContext?.minute !== undefined && matchContext.minute > 45) ||
     (matchContext?.matchStatus === 'LIVE' && matchContext.minute !== undefined && matchContext.minute >= 46);
 
-  // 🎯 FIRST-HALF RESOLUTION (Resolves at the end of 1st half / HT, with immediate Telegram rewrite on failure or win)
-  if (isFirstHalfSignal) {
+  // 🎯 FIRST-HALF EXCLUSIVE RESOLUTION (Resolves strictly for 1H bets at the end of 1st half / HT)
+  if (isExclusiveFirstHalfBet) {
+    // Under 0.5 in 1st half (Стратегия 52: ТМ 0.5 в 1-м тайме)
+    const isUnderHalfTime =
+      market.includes('тм 0.5') ||
+      market.includes('under 0.5') ||
+      market.includes('тм 0,5') ||
+      (market.includes('тм') && (market.includes('1т') || market.includes('1-м тайм')));
+
+    if (isUnderHalfTime) {
+      if (goalsSinceSignal > 0 || currentTotalGoals > 0) {
+        return {
+          outcome: 'LOSS',
+          note: `ТМ 0.5 в 1-м тайме проигран: забит гол (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      if (isHalfTimeEnded) {
+        return {
+          outcome: 'WIN',
+          note: `ТМ 0.5 в 1-м тайме зашёл: перерыв при 0:0 (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // Favorite win in 1st half (Стратегия 53: Победа фаворита в 1-м тайме)
+    if (market.includes('фаворит') && (market.includes('победа') || market.includes('выиграет') || market.includes('1 тайм') || market.includes('1-м тайм'))) {
+      if (isHalfTimeEnded) {
+        const homeOdds = signal.statsSnapshot?.homeOdds ?? 2.0;
+        const awayOdds = signal.statsSnapshot?.awayOdds ?? 2.0;
+        const favIsHome = homeOdds < awayOdds;
+        const isWin = favIsHome ? curHome > curAway : curAway > curHome;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin
+            ? `Победа фаворита в 1-м тайме зашла (${curHome}:${curAway})`
+            : `Победа фаворита в 1-м тайме не зашла (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
     // If a goal was scored during the 1st half or at HT -> WIN!
     if (goalsSinceSignal > 0 && (matchContext?.minute === undefined || matchContext.minute <= 45 || matchContext?.matchStatus === 'HT')) {
       return {
@@ -2856,6 +3022,29 @@ export function evaluateSignalOutcome(
     if (isMatchFinished) {
       return { outcome: 'LOSS', note: `П2 не сыграла: итоговый счёт ${curHome}:${curAway}`, shouldResolve: true };
     }
+  }
+
+  // 0c-2. Double Chance 12 / No Draw (Стратегия 54: «Ничьей не будет (12)»)
+  const isNoDrawMarket =
+    market.includes('ничьей не будет') ||
+    market.includes('ничьи не будет') ||
+    market.includes(' 12') ||
+    market.startsWith('12') ||
+    market.includes('двойной шанс 12') ||
+    market.includes('без ничьей');
+
+  if (isNoDrawMarket) {
+    if (isMatchFinished) {
+      const isWin = curHome !== curAway;
+      return {
+        outcome: isWin ? 'WIN' : 'LOSS',
+        note: isWin
+          ? `Ничьей не произошло: победа одной из команд (${curHome}:${curAway})`
+          : `Матч завершился вничью (${curHome}:${curAway})`,
+        shouldResolve: true,
+      };
+    }
+    return { outcome: 'PENDING', shouldResolve: false };
   }
 
   // 0d. Combined TM 2.5 / Draw (ТМ 2.5 / Ничья (X))

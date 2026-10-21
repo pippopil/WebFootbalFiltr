@@ -152,11 +152,20 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
             </button>
           )}
 
-          {/* Live signals counter */}
+          {/* Live signals counter with auto-cleanup indicator */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
             <span className="text-slate-400 font-medium">{t('scannerSignalsCount')}:</span>
             <span className="font-bold font-mono text-emerald-400">{signals.length}</span>
+            <span className="text-[10px] text-slate-500 font-mono">/ 200</span>
+          </div>
+
+          <div
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 font-medium"
+            title="Автоматическая очистка старых сигналов при превышении 200 для защиты LocalStorage и стабильности сборки"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span>Автоочистка &gt; 200</span>
           </div>
         </div>
 

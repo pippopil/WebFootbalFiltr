@@ -1787,15 +1787,15 @@ export default function App() {
     }
   }, [activeTab]);
   
-  // Persistent signals tracker state (Strictly genuine live signals, zero fake seeds)
+  // Persistent signals tracker state (Strictly genuine live signals, zero fake seeds, max 200)
   const [signals, setSignals] = useState<SignalAlert[]>(() => {
     const saved = localStorage.getItem('footbalmonitor_signals');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          // Remove any legacy synthetic seed alerts (e.g. sig-seed-*)
-          return parsed.filter((s: SignalAlert) => !s.id.startsWith('sig-seed-'));
+          // Remove any legacy synthetic seed alerts and keep max 200
+          return parsed.filter((s: SignalAlert) => !s.id.startsWith('sig-seed-')).slice(0, 200);
         }
       } catch (e) {
         // fallback
@@ -1804,12 +1804,25 @@ export default function App() {
     return [];
   });
 
-  // Save signals to localStorage safely
+  // Automatic cleanup of old signals in memory if count exceeds 200 (prevents storage quota & build crashes)
   useEffect(() => {
+    if (signals.length > 200) {
+      setSignals((prev) => (prev.length > 200 ? prev.slice(0, 200) : prev));
+    }
+  }, [signals.length]);
+
+  // Save signals to localStorage safely (strictly capped to 200 with fail-safe quota recovery)
+  useEffect(() => {
+    const safeSlice = signals.slice(0, 200);
     try {
-      localStorage.setItem('footbalmonitor_signals', JSON.stringify(signals.slice(-100)));
+      localStorage.setItem('footbalmonitor_signals', JSON.stringify(safeSlice));
     } catch (e) {
-      console.warn('Signals: local storage quota warning, preserving in memory');
+      console.warn('Signals: local storage quota warning, auto-pruning to 100 to prevent crash');
+      try {
+        localStorage.setItem('footbalmonitor_signals', JSON.stringify(safeSlice.slice(0, 100)));
+      } catch (err2) {
+        console.error('Failed to save signals even after trimming', err2);
+      }
     }
   }, [signals]);
 
@@ -3460,6 +3473,14 @@ export default function App() {
     );
     if (activeLaunchedFilters.length === 0) return;
 
+    // Periodic pruning: remove anti-spam tracker records older than 3 hours
+    const nowTs = Date.now();
+    for (const [key, track] of sentSignalsTrackerRef.current.entries()) {
+      if (nowTs - track.lastSentAt > 3 * 3600 * 1000) {
+        sentSignalsTrackerRef.current.delete(key);
+      }
+    }
+
     matches.forEach((match) => {
       // 🎯 User Requirement: Если включен режим отслеживания избранных матчей,
       // фильтры и сигналы работают ТОЛЬКО по избранным матчам!
@@ -3501,7 +3522,6 @@ export default function App() {
             return;
           }
 
-          const existingMatchTrack = sentSignalsTrackerRef.current.get(matchTrackerKey);
           const existingRuleTrack = sentSignalsTrackerRef.current.get(ruleTrackerKey);
 
           // Deduplicate per strategy rule to ensure multiple strategies can alert for the same match
@@ -3510,7 +3530,7 @@ export default function App() {
               isDuplicateSuppressed = true;
             }
           } else if (telegramConfig.deduplicationMode === 'cooldown') {
-            const trackToCheck = existingRuleTrack || existingMatchTrack;
+            const trackToCheck = existingRuleTrack;
             if (trackToCheck) {
               const minutesPassed = Math.abs(match.minute - trackToCheck.lastMinute);
               const msPassed = Date.now() - trackToCheck.lastSentAt;
@@ -3520,7 +3540,7 @@ export default function App() {
               }
             }
           } else if (telegramConfig.deduplicationMode === 'score-change') {
-            const trackToCheck = existingRuleTrack || existingMatchTrack;
+            const trackToCheck = existingRuleTrack;
             if (trackToCheck && currentScoreStr === trackToCheck.lastScore) {
               isDuplicateSuppressed = true;
             }
@@ -3590,7 +3610,8 @@ export default function App() {
         const displayRuleName = getStrategyCardDisplayName(rule, isDeveloper, filters);
         let cleanDisplay = displayRuleName.trim();
         cleanDisplay = cleanDisplay.replace(/^(?:стратегия\s*[:：]\s*)+(стратегия)/iu, '$1');
-        if (/^(?:\p{Emoji}|\s)*(?:стратегия)\s*[:：]?\s*$/iu.test(cleanDisplay)) {
+        cleanDisplay = cleanDisplay.replace(/(?:стратегия|strategy|strateji|strategia|策略)\s*[:：]?\s*\d{4,}/gi, '').trim();
+        if (/^(?:\p{Emoji}|\s)*(?:стратегия)\s*[:：]?\s*$/iu.test(cleanDisplay) || !cleanDisplay) {
           const num = rule.id ? PRESET_STRATEGY_NUMBER_BY_ID[rule.id] : undefined;
           cleanDisplay = num !== undefined ? `Стратегия ${num}` : (rule.name || cleanDisplay);
         }
@@ -3673,7 +3694,7 @@ export default function App() {
           try {
             saveMatchesToAccumulatedLiveDB([match]);
           } catch {}
-          return [newAlert, ...prev].slice(0, 100);
+          return [newAlert, ...prev].slice(0, 200);
         });
 
         // Dispatch Telegram alert outside of setSignals to avoid multiple dispatches during render
@@ -4197,8 +4218,6 @@ export default function App() {
 
   const handleClearSignals = () => {
     setSignals([]);
-    sentSignalsTrackerRef.current.clear();
-    persistSentSignalsTracker();
     try {
       localStorage.setItem('footbalmonitor_signals', JSON.stringify([]));
       localStorage.removeItem('footbalmonitor_sent_signals');
@@ -4305,7 +4324,7 @@ export default function App() {
     try {
       logStrategyTrigger(testAlert, selectedMatch, activeRule);
     } catch {}
-    setSignals((prev) => [testAlert, ...prev]);
+    setSignals((prev) => [testAlert, ...prev].slice(0, 200));
   };
 
   // Demo: send test signal and auto-rewrite it in Telegram after 3 seconds
@@ -4364,7 +4383,7 @@ export default function App() {
     try {
       logStrategyTrigger(testAlert, selectedMatch, activeRule);
     } catch {}
-    setSignals((prev) => [testAlert, ...prev]);
+    setSignals((prev) => [testAlert, ...prev].slice(0, 200));
 
     // Simulate match completion and edit Telegram message after 3 seconds
     setTimeout(async () => {

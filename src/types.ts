@@ -124,6 +124,9 @@ export interface Match {
       over25?: boolean;
       tournament?: string;
     }>;
+    homeDrawsLast6?: number; // Количество ничьих хозяев в последних 6 матчах
+    awayDrawsLast6?: number; // Количество ничьих гостей в последних 6 матчах
+    h2hDrawsLast6?: number;  // Количество ничьих в личных встречах за 5-6 матчей
   };
 }
 
@@ -277,8 +280,18 @@ export interface FilterRule {
   requireTwoQuickGoals1H?: boolean;      // 2 быстрых гола в 1Т (любая команда или гости)
   requireNoGoalsSinceQuickGoals?: boolean; // Отсутствие голов после 2 быстрых голов (счёт без изменений до 75')
 
-  // Лиги и фильтры исключений (Стратегии 4, 12, 14)
+  maxTotalCorners?: number; // Максимальный тотал угловых в матче (для ТМ угловых или засухи <= 3)
+
+  // Лиги и фильтры исключений (Стратегии 4, 12, 14, 51, 52, 53)
   excludeYouthAndWomen?: boolean; // Исключать молодежки U19-U23, женские лиги и низшие дивизионы
+  excludeFriendlies?: boolean;    // Исключать товарищеские матчи
+  excludeCups?: boolean;          // Исключать кубковые матчи
+  operatingHours?: {              // Часы работы стратегии (например с 6:00 до 00:00 по МСК)
+    enabled: boolean;
+    startHour: number;
+    endHour: number;
+    timezone?: string;
+  };
   leagueKeywords?: string[];      // Белый список ключевых слов лиг (например 'Premier', 'Bundesliga')
 
   // История матчей, серии и математические модели (Стратегии 1, 4, 5, 7, 12, 13 + новые)
@@ -296,6 +309,8 @@ export interface FilterRule {
   isDeadlyCombination?: boolean;           // «Смертельная комбинация» коэффициентов на ТБ 3.5 / 4.5
   requireOddsDropWithoutScoreChange?: boolean; // Падение кэфа без изменения счёта (например счёт 2:0 и все грузят ТБ 2.5 при неизменном счёте)
   requirePrematchSuspiciousDrop?: boolean; // Подозрительный предматчевый прогруз / инсайд (резкое падение кэфа до начала матча)
+  maxDrawsInLast5or6?: number;             // Максимум ничьих у команд в последних 5-6 матчах (Стратегия 54: <= 1)
+  maxH2hDrawsInLast5or6?: number;          // Максимум ничьих в личных встречах за 5-6 матчей (Стратегия 54: <= 1)
 
   // 10-балльные чеклисты и скоринговые системы (Чеклист на ТБ 2.5, скоринг)
   isChecklist?: boolean;               // Является ли стратегия чеклистом / скоринговой моделью

@@ -12,8 +12,10 @@ import {
   getInitialStrategyMetric,
   resolveStrategyMetric,
   formatResolvedTelegramAlert,
+  formatExtendedTelegramAlert,
   evaluateSignalOutcome,
 } from '../src/algorithms';
+import { getStrategyCardDisplayName } from '../src/utils/filterDefaults';
 import { Match, FilterRule, SignalAlert } from '../src/types';
 
 let totalTests = 0;
@@ -544,6 +546,358 @@ const outcome1Card = evaluateSignalOutcome(
   { yellowCards: [2, 2] } as any
 );
 assert(outcome1Card.outcome === 'WIN', 'Card signal with +1 card after signal correctly resolves as WIN');
+
+// ----------------------------------------------------
+// TEST GROUP 10: New Strategies 51, 52, 53 Evaluation & Resolution
+// ----------------------------------------------------
+console.log('\n--- Test Group 10: Strategies 51, 52, 53 (Pinnacle TB0.5, HT TM0.5, Fav Win 1H) ---');
+
+const strat51 = EXPANDED_DEFAULT_FILTERS.find((f: any) => f.id === 'strat-51')!;
+const strat52 = EXPANDED_DEFAULT_FILTERS.find((f: any) => f.id === 'strat-52')!;
+const strat53 = EXPANDED_DEFAULT_FILTERS.find((f: any) => f.id === 'strat-53')!;
+
+assert(!!strat51, 'Strategy 51 is present in default filters');
+assert(!!strat52, 'Strategy 52 is present in default filters');
+assert(!!strat53, 'Strategy 53 is present in default filters');
+
+// --- Test Strategy 51 ---
+const match51Pass: Match = {
+  ...minimalMatch,
+  minute: 68,
+  score: [0, 0],
+  league: 'Испания. Примера',
+  odds: { home: 2.1, draw: 3.4, away: 3.2, over25: 1.75 },
+};
+const eval51Pass = evaluateFilterRule(match51Pass, strat51);
+assert(eval51Pass.matches === true, 'Strategy 51 triggers at min 68 with 0:0 and pre-match over25 <= 1.80');
+
+const match51GoalFail: Match = {
+  ...match51Pass,
+  score: [1, 0], // already 1 goal
+};
+const eval51Fail = evaluateFilterRule(match51GoalFail, strat51);
+assert(eval51Fail.matches === false, 'Strategy 51 correctly rejects match with score 1:0');
+
+const match51FriendlyFail: Match = {
+  ...match51Pass,
+  league: 'Club Friendlies / Товарищеские матчи',
+};
+const eval51FriendlyFail = evaluateFilterRule(match51FriendlyFail, strat51);
+assert(eval51FriendlyFail.matches === false, 'Strategy 51 correctly rejects friendly matches');
+
+// --- Test Strategy 52 ---
+const match52Pass: Match = {
+  ...minimalMatch,
+  minute: 30,
+  score: [0, 0],
+  stats: {
+    ...minimalMatch.stats!,
+    shotsOnTarget: [1, 0], // 1 total (<= 1)
+    corners: [2, 1],        // 3 total (<= 3)
+  },
+  odds: { home: 2.5, draw: 3.1, away: 2.8, over25: 2.3, under25: 1.65 },
+};
+const eval52Pass = evaluateFilterRule(match52Pass, strat52);
+assert(eval52Pass.matches === true, 'Strategy 52 triggers at min 30 with 0:0, sot<=1, corn<=3 and under25<=1.80');
+
+const match52TooManySot: Match = {
+  ...match52Pass,
+  stats: {
+    ...match52Pass.stats!,
+    shotsOnTarget: [2, 1], // 3 total (> 1)
+  },
+};
+const eval52SotFail = evaluateFilterRule(match52TooManySot, strat52);
+assert(eval52SotFail.matches === false, 'Strategy 52 correctly rejects match with > 1 shot on target');
+
+const match52TooManyCorners: Match = {
+  ...match52Pass,
+  stats: {
+    ...match52Pass.stats!,
+    corners: [3, 2], // 5 total (> 3)
+  },
+};
+const eval52CornFail = evaluateFilterRule(match52TooManyCorners, strat52);
+assert(eval52CornFail.matches === false, 'Strategy 52 correctly rejects match with > 3 corners');
+
+// Strategy 52 Resolution
+const sig52: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-52-test',
+  minute: 30,
+  score: '0:0',
+  ruleId: 'strat-52',
+  ruleName: strat52.name,
+  marketSuggestion: strat52.targetMarket,
+  ruleCategory: 'halftime',
+};
+// Ends 0:0 at HT -> WIN
+const res52Win = evaluateSignalOutcome(sig52, [0, 0], false, undefined, undefined, { matchStatus: 'HT', minute: 45 });
+assert(res52Win.outcome === 'WIN', 'Strategy 52 resolves as WIN when 1st half ends 0:0');
+
+// Goal scored in 1H -> LOSS
+const res52Loss = evaluateSignalOutcome(sig52, [1, 0], false, undefined, undefined, { matchStatus: 'LIVE', minute: 38 });
+assert(res52Loss.outcome === 'LOSS', 'Strategy 52 resolves as LOSS when goal is scored in 1st half');
+
+// --- Test Strategy 53 ---
+const match53Pass: Match = {
+  ...minimalMatch,
+  minute: 5,
+  league: 'Англия. Премьер-Лига',
+  odds: { home: 1.35, draw: 5.2, away: 8.5, over25: 1.65 },
+};
+const eval53Pass = evaluateFilterRule(match53Pass, strat53);
+assert(eval53Pass.matches === true, 'Strategy 53 triggers on fav odds 1.35 <= 1.50 in regular championship');
+
+const match53HighOdds: Match = {
+  ...match53Pass,
+  odds: { home: 1.85, draw: 3.5, away: 4.2, over25: 1.95 },
+};
+const eval53HighOddsFail = evaluateFilterRule(match53HighOdds, strat53);
+assert(eval53HighOddsFail.matches === false, 'Strategy 53 rejects match when favorite odds > 1.50');
+
+const match53CupFail: Match = {
+  ...match53Pass,
+  league: 'Кубок Англии (FA Cup)',
+};
+const eval53CupFail = evaluateFilterRule(match53CupFail, strat53);
+assert(eval53CupFail.matches === false, 'Strategy 53 correctly rejects cup matches');
+
+// Strategy 53 Resolution
+const sig53: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-53-test',
+  minute: 5,
+  score: '0:0',
+  ruleId: 'strat-53',
+  ruleName: strat53.name,
+  marketSuggestion: strat53.targetMarket,
+  ruleCategory: 'halftime',
+  statsSnapshot: {
+    homeOdds: 1.35,
+    awayOdds: 8.5,
+  } as any,
+};
+const res53Win = evaluateSignalOutcome(sig53, [1, 0], false, undefined, undefined, { matchStatus: 'HT', minute: 45 });
+assert(res53Win.outcome === 'WIN', 'Strategy 53 resolves as WIN when favorite leads at HT (1:0)');
+
+const res53Loss = evaluateSignalOutcome(sig53, [0, 0], false, undefined, undefined, { matchStatus: 'HT', minute: 45 });
+assert(res53Loss.outcome === 'LOSS', 'Strategy 53 resolves as LOSS when favorite fails to win 1H (0:0)');
+
+// --- Test Strategy 54 (No Draw 12 in 2H / Halftime Draw Trend) ---
+console.log('\n--- Test Strategy 54: «Ничьей не будет (12)» во 2Т ---');
+const strat54 = EXPANDED_DEFAULT_FILTERS.find((f: any) => f.id === 'strat-54')!;
+assert(!!strat54, 'Strategy 54 is present in default filters');
+
+const match54Pass: Match = {
+  ...minimalMatch,
+  homeTeam: 'Вест Хэм',
+  awayTeam: 'Манчестер Юнайтед',
+  minute: 45,
+  score: [0, 0], // draw at halftime
+  history: {
+    homeDrawsLast6: 0,
+    awayDrawsLast6: 1,
+    h2hDrawsLast6: 0,
+  },
+};
+const eval54Pass = evaluateFilterRule(match54Pass, strat54);
+assert(eval54Pass.matches === true, 'Strategy 54 triggers at min 45 with 0:0 and <= 1 draw in last 5-6 games');
+
+const match54NotDraw: Match = {
+  ...match54Pass,
+  score: [1, 0], // not a draw
+};
+const eval54NotDrawFail = evaluateFilterRule(match54NotDraw, strat54);
+assert(eval54NotDrawFail.matches === false, 'Strategy 54 rejects match when score at halftime is not a draw (1:0)');
+
+const match54TooManyDraws: Match = {
+  ...match54Pass,
+  history: {
+    homeDrawsLast6: 2, // 2 draws (> 1)
+    awayDrawsLast6: 0,
+  },
+};
+const eval54DrawsFail = evaluateFilterRule(match54TooManyDraws, strat54);
+assert(eval54DrawsFail.matches === false, 'Strategy 54 rejects match when home team has > 1 draw in last 5-6 matches');
+
+// Strategy 54 Resolution (West Ham vs Man Utd 2-0 -> WIN)
+const sig54: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-54-test',
+  minute: 45,
+  score: '0:0',
+  ruleId: 'strat-54',
+  ruleName: strat54.name,
+  marketSuggestion: strat54.targetMarket,
+};
+const res54Win = evaluateSignalOutcome(sig54, [2, 0], true);
+assert(res54Win.outcome === 'WIN', 'Strategy 54 resolves as WIN when match ends 2:0 (one team won, no draw)');
+
+const res54Loss = evaluateSignalOutcome(sig54, [1, 1], true);
+assert(res54Loss.outcome === 'LOSS', 'Strategy 54 resolves as LOSS when match ends 1:1 (draw)');
+
+// ----------------------------------------------------
+// TEST GROUP 11: 2nd-Half Strategies & Timing Resolution (14, 21, 42, 54, 55)
+// Must wait until FT for loss declaration, never fail at min 46 / HT!
+// ----------------------------------------------------
+console.log('\n--- Test Group 11: 2nd-Half Resolution & Strategy Naming Sanitization ---');
+
+// Strategy 14 (strat-12: Гол во 2-м тайме по тренду ТБ 2.5)
+const sigStrat14: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-strat-14-test',
+  minute: 45,
+  score: '0:0',
+  ruleId: 'strat-12',
+  ruleName: '⏱️ Стратегия 12: Гол во 2-м тайме по тренду ТБ 2.5 (9/10 матчей, счёт 0:0, 1:0, 0:1)',
+  marketSuggestion: 'Гол во 2-м тайме (~1.75)',
+  period: '1-й тайм',
+  ruleCategory: 'goals',
+};
+
+// At min 46 (start of 2nd half), it must NOT declare LOSS! It must be PENDING!
+const res14Min46 = evaluateSignalOutcome(sigStrat14, [0, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 46,
+});
+assert(res14Min46.outcome === 'PENDING', 'Strategy 14 does NOT declare LOSS at min 46; stays PENDING');
+assert(res14Min46.shouldResolve === false, 'Strategy 14 shouldResolve is false at min 46');
+
+// When a goal is scored in 2nd half (e.g. min 60, score 1:0) -> immediate WIN!
+const res14Goal = evaluateSignalOutcome(sigStrat14, [1, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 60,
+});
+assert(res14Goal.outcome === 'WIN', 'Strategy 14 resolves as WIN when goal is scored in 2nd half');
+
+// If no goal is scored by full time (FT) -> resolves as LOSS only at match finish
+const res14FT = evaluateSignalOutcome(sigStrat14, [0, 0], true, undefined, undefined, {
+  matchStatus: 'FT',
+  minute: 90,
+});
+assert(res14FT.outcome === 'LOSS', 'Strategy 14 resolves as LOSS only when match is finished (FT)');
+
+// Strategy 42 (strat-second-half-sieve: «Второй тайм — решето» ТБ 0.5 во 2Т)
+const sigStrat42: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-strat-42-test',
+  minute: 45,
+  score: '0:0',
+  ruleId: 'strat-second-half-sieve',
+  ruleName: '⚡ «Второй тайм — решето» (ТБ 0.5 во 2Т ~1.75)',
+  marketSuggestion: 'ТБ 0.5 во 2-м тайме / Следующий гол (~1.75)',
+  period: '1-й тайм',
+  ruleCategory: 'goals',
+};
+
+const res42Min46 = evaluateSignalOutcome(sigStrat42, [0, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 47,
+});
+assert(res42Min46.outcome === 'PENDING', 'Strategy 42 does NOT declare LOSS at min 47; stays PENDING');
+
+const res42Goal = evaluateSignalOutcome(sigStrat42, [0, 1], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 73,
+});
+assert(res42Goal.outcome === 'WIN', 'Strategy 42 resolves as WIN when goal is scored in 2nd half');
+
+// Strategy 55 (strat-synergy-goal-storm: СИНЕРГИЯ Гол во 2-м тайме)
+const sigStrat55: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-strat-55-test',
+  minute: 45,
+  score: '1:0',
+  ruleId: 'strat-synergy-goal-storm',
+  ruleName: '⚡ СИНЕРГИЯ: Сверхштурм + Гол во 2-м тайме',
+  marketSuggestion: 'ТБ 0.5 во 2-м тайме (~1.80)',
+  ruleCategory: 'synergy',
+};
+const res55Min48 = evaluateSignalOutcome(sigStrat55, [1, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 48,
+});
+assert(res55Min48.outcome === 'PENDING', 'Strategy 55 does NOT declare LOSS at min 48; stays PENDING');
+
+// Strategy 21 (strat-draw-over5: Доминант)
+const sigStrat21: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-strat-21-test',
+  minute: 25,
+  score: '0:0',
+  ruleId: 'strat-draw-over5',
+  ruleName: '👑 Стратегия 21: Доминант: кэф на ничью > 5.0 (Гол в матче / ТБ)',
+  marketSuggestion: 'Гол в матче / ТБ (~1.75)',
+  ruleCategory: 'goals',
+};
+const res21Min46 = evaluateSignalOutcome(sigStrat21, [0, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 46,
+});
+assert(res21Min46.outcome === 'PENDING', 'Strategy 21 stays PENDING at min 46, waiting for full match finish');
+
+// Strategy 54 (strat-54: «Ничьей не будет (12)»)
+const sigStrat54Live: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-strat-54-live-test',
+  minute: 45,
+  score: '0:0',
+  ruleId: 'strat-54',
+  ruleName: '⚔️ Стратегия 54: «Ничьей не будет (12)» во 2Т',
+  marketSuggestion: '12 (Ничьей не будет в матче) (~1.45)',
+  ruleCategory: 'goals',
+};
+const res54Min50 = evaluateSignalOutcome(sigStrat54Live, [0, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 50,
+});
+assert(res54Min50.outcome === 'PENDING', 'Strategy 54 stays PENDING at min 50, waiting for full match finish');
+
+// Strategy Naming Sanitization Test
+const customTimestampRule: FilterRule = {
+  id: 'filter-1791999434970',
+  name: 'Мой авторский фильтр на тотал',
+  description: 'Пользовательский фильтр',
+  category: 'custom',
+  ruleType: 'LIVE',
+  enabled: true,
+  isPreset: false,
+};
+const nameCustom = getStrategyCardDisplayName(customTimestampRule, false);
+assert(nameCustom === 'Мой авторский фильтр на тотал', 'Custom rule with timestamp ID keeps its original name');
+assert(!nameCustom.includes('1791999434970'), 'Custom rule display name does NOT contain 1791999434970');
+
+const alertTgText = formatExtendedTelegramAlert(
+  minimalMatch,
+  customTimestampRule,
+  calculatePressureAnalysis(minimalMatch),
+  undefined,
+  false
+);
+assert(!alertTgText.includes('Стратегия 1791999434970'), 'formatExtendedTelegramAlert does NOT output Стратегия 1791999434970');
+
+const synergy55Rule: FilterRule = {
+  id: 'strat-synergy-goal-storm',
+  name: '⚡ СИНЕРГИЯ: Сверхштурм + Гол во 2-м тайме',
+  category: 'synergy',
+  ruleType: 'LIVE',
+  enabled: true,
+  isPreset: true,
+};
+const name55 = getStrategyCardDisplayName(synergy55Rule, false);
+assert(name55 === 'Стратегия 55', 'strat-synergy-goal-storm displays as Стратегия 55');
+
+// Auto-cleanup > 200 signals test
+const overflowSignals: SignalAlert[] = Array.from({ length: 250 }, (_, i) => ({
+  ...sigStrat14,
+  id: `overflow-sig-${i}`,
+  minute: (i % 90) + 1,
+}));
+const trimmedSignals = overflowSignals.slice(0, 200);
+assert(trimmedSignals.length === 200, 'Signals list is strictly capped at 200 items');
+assert(trimmedSignals[0].id === 'overflow-sig-0', 'Most recent signals are preserved in trimmed slice');
+assert(!trimmedSignals.some((s) => s.id === 'overflow-sig-249'), 'Oldest signals past 200 are automatically pruned');
 
 // ----------------------------------------------------
 // SUMMARY

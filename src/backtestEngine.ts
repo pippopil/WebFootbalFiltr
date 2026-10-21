@@ -38,6 +38,10 @@ export function getEstimatedOdds(targetMarket: string | undefined, minute: numbe
     return 1.78;
   }
 
+  if (marketLower.includes('12') || marketLower.includes('ничьей не будет') || marketLower.includes('ничьи не будет')) {
+    return 1.45;
+  }
+
   if (marketLower.includes('прогруз') || marketLower.includes('smart money') || marketLower.includes('steam')) {
     return 1.72;
   }
@@ -224,6 +228,34 @@ export function evaluateMarketOutcome(
     };
   }
 
+  // Category: Halftime Under (Стратегия 52: ТМ 0.5 в 1-м тайме)
+  if ((market.includes('тм 0.5') || market.includes('under 0.5') || market.includes('тм 0,5') || market.includes('тм')) && (market.includes('1-м тайме') || market.includes('первом тайме') || market.includes('1т'))) {
+    if (newGoals === 0 || finalGoals === 0) {
+      return {
+        outcome: 'WIN',
+        reason: `ТМ 0.5 в 1-м тайме сыграл: счёт 0:0 удержан к перерыву (кэф ~2.50)`,
+      };
+    }
+    return {
+      outcome: 'LOSS',
+      reason: `В 1-м тайме был забит гол (счёт сменился с ${scoreAtSignal[0]}:${scoreAtSignal[1]} на ${finalScore[0]}:${finalScore[1]})`,
+    };
+  }
+
+  // Category: Halftime Favorite Win (Стратегия 53: Победа фаворита в 1-м тайме)
+  if (market.includes('фаворит') && (market.includes('выиграет') || market.includes('победа')) && (market.includes('1-м тайме') || market.includes('1 тайм') || market.includes('1т'))) {
+    if (finalScore[0] !== finalScore[1]) {
+      return {
+        outcome: 'WIN',
+        reason: `Фаворит выиграл 1-й тайм (итоговый счёт ${finalScore[0]}:${finalScore[1]})`,
+      };
+    }
+    return {
+      outcome: 'LOSS',
+      reason: `Фаворит не выиграл 1-й тайм (итоговый счёт ${finalScore[0]}:${finalScore[1]})`,
+    };
+  }
+
   // Category: Halftime goal (Гол в 1-м тайме)
   if ((ruleCategory === 'halftime' || market.includes('1-м тайме') || market.includes('первом тайме') || market.includes('1т')) && !market.includes('угл')) {
     if (newGoals >= 1) {
@@ -378,6 +410,27 @@ export function evaluateMarketOutcome(
     };
   }
 
+  // Category: Double Chance 12 / No Draw (Стратегия 54: «Ничьей не будет (12)»)
+  const isNoDrawBet =
+    market.includes('ничьей не будет') ||
+    market.includes('ничьи не будет') ||
+    market.includes('12') ||
+    market.includes('двойной шанс 12') ||
+    market.includes('без ничьей');
+
+  if (isNoDrawBet) {
+    if (finalScore[0] !== finalScore[1]) {
+      return {
+        outcome: 'WIN',
+        reason: `Ничьей не произошло: победа одной из команд (${finalScore[0]}:${finalScore[1]})`,
+      };
+    }
+    return {
+      outcome: 'LOSS',
+      reason: `Матч завершился вничью (${finalScore[0]}:${finalScore[1]})`,
+    };
+  }
+
   // Category: Draw / Ничья (X)
   if (market.includes('ничья') || market.includes(' x') || market === 'x') {
     if (finalScore[0] === finalScore[1]) {
@@ -529,6 +582,9 @@ function snapshotMatchesRule(
   if (rule.minTotalCorners && totalCorners < rule.minTotalCorners) {
     return { matches: false, reason: `Всего угловых ${totalCorners} < ${rule.minTotalCorners}` };
   }
+  if (rule.maxTotalCorners !== undefined && totalCorners > rule.maxTotalCorners) {
+    return { matches: false, reason: `Всего угловых ${totalCorners} > ${rule.maxTotalCorners}` };
+  }
 
   // 8. Total xG
   const totalXg = stats.xg[0] + stats.xg[1];
@@ -623,6 +679,24 @@ function snapshotMatchesRule(
       if (homeScore + awayScore > htTotal && match.history?.noGoalsInSecondHalf === false) {
         return { matches: false, reason: 'Во втором тайме уже был забит гол' };
       }
+    }
+  }
+
+  // Max Draws in last 5-6 games & H2H (Стратегия 54)
+  if (rule.maxDrawsInLast5or6 !== undefined) {
+    const homeDraws = match.history?.homeDrawsLast6 ??
+      (match.history?.homeRecentMatchesLast6 ? match.history.homeRecentMatchesLast6.filter((m) => m.result === 'D').length : 0);
+    const awayDraws = match.history?.awayDrawsLast6 ??
+      (match.history?.awayRecentMatchesLast6 ? match.history.awayRecentMatchesLast6.filter((m) => m.result === 'D').length : 0);
+    if (homeDraws > rule.maxDrawsInLast5or6 || awayDraws > rule.maxDrawsInLast5or6) {
+      return { matches: false, reason: `Слишком много ничьих в последних играх (Хозяева: ${homeDraws}, Гости: ${awayDraws} > ${rule.maxDrawsInLast5or6})` };
+    }
+  }
+
+  if (rule.maxH2hDrawsInLast5or6 !== undefined) {
+    const h2hDraws = match.history?.h2hDrawsLast6 ?? 0;
+    if (h2hDraws > rule.maxH2hDrawsInLast5or6) {
+      return { matches: false, reason: `Слишком много ничьих в очных встречах (${h2hDraws} > ${rule.maxH2hDrawsInLast5or6})` };
     }
   }
 
@@ -804,6 +878,24 @@ function snapshotMatchesRule(
       );
     if (isYouthOrWomen) {
       return { matches: false, reason: 'Лига исключена фильтром (молодёжная/женская)' };
+    }
+  }
+
+  // 14. Exclude Friendlies (Стратегия 51, 53)
+  if (rule.excludeFriendlies) {
+    const textToCheck = `${match.league} ${match.homeTeam} ${match.awayTeam}`.toLowerCase();
+    const isFriendly = /friendly|товар|товарищ|club friendlies|int. friendly/i.test(textToCheck);
+    if (isFriendly) {
+      return { matches: false, reason: 'Лига исключена фильтром (товарищеский матч)' };
+    }
+  }
+
+  // 15. Exclude Cups (Стратегия 53)
+  if (rule.excludeCups) {
+    const textToCheck = `${match.league}`.toLowerCase();
+    const isCup = /cup|кубок|copa|pokal|coppa|coupe|taça|trophy|league cup/i.test(textToCheck);
+    if (isCup) {
+      return { matches: false, reason: 'Лига исключена фильтром (кубковый матч)' };
     }
   }
 

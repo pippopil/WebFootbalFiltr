@@ -257,6 +257,14 @@ export const PRESET_STRATEGY_NUMBER_BY_ID: Record<string, number> = {
   'strat-tennis-set2-comeback': 48,
   'strat-volleyball-tight-set': 49,
   'strat-table-tennis-deciding': 50,
+  'strat-51': 51,
+  'strat-52': 52,
+  'strat-53': 53,
+  'strat-54': 54,
+  'strat-synergy-goal-storm': 55,
+  'strat-synergy-cards-derby': 56,
+  'strat-synergy-late-corners': 57,
+  'strat-synergy-smart-comeback': 58,
 };
 
 /**
@@ -272,7 +280,7 @@ export const getStrategyCardDisplayName = (
   lang?: string
 ): string => {
   if (!rule) return '';
-  // Пользовательские авторские фильтры сохраняют свое название
+  // Пользовательские авторские фильтры сохраняют свое собственное название без принудительной нумерации
   if (!rule.isPreset) return rule.name;
 
   // Разработчик видит стратегию полностью со всеми формулами и метками
@@ -288,7 +296,7 @@ export const getStrategyCardDisplayName = (
   };
   const prefix = prefixMap[currentLang] || 'Стратегия';
 
-  // 1. Быстрый и надёжный поиск по словарю официальных ID пресетов (Стратегия 1 .. 50)
+  // 1. Быстрый и надёжный поиск по словарю официальных ID пресетов (Стратегия 1 .. 58)
   if (rule.id && PRESET_STRATEGY_NUMBER_BY_ID[rule.id] !== undefined) {
     return `${prefix} ${PRESET_STRATEGY_NUMBER_BY_ID[rule.id]}`;
   }
@@ -299,10 +307,13 @@ export const getStrategyCardDisplayName = (
     return `${prefix} ${matchF[1]}`;
   }
 
-  // 3. Если в названии уже есть "Стратегия N"
-  const matchPresetNum = rule.name?.match(/Стратегия\s+(\d+)/i);
+  // 3. Если в названии уже есть "Стратегия N" (строго число <= 100, исключая временные метки Date.now())
+  const matchPresetNum = rule.name?.match(/Стратегия\s+(\d{1,3})(?:[^\d]|$)/i);
   if (matchPresetNum) {
-    return `${prefix} ${matchPresetNum[1]}`;
+    const num = parseInt(matchPresetNum[1], 10);
+    if (num >= 1 && num <= 100) {
+      return `${prefix} ${num}`;
+    }
   }
 
   // 4. Поиск по переданному или сохраненному списку пресетов
@@ -313,11 +324,15 @@ export const getStrategyCardDisplayName = (
     }
   }
 
-  // 5. Поиск цифр в id (strat-12, card-22, etc.)
-  const matchIdNum = rule.id?.match(/(?:strat|filter|preset|card)[-_](\d+)/i);
+  // 5. Поиск цифр в id (strat-12, card-22, etc.), строго число 1..100 (никогда не таймстемп)
+  const matchIdNum = rule.id?.match(/(?:strat|filter|preset|card)[-_](\d{1,3})(?:[^\d]|$)/i);
   if (matchIdNum) {
-    return `${prefix} ${matchIdNum[1]}`;
+    const num = parseInt(matchIdNum[1], 10);
+    if (num >= 1 && num <= 100) {
+      return `${prefix} ${num}`;
+    }
   }
 
-  return `${prefix} 22`;
+  // 6. Аккуратный возврат чистого названия пресета вместо фантомных номеров
+  return cleanPresetTitle(rule.name) || rule.name;
 };
