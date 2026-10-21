@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { SignalAlert, Match, SignalOutcome, SportType } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { resolveStrategyMetric } from '../algorithms';
@@ -294,57 +295,77 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                   </td>
                 </tr>
               ) : (
-                filteredSignals.map((sig, idx) => {
-                  const matchObj =
-                    matches.find((m) => m.id === sig.matchId || sig.matchName.includes(m.homeTeam)) ||
-                    matches[0];
+                <AnimatePresence initial={false}>
+                  {filteredSignals.map((sig, idx) => {
+                    const matchObj =
+                      matches.find((m) => m.id === sig.matchId || sig.matchName.includes(m.homeTeam)) ||
+                      matches[0];
 
-                  const homeTeam = sig.matchName.split(' vs ')[0] || 'Хозяева';
-                  const awayTeam = sig.matchName.split(' vs ')[1] || 'Гости';
+                    const homeTeam = sig.matchName.split(' vs ')[0] || 'Хозяева';
+                    const awayTeam = sig.matchName.split(' vs ')[1] || 'Гости';
 
-                  const scores = sig.score.split(':');
-                  const homeScore = sig.statsSnapshot?.homeScore ?? (scores[0] || '0');
-                  const awayScore = sig.statsSnapshot?.awayScore ?? (scores[1] || '0');
+                    const scores = sig.score.split(':');
+                    const homeScore = sig.statsSnapshot?.homeScore ?? (scores[0] || '0');
+                    const awayScore = sig.statsSnapshot?.awayScore ?? (scores[1] || '0');
 
-                  const attacks = sig.statsSnapshot?.attacks ?? matchObj?.stats.attacks ?? [0, 0];
-                  const dangAttacks =
-                    sig.statsSnapshot?.dangerousAttacks ?? matchObj?.stats.dangerousAttacks ?? [0, 0];
-                  const sot =
-                    sig.statsSnapshot?.shotsOnTarget ?? matchObj?.stats.shotsOnTarget ?? [0, 0];
-                  const corners = sig.statsSnapshot?.corners ?? matchObj?.stats.corners ?? [0, 0];
-                  const yc = sig.statsSnapshot?.yellowCards ?? matchObj?.stats.yellowCards ?? [0, 0];
-                  const rc = sig.statsSnapshot?.redCards ?? matchObj?.stats.redCards ?? [0, 0];
+                    const attacks = sig.statsSnapshot?.attacks ?? matchObj?.stats.attacks ?? [0, 0];
+                    const dangAttacks =
+                      sig.statsSnapshot?.dangerousAttacks ?? matchObj?.stats.dangerousAttacks ?? [0, 0];
+                    const sot =
+                      sig.statsSnapshot?.shotsOnTarget ?? matchObj?.stats.shotsOnTarget ?? [0, 0];
+                    const corners = sig.statsSnapshot?.corners ?? matchObj?.stats.corners ?? [0, 0];
+                    const yc = sig.statsSnapshot?.yellowCards ?? matchObj?.stats.yellowCards ?? [0, 0];
+                    const rc = sig.statsSnapshot?.redCards ?? matchObj?.stats.redCards ?? [0, 0];
 
-                  const periodLabel =
-                    sig.period ||
-                    (sig.minute <= 45
-                      ? '1-й тайм'
-                      : sig.minute <= 48 && sig.minute >= 45
-                      ? 'Перерыв'
-                      : '2-й тайм');
+                    const periodLabel =
+                      sig.period ||
+                      (sig.minute <= 45
+                        ? '1-й тайм'
+                        : sig.minute <= 48 && sig.minute >= 45
+                        ? 'Перерыв'
+                        : '2-й тайм');
 
-                  // Reverse sequential index (e.g. 52, 53, 54 like in Screenshot 1)
-                  const signalIndex = signals.length - idx;
+                    // Reverse sequential index (e.g. 52, 53, 54 like in Screenshot 1)
+                    const signalIndex = signals.length - idx;
 
-                  const navigateToThisMatch = () => {
-                    if (onNavigateToMatch) {
-                      onNavigateToMatch(sig.matchId, sig.matchName, sig);
-                    } else if (onSelectMatch && matchObj) {
-                      onSelectMatch(matchObj);
-                    }
-                  };
+                    const navigateToThisMatch = () => {
+                      if (onNavigateToMatch) {
+                        onNavigateToMatch(sig.matchId, sig.matchName, sig);
+                      } else if (onSelectMatch && matchObj) {
+                        onSelectMatch(matchObj);
+                      }
+                    };
 
-                  return (
-                    <tr
-                      key={sig.id}
-                      className="hover:bg-slate-800/60 transition cursor-pointer group"
-                      onClick={navigateToThisMatch}
-                      title="Нажмите на строку для мгновенного перехода к данному матчу"
-                    >
-                      {/* # Number */}
-                      <td className="py-2.5 px-2.5 text-center font-mono text-[11px] text-slate-400 group-hover:text-white">
-                        {signalIndex}
-                      </td>
+                    return (
+                      <motion.tr
+                        key={sig.id}
+                        layout="position"
+                        initial={{ opacity: 0, y: -16, backgroundColor: 'rgba(16, 185, 129, 0.28)' }}
+                        animate={{ opacity: 1, y: 0, backgroundColor: 'rgba(16, 185, 129, 0)' }}
+                        exit={{ opacity: 0, x: -24, transition: { duration: 0.2 } }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 420,
+                          damping: 32,
+                          mass: 0.8,
+                          backgroundColor: { duration: 2.5, ease: 'easeOut' },
+                        }}
+                        className="hover:bg-slate-800/60 transition cursor-pointer group"
+                        onClick={navigateToThisMatch}
+                        title="Нажмите на строку для мгновенного перехода к данному матчу"
+                      >
+                        {/* # Number */}
+                        <td className="py-2.5 px-2.5 text-center font-mono text-[11px] text-slate-400 group-hover:text-white">
+                          <div className="flex items-center justify-center gap-1">
+                            {idx === 0 && (
+                              <span className="relative flex h-2 w-2" title="Новейший сигнал">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                              </span>
+                            )}
+                            <span>{signalIndex}</span>
+                          </div>
+                        </td>
 
                       {/* Filter Name */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
@@ -586,10 +607,11 @@ export const ScannerSignalsTableView: React.FC<ScannerSignalsTableViewProps> = (
                           )}
                         </div>
                       </td>
-                    </tr>
+                    </motion.tr>
                   );
-                })
-              )}
+                })}
+              </AnimatePresence>
+            )}
             </tbody>
           </table>
         </div>
