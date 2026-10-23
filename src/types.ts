@@ -334,6 +334,8 @@ export interface FilterRule {
   color: string;
   isPreset?: boolean;
   requiredPlan?: 'FREE' | 'PRO_ANALYST' | 'VIP_CLUB' | 'GOD_MODE';
+  noResolutionTrack?: boolean; // Не по всем фильтрам отслеживается результат (информационные радары)
+  trackOutcome?: boolean;
 
   // Синергии и комбинации взаимодополняющих стратегий (Combo / Ensemble)
   isSynergy?: boolean;
@@ -524,6 +526,8 @@ export interface SignalAlert {
   telegramStatusText?: string;
   telegramMessageId?: number;
   marketSuggestion?: string;
+  noResolutionTrack?: boolean;
+  trackOutcome?: boolean;
   // Информация о боте, отправившем сигнал
   botId?: string;
   botName?: string;
@@ -627,6 +631,7 @@ export interface UserSubscriptionDetails {
 
 export interface UserProfile {
   id: string;
+  name?: string;
   username: string;
   displayName: string;
   email: string;
@@ -1063,8 +1068,16 @@ export interface OddsAnomalyItem {
 // Referral Program
 // -------------------------------------------------------------
 // -------------------------------------------------------------
-// User Simulation Testing Agent (Sandboxed & Non-Intrusive)
-// -------------------------------------------------------------
+export interface AgentLogEntry {
+  id: string;
+  timestamp: string;
+  elapsedMs: number;
+  level: 'info' | 'success' | 'warn' | 'debug';
+  category: 'AUTH' | 'TELEMETRY' | 'FILTER' | 'SANDBOX' | 'TELEGRAM' | 'AUDIO' | 'AUDIT';
+  message: string;
+  meta?: any;
+}
+
 export interface AgentSimulationStep {
   id: string;
   title: string;
@@ -1080,6 +1093,7 @@ export interface AgentSimulationResult {
   completedAt: string;
   totalDurationMs: number;
   steps: AgentSimulationStep[];
+  logs: AgentLogEntry[];
   testedMatchesCount: number;
   testedFiltersCount: number;
   signalsGeneratedInSandbox: number;

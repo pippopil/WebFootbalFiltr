@@ -175,11 +175,18 @@ export const isUserPaid = (user?: UserProfile | null): boolean => {
  */
 export const isUserDeveloper = (user?: UserProfile | null): boolean => {
   if (!user) return false;
+  const roleLower = String(user.role || '').toLowerCase();
+  const planUpper = String(user.plan || '').toUpperCase();
+  const usernameLower = String(user.username || '').toLowerCase();
+  const idLower = String(user.id || '').toLowerCase();
   return (
-    user.role === 'god' ||
-    user.role === 'admin' ||
-    user.plan === 'GOD_MODE' ||
-    user.username === 'developer_god'
+    roleLower === 'god' ||
+    roleLower === 'admin' ||
+    planUpper === 'GOD_MODE' ||
+    planUpper.includes('GOD') ||
+    usernameLower.includes('god') ||
+    usernameLower === 'developer_god' ||
+    idLower.includes('god')
   );
 };
 

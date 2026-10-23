@@ -5317,39 +5317,49 @@ export default function App() {
         {/* Status Bar */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
           <div
-            onClick={() => setIsDataSourcesModalOpen(true)}
-            className="bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800 hover:border-cyan-500/40 rounded-xl p-3 sm:p-4 flex items-center justify-between cursor-pointer transition group"
-            title="Нажмите, чтобы переключить источник (Public Live Feed, API-Football, Webhook)"
+            onClick={() => {
+              if (isDeveloper) {
+                setIsDataSourcesModalOpen(true);
+              }
+            }}
+            className={`bg-slate-900/60 border border-slate-800 rounded-xl p-3 sm:p-4 flex items-center justify-between transition group ${
+              isDeveloper ? 'hover:bg-slate-900/90 hover:border-cyan-500/40 cursor-pointer' : 'cursor-default'
+            }`}
+            title={isDeveloper ? "Нажмите, чтобы настроить источники линии" : "Поток телеметрии защищён и активен"}
           >
             <div className="space-y-1 min-w-0">
               <div className="flex items-center gap-1 text-[11px] sm:text-xs text-slate-400 group-hover:text-cyan-300 transition truncate">
-                <span>{t('activeProvider')}</span>
-                <span className="text-[10px] text-cyan-400 font-mono">⚙</span>
+                <span>{isDeveloper ? t('activeProvider') : 'Телеметрия эфира'}</span>
+                {isDeveloper && <span className="text-[10px] text-cyan-400 font-mono">⚙ (Dev)</span>}
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className={`h-2 w-2 rounded-full shrink-0 ${
                   dataSourceConfig.activeSource !== 'simulated' ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400 animate-ping'
                 }`} />
                 <span className="text-xs sm:text-sm font-semibold text-white truncate">
-                  {dataSourceConfig.activeSource === 'fonbet'
-                    ? '🔴 Фонбет Live'
-                    : dataSourceConfig.activeSource === '1xbet'
-                    ? '🔷 1xBet Live'
-                    : dataSourceConfig.activeSource === 'public-feed'
-                    ? '🌐 Public Feed'
-                    : dataSourceConfig.activeSource === 'sofascore'
-                    ? '⚽ Sofascore Live'
-                    : dataSourceConfig.activeSource === 'sstats'
-                    ? '📊 SStats API'
-                    : dataSourceConfig.activeSource === 'api-football'
-                    ? '⚡ API-Football'
-                    : dataSourceConfig.activeSource === 'football-data'
-                    ? '🏆 Football-Data'
-                    : dataSourceConfig.activeSource === 'webhook'
-                    ? '🔌 Webhook'
-                    : dataSourceConfig.activeSource === 'simulated'
-                    ? '🎮 Демо-генератор'
-                    : '⚡ Flashscore'}
+                  {isDeveloper ? (
+                    dataSourceConfig.activeSource === 'fonbet'
+                      ? '🔴 Фонбет Live'
+                      : dataSourceConfig.activeSource === '1xbet'
+                      ? '🔷 1xBet Live'
+                      : dataSourceConfig.activeSource === 'public-feed'
+                      ? '🌐 Public Feed'
+                      : dataSourceConfig.activeSource === 'sofascore'
+                      ? '⚽ Sofascore Live'
+                      : dataSourceConfig.activeSource === 'sstats'
+                      ? '📊 SStats API'
+                      : dataSourceConfig.activeSource === 'api-football'
+                      ? '⚡ API-Football'
+                      : dataSourceConfig.activeSource === 'football-data'
+                      ? '🏆 Football-Data'
+                      : dataSourceConfig.activeSource === 'webhook'
+                      ? '🔌 Webhook'
+                      : dataSourceConfig.activeSource === 'simulated'
+                      ? '🎮 Демо-генератор'
+                      : '⚡ Flashscore'
+                  ) : (
+                    '🛰️ Live Telemetry Core'
+                  )}
                 </span>
               </div>
               {lastFetchedAt && (
@@ -5439,49 +5449,51 @@ export default function App() {
               </button>
             </div>
 
-            <div className="pt-1 flex items-center gap-2 flex-wrap border-t border-rose-500/20">
-              <span className="text-[11px] text-slate-400 font-semibold">Быстрое переключение на рабочий источник:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setDataSourceConfig((prev) => ({ ...prev, activeSource: 'flashscore' }));
-                  fetchLiveMatchesFromSource('flashscore');
-                  setDataSourceError(null);
-                }}
-                className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[11px] transition"
-              >
-                ⚡ Flashscore Live
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDataSourceConfig((prev) => ({ ...prev, activeSource: 'public-feed' }));
-                  fetchLiveMatchesFromSource('public-feed');
-                  setDataSourceError(null);
-                }}
-                className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-lg font-bold text-[11px] transition"
-              >
-                🌐 Public Feed (Топ-Лиги)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDataSourceConfig((prev) => ({ ...prev, activeSource: 'simulated' }));
-                  fetchLiveMatchesFromSource('simulated');
-                  setDataSourceError(null);
-                }}
-                className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 rounded-lg font-bold text-[11px] transition"
-              >
-                🎮 Демо-генератор
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsDataSourcesModalOpen(true)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg font-medium text-[11px] transition"
-              >
-                ⚙️ Все источники
-              </button>
-            </div>
+            {isDeveloper && (
+              <div className="pt-1 flex items-center gap-2 flex-wrap border-t border-rose-500/20">
+                <span className="text-[11px] text-slate-400 font-semibold">Быстрое переключение на рабочий источник (Dev):</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDataSourceConfig((prev) => ({ ...prev, activeSource: 'flashscore' }));
+                    fetchLiveMatchesFromSource('flashscore');
+                    setDataSourceError(null);
+                  }}
+                  className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[11px] transition"
+                >
+                  ⚡ Flashscore Live
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDataSourceConfig((prev) => ({ ...prev, activeSource: 'public-feed' }));
+                    fetchLiveMatchesFromSource('public-feed');
+                    setDataSourceError(null);
+                  }}
+                  className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-lg font-bold text-[11px] transition"
+                >
+                  🌐 Public Feed (Топ-Лиги)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDataSourceConfig((prev) => ({ ...prev, activeSource: 'simulated' }));
+                    fetchLiveMatchesFromSource('simulated');
+                    setDataSourceError(null);
+                  }}
+                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 rounded-lg font-bold text-[11px] transition"
+                >
+                  🎮 Демо-генератор
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDataSourcesModalOpen(true)}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg font-medium text-[11px] transition"
+                >
+                  ⚙️ Все источники
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -5870,25 +5882,35 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <span className={`h-2 w-2 rounded-full ${dataSourceConfig.activeSource !== 'simulated' ? 'bg-cyan-400' : 'bg-emerald-400'}`} />
                   <span>
-                    {t('feedActiveSource')}: <strong className="text-slate-200">{
-                      dataSourceConfig.activeSource === 'fonbet' ? '🔴 Фонбет Live (Легальная РФ Линия • Реальный эфир)' :
-                      dataSourceConfig.activeSource === '1xbet' ? '🔷 1xBet Live (Широкая роспись)' :
-                      dataSourceConfig.activeSource === 'flashscore' ? '⚡ Flashscore Live (Парсер)' :
-                      dataSourceConfig.activeSource === 'sstats' ? '📊 SStats.net API' :
-                      dataSourceConfig.activeSource === 'sofascore' ? '⚽ Sofascore Live (Relay)' :
-                      dataSourceConfig.activeSource === 'public-feed' ? '🌐 Реальный онлайн-фид (ESPN)' :
-                      dataSourceConfig.activeSource === 'api-football' ? '⚡ API-Football (v3)' :
-                      dataSourceConfig.activeSource === 'football-data' ? '🏆 Football-Data.org' :
-                      dataSourceConfig.activeSource === 'webhook' ? '🔌 Пользовательский Webhook' : '🎮 Демо-симулятор'
-                    }</strong>
+                    {isDeveloper ? (
+                      <>
+                        {t('feedActiveSource')}: <strong className="text-slate-200">{
+                          dataSourceConfig.activeSource === 'fonbet' ? '🔴 Фонбет Live (Легальная РФ Линия • Реальный эфир)' :
+                          dataSourceConfig.activeSource === '1xbet' ? '🔷 1xBet Live (Широкая роспись)' :
+                          dataSourceConfig.activeSource === 'flashscore' ? '⚡ Flashscore Live (Парсер)' :
+                          dataSourceConfig.activeSource === 'sstats' ? '📊 SStats.net API' :
+                          dataSourceConfig.activeSource === 'sofascore' ? '⚽ Sofascore Live (Relay)' :
+                          dataSourceConfig.activeSource === 'public-feed' ? '🌐 Реальный онлайн-фид (ESPN)' :
+                          dataSourceConfig.activeSource === 'api-football' ? '⚡ API-Football (v3)' :
+                          dataSourceConfig.activeSource === 'football-data' ? '🏆 Football-Data.org' :
+                          dataSourceConfig.activeSource === 'webhook' ? '🔌 Пользовательский Webhook' : '🎮 Демо-симулятор'
+                        }</strong>
+                      </>
+                    ) : (
+                      <>
+                        Линия: <strong className="text-slate-200">🛰️ Live Telemetry Core (Автоматическая балансировка)</strong>
+                      </>
+                    )}
                   </span>
                 </div>
-                <button
-                  onClick={() => setIsDataSourcesModalOpen(true)}
-                  className="text-cyan-400 hover:underline font-medium text-[10px]"
-                >
-                  {t('feedChangeBtn')}
-                </button>
+                {isDeveloper && (
+                  <button
+                    onClick={() => setIsDataSourcesModalOpen(true)}
+                    className="text-cyan-400 hover:underline font-medium text-[10px]"
+                  >
+                    {t('feedChangeBtn')}
+                  </button>
+                )}
               </div>
 
               {/* Priority indicator banner: matches with triggered filters */}
@@ -9895,14 +9917,14 @@ export default function App() {
           onClose={() => setIsDataSourcesModalOpen(false)}
           config={dataSourceConfig}
           onUpdateConfig={(newConfig) => {
+            lastStatsReceivedTimestampRef.current = Date.now();
             setDataSourceConfig(newConfig);
-            if (newConfig.activeSource !== dataSourceConfig.activeSource) {
-              fetchLiveMatchesFromSource(newConfig.activeSource);
-            }
+            fetchLiveMatchesFromSource(newConfig.activeSource, selectedSport);
           }}
           activeMatchesCount={matches.length}
           onRefreshMatches={async () => {
-            await fetchLiveMatchesFromSource();
+            lastStatsReceivedTimestampRef.current = Date.now();
+            await fetchLiveMatchesFromSource(dataSourceConfig.activeSource, selectedSport);
           }}
           isRefreshing={isRefreshingMatches}
           lastFetchedAt={lastFetchedAt}

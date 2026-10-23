@@ -151,10 +151,9 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       ...draftConfig,
       activeSource: sourceType,
     };
+    setDraftConfig(updated);
+    setActiveTab(sourceType);
     onUpdateConfig(updated);
-    setTimeout(() => {
-      onRefreshMatches();
-    }, 150);
   };
 
   const handleClearWebhookFeed = async () => {

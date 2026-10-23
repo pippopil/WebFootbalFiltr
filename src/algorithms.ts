@@ -2664,6 +2664,29 @@ export function evaluateSignalOutcome(
   const market = (signal.marketSuggestion || signal.ruleName).toLowerCase();
   const ruleNameLower = signal.ruleName.toLowerCase();
 
+  // ℹ️ Не по всем фильтрам отслеживается результат: информационные радары, чистое давление и мониторинг
+  if (
+    signal.noResolutionTrack === true ||
+    signal.trackOutcome === false ||
+    signal.ruleCategory === 'info' ||
+    signal.ruleCategory === 'radar' ||
+    signal.marketSuggestion === 'ИНФО' ||
+    signal.marketSuggestion === 'РАДАР' ||
+    signal.marketSuggestion === 'МОНИТОРИНГ' ||
+    signal.marketSuggestion === 'NO_TRACK' ||
+    market.includes('без отслеживания') ||
+    market.includes('инфо-радар') ||
+    market.includes('мониторинг активности') ||
+    ruleNameLower.includes('инфо-радар') ||
+    ruleNameLower.includes('мониторинг активности')
+  ) {
+    return {
+      outcome: 'PENDING',
+      note: 'Информационный фильтр / радар: результат исхода не отслеживается',
+      shouldResolve: false,
+    };
+  }
+
   // 🎯 Check if the strategy explicitly targets the 2nd half or the entire match (Strategies 14/12, 21, 55, 42, 54, etc.)
   const isTargetingSecondHalfOrFullMatch =
     market.includes('во 2-м') ||
