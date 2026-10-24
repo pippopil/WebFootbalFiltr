@@ -15,10 +15,9 @@ import {
   CheckCircle2,
   Crown,
   Database,
-  Cpu,
-  Eye,
+  Eye
 } from 'lucide-react';
-import { UserProfile, Match, FilterRule } from '../types';
+import { UserProfile, Match, FilterRule, DataSourceConfig, DataSourceType } from '../types';
 
 interface GodModeConsoleProps {
   currentUser: UserProfile;
@@ -29,6 +28,9 @@ interface GodModeConsoleProps {
   onSetFilters: React.Dispatch<React.SetStateAction<FilterRule[]>>;
   onUpdateCurrentUser: (updated: UserProfile) => void;
   onSendTestBroadcast: (message: string) => Promise<void>;
+  dataSourceConfig?: DataSourceConfig;
+  onSwitchDataSource?: (source: DataSourceType) => void;
+  onOpenDataSourcesModal?: () => void;
 }
 
 export const GodModeConsole: React.FC<GodModeConsoleProps> = ({
@@ -40,6 +42,9 @@ export const GodModeConsole: React.FC<GodModeConsoleProps> = ({
   onSetFilters,
   onUpdateCurrentUser,
   onSendTestBroadcast,
+  dataSourceConfig,
+  onSwitchDataSource,
+  onOpenDataSourcesModal,
 }) => {
   const [broadcastText, setBroadcastText] = useState('🚨 [GOD BROADCAST] Внимание! Зафиксирован 100% сигнал Smart Money на рынке Премьер-Лиги.');
   const [isBroadcasting, setIsBroadcasting] = useState(false);
@@ -260,6 +265,78 @@ export const GodModeConsole: React.FC<GodModeConsoleProps> = ({
             <TrendingUp className="h-3.5 w-3.5" />
             Инъекция -40% кэфа
           </button>
+        </div>
+      </div>
+
+      {/* God Mode Manual Data Provider Switcher */}
+      <div className="bg-slate-900/90 border border-purple-500/40 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-cyan-400" />
+            <h4 className="text-xs font-bold text-purple-200 uppercase tracking-wider">
+              Ручное переключение источников статистики (Data Providers)
+            </h4>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-slate-400">Активный источник:</span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+              {dataSourceConfig?.activeSource || 'flashscore'}
+            </span>
+            {onOpenDataSourcesModal && (
+              <button
+                type="button"
+                onClick={onOpenDataSourcesModal}
+                className="text-[10px] text-purple-300 hover:text-white underline ml-1"
+              >
+                Все настройки
+              </button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-[11px] text-slate-400">
+          В режиме Создателя (God Mode) доступно принудительное ручное переключение источника спортивной телеметрии.
+          Ротация источников не затронет баланс пользователей и настройки сохранённых фильтров.
+        </p>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { id: 'flashscore', label: '⚡ Flashscore', desc: 'Парсер мобильных зеркал' },
+            { id: 'sofascore', label: '⚽ Sofascore', desc: 'Браузерный релей API' },
+            { id: 'fonbet', label: '🔴 Фонбет Live', desc: 'Легальная линия РФ' },
+            { id: '1xbet', label: '🔷 1xBet Live', desc: 'Широкая роспись' },
+            { id: 'sstats', label: '📊 SStats.net', desc: 'Официальный API' },
+            { id: 'api-football', label: '⚡ API-Football', desc: 'v3 Global Fixtures' },
+            { id: 'public-feed', label: '🌐 Public Feed', desc: 'Открытый фид' },
+            { id: 'simulated', label: '🎮 Демо-генератор', desc: 'Песочница' },
+          ].map((src) => {
+            const isActive = dataSourceConfig?.activeSource === src.id;
+            return (
+              <button
+                key={src.id}
+                type="button"
+                onClick={() => {
+                  if (onSwitchDataSource) {
+                    onSwitchDataSource(src.id as DataSourceType);
+                    showStatus(`Источник линии переключён на ${src.label}`);
+                  }
+                }}
+                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                  isActive
+                    ? 'bg-cyan-500/20 border-cyan-400 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-500/50'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-purple-500/40 hover:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold ${isActive ? 'text-cyan-300' : 'text-slate-200'}`}>
+                    {src.label}
+                  </span>
+                  {isActive && <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 shrink-0" />}
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1">{src.desc}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

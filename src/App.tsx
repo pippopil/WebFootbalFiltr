@@ -192,6 +192,9 @@ import { checkAppUpdate, AppReleaseInfo } from './services/appUpdateService';
 import { safeFetchJson } from './services/apiClient';
 import { UserSimulationAgentModal } from './components/UserSimulationAgentModal';
 import { isMatchSearchMatch, getMatchTeamCodes } from './utils/teamCodes';
+import { generateMatchResultCanvas } from './utils/shareResultCanvas';
+import { ShareResultModal } from './components/ShareResultModal';
+import { OffensiveTrendSparkline } from './components/OffensiveTrendSparkline';
 
 // Real signals start clean - no synthetic dummy seed alerts
 const INITIAL_SIGNALS: SignalAlert[] = [];
@@ -1751,6 +1754,11 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [matchQuickFilter, setMatchQuickFilter] = useState<'all' | 'live' | 'prematch' | 'over25' | 'odds_drop' | 'corners' | 'pressure'>('all');
+  const [isShareResultModalOpen, setIsShareResultModalOpen] = useState<boolean>(false);
+  const [shareResultMatch, setShareResultMatch] = useState<Match | null>(null);
+  const [shareResultDataUrl, setShareResultDataUrl] = useState<string | null>(null);
+  const [shareResultBlob, setShareResultBlob] = useState<Blob | null>(null);
+  const [isGeneratingShareImage, setIsGeneratingShareImage] = useState<boolean>(false);
 
   // Window scroll listener for instant scroll-to-top button
   useEffect(() => {
@@ -2597,6 +2605,24 @@ export default function App() {
     fetchLiveMatchesFromSource(dataSourceConfig.activeSource, sp);
   };
 
+  const handleManualSwitchDataSource = useCallback(
+    async (source: DataSourceType) => {
+      lastStatsReceivedTimestampRef.current = Date.now();
+      setDataSourceConfig((prev) => {
+        const updated = { ...prev, activeSource: source };
+        try {
+          localStorage.setItem('footbalmonitor_datasource_config', JSON.stringify(updated));
+        } catch {
+          // ignore storage error
+        }
+        return updated;
+      });
+      await fetchLiveMatchesFromSource(source, selectedSport);
+      triggerTgHaptic('medium');
+    },
+    [selectedSport, triggerTgHaptic]
+  );
+
   // Initial load of real matches across all sports
   useEffect(() => {
     if (dataSourceConfig.activeSource !== 'simulated') {
@@ -3002,6 +3028,30 @@ export default function App() {
       verifyTelegramBot(telegramConfig.botToken, telegramConfig.channelId);
     }
   }, []);
+
+  const handleOpenShareResult = useCallback(async (matchToShare: Match) => {
+    setIsGeneratingShareImage(true);
+    triggerTgHaptic('light');
+    try {
+      const channelLabel = telegramBotInfo?.username
+        ? `@${telegramBotInfo.username}`
+        : telegramConfig.channelId?.startsWith('@')
+        ? telegramConfig.channelId
+        : 't.me/footbalmonitor';
+
+      const { dataUrl, blob } = await generateMatchResultCanvas(matchToShare, {
+        telegramChannel: channelLabel,
+      });
+      setShareResultMatch(matchToShare);
+      setShareResultDataUrl(dataUrl);
+      setShareResultBlob(blob);
+      setIsShareResultModalOpen(true);
+    } catch (err) {
+      console.error('Error generating share result canvas:', err);
+    } finally {
+      setIsGeneratingShareImage(false);
+    }
+  }, [telegramBotInfo?.username, telegramConfig.channelId, triggerTgHaptic]);
 
   // Send message through backend API
   const sendTelegramMessage = async (
@@ -5292,6 +5342,9 @@ export default function App() {
             onSetMatches={setMatches}
             onSetFilters={setFilters}
             onUpdateCurrentUser={handleUpdateCurrentUser}
+            dataSourceConfig={dataSourceConfig}
+            onSwitchDataSource={handleManualSwitchDataSource}
+            onOpenDataSourcesModal={() => setIsDataSourcesModalOpen(true)}
             onSendTestBroadcast={async (message: string) => {
               const res = await sendTelegramMessage(message, true, { force: true });
               if (!res.ok) {
@@ -5954,12 +6007,30 @@ export default function App() {
                   </span>
                 </div>
                 {isDeveloper && (
-                  <button
-                    onClick={() => setIsDataSourcesModalOpen(true)}
-                    className="text-cyan-400 hover:underline font-medium text-[10px]"
-                  >
-                    {t('feedChangeBtn')}
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <span className="text-[10px] text-purple-300 font-bold hidden sm:inline">[God Mode]</span>
+                    <select
+                      value={dataSourceConfig.activeSource}
+                      onChange={(e) => handleManualSwitchDataSource(e.target.value as DataSourceType)}
+                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-cyan-300 font-medium focus:outline-none focus:border-cyan-400 cursor-pointer"
+                      title="Ручное переключение источника статистики (God Mode)"
+                    >
+                      <option value="flashscore">⚡ Flashscore</option>
+                      <option value="sofascore">⚽ Sofascore</option>
+                      <option value="fonbet">🔴 Фонбет</option>
+                      <option value="1xbet">🔷 1xBet</option>
+                      <option value="sstats">📊 SStats</option>
+                      <option value="api-football">⚡ API-Football</option>
+                      <option value="public-feed">🌐 Public Feed</option>
+                      <option value="simulated">🎮 Демо</option>
+                    </select>
+                    <button
+                      onClick={() => setIsDataSourcesModalOpen(true)}
+                      className="text-cyan-400 hover:underline font-medium text-[10px] ml-1"
+                    >
+                      {t('feedChangeBtn')}
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -6531,9 +6602,27 @@ export default function App() {
                           );
                         })()}
                       </div>
-                      <h2 className="text-xl sm:text-2xl font-black text-white mt-1 break-words">
-                        {selectedMatch.homeTeam} <span className="text-emerald-400">{selectedMatch.score[0]} : {selectedMatch.score[1]}</span> {selectedMatch.awayTeam}
-                      </h2>
+
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        <h2 className="text-xl sm:text-2xl font-black text-white break-words">
+                          {selectedMatch.homeTeam} <span className="text-emerald-400">{selectedMatch.score[0]} : {selectedMatch.score[1]}</span> {selectedMatch.awayTeam}
+                        </h2>
+                        <button
+                          id="match-inspector-share-result-btn"
+                          type="button"
+                          onClick={() => handleOpenShareResult(selectedMatch)}
+                          disabled={isGeneratingShareImage}
+                          className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-emerald-600/20 text-slate-300 hover:text-emerald-300 border border-slate-700 hover:border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shrink-0"
+                          title="Поделиться брендированной карточкой счёта (Canvas API)"
+                        >
+                          {isGeneratingShareImage ? (
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                          ) : (
+                            <Share2 className="h-3.5 w-3.5 text-emerald-400" />
+                          )}
+                          <span>Поделиться счётом</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex flex-col sm:items-end gap-2 w-full sm:w-auto">
@@ -6913,6 +7002,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Offensive Trend Intensity & Momentum Consistency Sparkline */}
+                  <OffensiveTrendSparkline match={selectedMatch} />
 
                   {/* Recharts In-Depth xG Timeline & Attack Danger Dynamics */}
                   <MatchXgTimelineChart match={selectedMatch} />
@@ -10114,6 +10206,17 @@ export default function App() {
           }}
           proof={proofToShare}
         />
+
+        {/* Branded Canvas Match Result Share Modal */}
+        {shareResultMatch && (
+          <ShareResultModal
+            isOpen={isShareResultModalOpen}
+            onClose={() => setIsShareResultModalOpen(false)}
+            match={shareResultMatch}
+            imageDataUrl={shareResultDataUrl}
+            imageBlob={shareResultBlob}
+          />
+        )}
 
         {/* Creators Gamification Leaderboard Modal */}
         <LeaderboardModal
