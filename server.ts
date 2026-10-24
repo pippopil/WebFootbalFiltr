@@ -362,6 +362,7 @@ async function startServer() {
       force = false,
       dedup_mode = 'once-per-match',
       cooldown_seconds = 600, // default cooldown
+      reply_to_message_id,
     } = req.body;
 
     const token = bot_token || process.env.TELEGRAM_BOT_TOKEN;
@@ -484,18 +485,23 @@ async function startServer() {
     }
 
     try {
+      const sendPayload: Record<string, any> = {
+        chat_id: targetChatId,
+        text,
+        parse_mode,
+        disable_notification,
+        disable_web_page_preview: true,
+      };
+      if (reply_to_message_id) {
+        sendPayload.reply_to_message_id = Number(reply_to_message_id);
+      }
+
       const telegramRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          chat_id: targetChatId,
-          text,
-          parse_mode,
-          disable_notification,
-          disable_web_page_preview: true,
-        }),
+        body: JSON.stringify(sendPayload),
       });
 
       const result = await telegramRes.json() as { ok: boolean; description?: string; result?: any };
@@ -523,15 +529,19 @@ async function startServer() {
         if (parse_mode && (result.description?.includes("can't parse entities") || result.description?.includes("entity"))) {
           try {
             const strippedText = text.replace(/<[^>]+>/g, '');
+            const fallbackPayload: Record<string, any> = {
+              chat_id: targetChatId,
+              text: strippedText,
+              disable_notification,
+              disable_web_page_preview: true,
+            };
+            if (reply_to_message_id) {
+              fallbackPayload.reply_to_message_id = Number(reply_to_message_id);
+            }
             const fallbackRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: targetChatId,
-                text: strippedText,
-                disable_notification,
-                disable_web_page_preview: true,
-              }),
+              body: JSON.stringify(fallbackPayload),
             });
             const fallbackResult = (await fallbackRes.json()) as { ok: boolean; description?: string; result?: any };
             if (fallbackResult.ok) {

@@ -738,6 +738,19 @@ assert(res54Win.outcome === 'WIN', 'Strategy 54 resolves as WIN when match ends 
 const res54Loss = evaluateSignalOutcome(sig54, [1, 1], true);
 assert(res54Loss.outcome === 'LOSS', 'Strategy 54 resolves as LOSS when match ends 1:1 (draw)');
 
+// Test Strategy 54 resolution with matchContext FT and custom market
+const sig54CustomMarket: SignalAlert = {
+  ...sig54,
+  marketSuggestion: '12 во 2-м тайме (~1.48)',
+};
+const res54ContextWin = evaluateSignalOutcome(sig54CustomMarket, [1, 0], false, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(res54ContextWin.outcome === 'WIN', 'Strategy 54 resolves as WIN with matchContext FT at min 90');
+assert(res54ContextWin.shouldResolve === true, 'Strategy 54 shouldResolve is true at FT');
+
+const res54ContextLoss = evaluateSignalOutcome(sig54CustomMarket, [0, 0], false, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(res54ContextLoss.outcome === 'LOSS', 'Strategy 54 resolves as LOSS with matchContext FT at 0:0');
+assert(res54ContextLoss.shouldResolve === true, 'Strategy 54 shouldResolve is true on draw at FT');
+
 // ----------------------------------------------------
 // TEST GROUP 11: 2nd-Half Strategies & Timing Resolution (14, 21, 42, 54, 55)
 // Must wait until FT for loss declaration, never fail at min 46 / HT!

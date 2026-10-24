@@ -3049,6 +3049,11 @@ export function evaluateSignalOutcome(
 
   // 0c-2. Double Chance 12 / No Draw (Стратегия 54: «Ничьей не будет (12)»)
   const isNoDrawMarket =
+    signal.ruleId === 'strat-54' ||
+    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 54) ||
+    ruleNameLower.includes('стратегия 54') ||
+    ruleNameLower.includes('ничьей не будет') ||
+    ruleNameLower.includes('ничьи не будет') ||
     market.includes('ничьей не будет') ||
     market.includes('ничьи не будет') ||
     market.includes(' 12') ||
@@ -3057,7 +3062,12 @@ export function evaluateSignalOutcome(
     market.includes('без ничьей');
 
   if (isNoDrawMarket) {
-    if (isMatchFinished) {
+    const isFinished =
+      isMatchFinished ||
+      (matchContext?.minute !== undefined && matchContext.minute >= 90) ||
+      matchContext?.matchStatus === 'FT';
+
+    if (isFinished) {
       const isWin = curHome !== curAway;
       return {
         outcome: isWin ? 'WIN' : 'LOSS',

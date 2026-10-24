@@ -158,7 +158,7 @@ import { PersonalCabinetView } from './components/PersonalCabinetView';
 import { AdvertiserCabinetView } from './components/AdvertiserCabinetView';
 import { AdBanner } from './components/AdBanner';
 import { getEstimatedOdds } from './backtestEngine';
-import { saveMatchesToAccumulatedLiveDB } from './services/liveMatchesDatabase';
+import { saveMatchesToAccumulatedLiveDB, loadAccumulatedLiveMatches } from './services/liveMatchesDatabase';
 import { ScannerMatrixFilterView } from './components/ScannerMatrixFilterView';
 import { PrematchScannerView } from './components/PrematchScannerView';
 import { AIStrategySynthesizerModal } from './components/AIStrategySynthesizerModal';
@@ -2209,6 +2209,7 @@ export default function App() {
     []
   );
   const lastStatsReceivedTimestampRef = useRef<number>(Date.now());
+  const latestKnownMatchesRef = useRef<Map<string, Match>>(new Map());
 
   // Data Sources configuration state
   const [isRefreshingMatches, setIsRefreshingMatches] = useState<boolean>(false);
@@ -2736,9 +2737,8 @@ export default function App() {
         } catch {}
       }
 
-      // Auto-rewrite existing Telegram message if message ID exists
+      // Send result alert to Telegram and update original card
       if (
-        target.telegramMessageId &&
         target.sentToTelegram &&
         telegramConfig.autoUpdateOnFinish !== false &&
         outcome !== 'PENDING'
@@ -2761,25 +2761,38 @@ export default function App() {
         const botTokenToUse = target.botToken || telegramConfig.botToken;
         const chatIdToUse = target.chatId || telegramConfig.channelId;
 
-        editTelegramMessage(target.telegramMessageId, resolvedHtml, {
-          botToken: botTokenToUse,
-          chatId: chatIdToUse,
-        }).then((res) => {
-          setSignals((curr) =>
-            curr.map((s) =>
-              s.id === signalId
-                ? {
-                    ...s,
-                    telegramEdited: res.ok,
-                    telegramEditedAt: res.ok ? new Date().toLocaleTimeString('ru-RU') : undefined,
-                    telegramStatusText: res.ok
-                      ? `Обновлено в TG (${outcome === 'WIN' ? '✅ WIN' : '❌ LOSS'})`
-                      : (res.error || 'Ошибка обновления TG'),
-                  }
-                : s
-            )
-          );
-        });
+        // 1. Edit original Telegram message card if messageId exists
+        if (target.telegramMessageId) {
+          editTelegramMessage(target.telegramMessageId, resolvedHtml, {
+            botToken: botTokenToUse,
+            chatId: chatIdToUse,
+          }).catch(() => {});
+        }
+
+        // 2. Dispatch a fresh audible result notification alert to Telegram
+        if (botTokenToUse && chatIdToUse) {
+          sendTelegramMessage(resolvedHtml, false, {
+            matchId: target.matchId,
+            ruleId: target.ruleId,
+            force: true,
+            botToken: botTokenToUse,
+            chatId: chatIdToUse,
+            replyToMessageId: target.telegramMessageId,
+          }).then((res) => {
+            setSignals((curr) =>
+              curr.map((s) =>
+                s.id === signalId
+                  ? {
+                      ...s,
+                      telegramEdited: true,
+                      telegramEditedAt: new Date().toLocaleTimeString('ru-RU'),
+                      telegramStatusText: `Результат доставлен в TG (${outcome === 'WIN' ? '✅ WIN' : '❌ LOSS'})`,
+                    }
+                  : s
+              )
+            );
+          }).catch(() => {});
+        }
       }
 
       return prev.map((s) => (s.id === signalId ? updatedSig : s));
@@ -3063,6 +3076,7 @@ export default function App() {
       force?: boolean;
       botToken?: string;
       chatId?: string;
+      replyToMessageId?: number;
     }
   ) => {
     const defaultBot = currentUser?.telegramBots?.find((b) => b.isDefault) || currentUser?.telegramBots?.[0];
@@ -3094,6 +3108,7 @@ export default function App() {
           force: options?.force ?? isManualTest,
           dedup_mode: telegramConfig.deduplicationMode,
           cooldown_seconds: (telegramConfig.cooldownMinutes || 15) * 60,
+          reply_to_message_id: options?.replyToMessageId,
         }),
       });
 
@@ -3464,128 +3479,214 @@ export default function App() {
   useEffect(() => {
     if (telegramConfig.autoUpdateOnFinish === false) return;
 
-    signals.forEach((sig) => {
-      if (sig.outcome !== 'PENDING') return;
-      const match = matches.find((m) => m.id === sig.matchId);
-      if (!match) return;
+    // Keep memory cache of all seen matches updated
+    matches.forEach((m) => latestKnownMatchesRef.current.set(m.id, m));
 
-      const isFinished = match.status === 'FT' || match.minute >= 90;
-      const evalRes = evaluateSignalOutcome(
-        sig,
-        match.score,
-        isFinished,
-        match.stats?.corners,
-        match.stats,
-        {
-          matchStatus: match.status,
-          minute: match.minute,
-          firstHalfScore: match.history?.firstHalfScore,
+    const checkPendingSignals = () => {
+      const histMatches = loadAccumulatedLiveMatches();
+
+      signals.forEach((sig) => {
+        if (sig.outcome !== 'PENDING') return;
+
+        let match: Match | undefined = matches.find((m) => m.id === sig.matchId);
+        let matchSourceType = 'live';
+
+        if (!match) {
+          match = latestKnownMatchesRef.current.get(sig.matchId);
+          if (match) {
+            matchSourceType = 'cached';
+          } else {
+            const foundHist = histMatches.find((h) => h.id === sig.matchId);
+            if (foundHist) {
+              const lastSnap = foundHist.snapshots[foundHist.snapshots.length - 1];
+              match = {
+                id: foundHist.id,
+                homeTeam: foundHist.homeTeam,
+                awayTeam: foundHist.awayTeam,
+                league: foundHist.league,
+                country: foundHist.country,
+                countryCode: foundHist.countryCode,
+                score: foundHist.finalScore,
+                minute: lastSnap?.minute || 90,
+                status: 'FT',
+                stats: {
+                  possession: lastSnap?.stats?.possession || [50, 50],
+                  dangerousAttacks: lastSnap?.stats?.dangerousAttacks || [0, 0],
+                  attacks: lastSnap?.stats?.attacks || [0, 0],
+                  shotsOnTarget: lastSnap?.stats?.shotsOnTarget || [0, 0],
+                  shotsOffTarget: lastSnap?.stats?.shotsOffTarget || [0, 0],
+                  corners: foundHist.finalCorners || lastSnap?.stats?.corners || [0, 0],
+                  yellowCards: foundHist.finalYellowCards || lastSnap?.stats?.yellowCards || [0, 0],
+                  redCards: foundHist.finalRedCards || lastSnap?.stats?.redCards || [0, 0],
+                  xg: lastSnap?.stats?.xg || [0, 0],
+                },
+                momentum: [],
+                lastEvent: 'Матч завершён',
+                odds: lastSnap?.odds ? {
+                  home: lastSnap.odds.home || 2.0,
+                  draw: lastSnap.odds.draw || 3.0,
+                  away: lastSnap.odds.away || 2.0,
+                  over25: lastSnap.odds.over25 || 1.85,
+                } : { home: 2.0, draw: 3.0, away: 2.0, over25: 1.85 },
+                source: 'Live Telemetry Core',
+              };
+              matchSourceType = 'accumulated_db';
+            }
+          }
         }
-      );
 
-      if (evalRes.shouldResolve) {
-        // Record 1st-half score snapshot on match history if not yet recorded
-        if ((match.status === 'HT' || match.minute >= 45) && !match.history?.firstHalfScore) {
-          match.history = { ...match.history, firstHalfScore: [match.score[0], match.score[1]] };
-        }
+        if (!match) return;
 
-        const isHalfTimeRes = evalRes.note?.includes('1-й тайм') || evalRes.note?.includes('перерыв');
-        const finalScoreStr = isHalfTimeRes && match.history?.firstHalfScore
-          ? `${match.history.firstHalfScore[0]}:${match.history.firstHalfScore[1]}`
-          : `${match.score[0]}:${match.score[1]}`;
-        const stake = sig.stake || 1000;
-        const profit =
-          evalRes.outcome === 'WIN'
-            ? Number(((sig.odds - 1) * stake).toFixed(2))
-            : evalRes.outcome === 'LOSS'
-            ? -stake
-            : 0;
+        // A match dropped from the active live feed after minute 70 is deemed finished (FT)
+        const isDroppedFromLive = matchSourceType !== 'live' && (match.minute >= 70 || match.status === 'FT');
+        const isFinished = match.status === 'FT' || match.minute >= 90 || isDroppedFromLive;
 
-        const finalStats = {
-          homeScore: match.score[0],
-          awayScore: match.score[1],
-          attacks: [match.stats.attacks[0], match.stats.attacks[1]] as [number, number],
-          dangerousAttacks: [match.stats.dangerousAttacks[0], match.stats.dangerousAttacks[1]] as [number, number],
-          shotsOnTarget: [match.stats.shotsOnTarget[0], match.stats.shotsOnTarget[1]] as [number, number],
-          shotsOffTarget: [match.stats.shotsOffTarget[0], match.stats.shotsOffTarget[1]] as [number, number],
-          corners: [match.stats.corners[0], match.stats.corners[1]] as [number, number],
-          yellowCards: [match.stats.yellowCards[0], match.stats.yellowCards[1]] as [number, number],
-          redCards: [match.stats.redCards[0], match.stats.redCards[1]] as [number, number],
-          possession: [match.stats.possession[0], match.stats.possession[1]] as [number, number],
-        };
+        const evalRes = evaluateSignalOutcome(
+          sig,
+          match.score,
+          isFinished,
+          match.stats?.corners,
+          match.stats,
+          {
+            matchStatus: isFinished ? 'FT' : match.status,
+            minute: match.minute,
+            firstHalfScore: match.history?.firstHalfScore,
+          }
+        );
 
-        const scoreTuple: [number, number] = [match.score[0], match.score[1]];
-        const strategyMetricSnapshot = resolveStrategyMetric(sig, scoreTuple, match.stats);
+        if (evalRes.shouldResolve) {
+          // Record 1st-half score snapshot on match history if not yet recorded
+          if ((match.status === 'HT' || match.minute >= 45) && !match.history?.firstHalfScore) {
+            match.history = { ...match.history, firstHalfScore: [match.score[0], match.score[1]] };
+          }
 
-        // Audit Logging: Record final strategy results (goals, corners, cards) upon resolution
-        try {
-          logStrategyResolution(
-            sig.id,
-            finalScoreStr,
+          const isHalfTimeRes = evalRes.note?.includes('1-й тайм') || evalRes.note?.includes('перерыв');
+          const finalScoreStr = isHalfTimeRes && match.history?.firstHalfScore
+            ? `${match.history.firstHalfScore[0]}:${match.history.firstHalfScore[1]}`
+            : `${match.score[0]}:${match.score[1]}`;
+          const stake = sig.stake || 1000;
+          const profit =
+            evalRes.outcome === 'WIN'
+              ? Number(((sig.odds - 1) * stake).toFixed(2))
+              : evalRes.outcome === 'LOSS'
+              ? -stake
+              : 0;
+
+          const finalStats = {
+            homeScore: match.score[0],
+            awayScore: match.score[1],
+            attacks: [match.stats.attacks[0], match.stats.attacks[1]] as [number, number],
+            dangerousAttacks: [match.stats.dangerousAttacks[0], match.stats.dangerousAttacks[1]] as [number, number],
+            shotsOnTarget: [match.stats.shotsOnTarget[0], match.stats.shotsOnTarget[1]] as [number, number],
+            shotsOffTarget: [match.stats.shotsOffTarget[0], match.stats.shotsOffTarget[1]] as [number, number],
+            corners: [match.stats.corners[0], match.stats.corners[1]] as [number, number],
+            yellowCards: [match.stats.yellowCards[0], match.stats.yellowCards[1]] as [number, number],
+            redCards: [match.stats.redCards[0], match.stats.redCards[1]] as [number, number],
+            possession: [match.stats.possession[0], match.stats.possession[1]] as [number, number],
+          };
+
+          const scoreTuple: [number, number] = [match.score[0], match.score[1]];
+          const strategyMetricSnapshot = resolveStrategyMetric(sig, scoreTuple, match.stats);
+
+          // Audit Logging: Record final strategy results (goals, corners, cards) upon resolution
+          try {
+            logStrategyResolution(
+              sig.id,
+              finalScoreStr,
+              finalStats,
+              evalRes.outcome,
+              evalRes.note,
+              profit
+            );
+          } catch {}
+
+          const updatedSignal: SignalAlert = {
+            ...sig,
+            outcome: evalRes.outcome,
+            finalScore: finalScoreStr,
+            profit,
             finalStats,
-            evalRes.outcome,
-            evalRes.note,
-            profit
-          );
-        } catch {}
-
-        const updatedSignal: SignalAlert = {
-          ...sig,
-          outcome: evalRes.outcome,
-          finalScore: finalScoreStr,
-          profit,
-          finalStats,
-          strategyMetricSnapshot,
-          resolvedAt: new Date().toLocaleTimeString('ru-RU'),
-          resolutionNote: evalRes.note,
-        };
-
-        if (sig.telegramMessageId && sig.sentToTelegram) {
-          const resolvedHtml = formatResolvedTelegramAlert(
-            updatedSignal,
-            finalScoreStr,
-            evalRes.outcome,
-            {
-              homeTeam: match.homeTeam,
-              awayTeam: match.awayTeam,
-              league: match.league,
-              country: match.country,
-            },
-            match.stats
-          );
+            strategyMetricSnapshot,
+            resolvedAt: new Date().toLocaleTimeString('ru-RU'),
+            resolutionNote: evalRes.note,
+          };
 
           const botTokenToUse = sig.botToken || telegramConfig.botToken;
           const chatIdToUse = sig.chatId || telegramConfig.channelId;
 
-          editTelegramMessage(sig.telegramMessageId, resolvedHtml, {
-            botToken: botTokenToUse,
-            chatId: chatIdToUse,
-          }).then((res) => {
-            setSignals((curr) =>
-              curr.map((s) =>
-                s.id === sig.id
-                  ? {
-                      ...updatedSignal,
-                      telegramEdited: res.ok,
-                      telegramEditedAt: res.ok ? new Date().toLocaleTimeString('ru-RU') : undefined,
-                      telegramStatusText: res.ok
-                        ? `Обновлено в TG (${evalRes.outcome === 'WIN' ? '✅ WIN' : '❌ LOSS'})`
-                        : (res.error || 'Ошибка обновления TG'),
-                    }
-                  : s
-              )
+          // Dispatch result to Telegram if signal was configured for Telegram
+          if (sig.sentToTelegram && telegramConfig.autoSend && botTokenToUse && chatIdToUse) {
+            const resolvedHtml = formatResolvedTelegramAlert(
+              updatedSignal,
+              finalScoreStr,
+              evalRes.outcome,
+              {
+                homeTeam: match.homeTeam,
+                awayTeam: match.awayTeam,
+                league: match.league,
+                country: match.country,
+              },
+              match.stats
             );
-          });
-        } else {
-          setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
-        }
 
-        // Also update accumulated DB with match final score
-        try {
-          saveMatchesToAccumulatedLiveDB([match]);
-        } catch {}
-      }
-    });
+            // 1. Edit original Telegram card if messageId exists
+            if (sig.telegramMessageId) {
+              editTelegramMessage(sig.telegramMessageId, resolvedHtml, {
+                botToken: botTokenToUse,
+                chatId: chatIdToUse,
+              }).catch(() => {});
+            }
+
+            // 2. Dispatch a new result alert notification to Telegram (replies to original with sound/push)
+            sendTelegramMessage(
+              resolvedHtml,
+              false,
+              {
+                matchId: sig.matchId,
+                ruleId: sig.ruleId,
+                force: true,
+                botToken: botTokenToUse,
+                chatId: chatIdToUse,
+                replyToMessageId: sig.telegramMessageId,
+              }
+            ).then((res) => {
+              setSignals((curr) =>
+                curr.map((s) =>
+                  s.id === sig.id
+                    ? {
+                        ...updatedSignal,
+                        telegramEdited: true,
+                        telegramEditedAt: new Date().toLocaleTimeString('ru-RU'),
+                        telegramStatusText: `Результат доставлен в TG (${evalRes.outcome === 'WIN' ? '✅ WIN' : '❌ LOSS'})`,
+                      }
+                    : s
+                )
+              );
+            }).catch(() => {});
+          } else {
+            setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
+          }
+
+          // In-app notifications: Web Push & Audio
+          triggerWebPushNotification(
+            `${evalRes.outcome === 'WIN' ? '✅ СИГНАЛ ЗАШЁЛ (WIN)' : '❌ СИГНАЛ НЕ ЗАШЁЛ'}: ${match.homeTeam} vs ${match.awayTeam}`,
+            `Счёт: ${finalScoreStr}. Исход: ${evalRes.note || evalRes.outcome}`
+          );
+          if (evalRes.outcome === 'WIN') {
+            playAlertSound('ping', 0.35);
+          }
+
+          // Update accumulated DB with match final score
+          try {
+            saveMatchesToAccumulatedLiveDB([match]);
+          } catch {}
+        }
+      });
+    };
+
+    checkPendingSignals();
+    const intervalTimer = setInterval(checkPendingSignals, 5000);
+    return () => clearInterval(intervalTimer);
   }, [matches, telegramConfig.autoUpdateOnFinish]);
 
   // Check filter triggers and auto-send alerts with Anti-Spam deduplication
@@ -8453,34 +8554,6 @@ export default function App() {
 
         {/* Tab 3: Signal Feed & Real-time Tracker */}
         {activeTab === 'signals' && (() => {
-          const updateSignalOutcome = (signalId: string, outcome: SignalOutcome) => {
-            setSignals((prev) =>
-              prev.map((s) => {
-                if (s.id !== signalId) return s;
-                const stake = s.stake || 1000;
-                const profit =
-                  outcome === 'WIN'
-                    ? Number(((s.odds - 1) * stake).toFixed(2))
-                    : outcome === 'LOSS'
-                    ? -stake
-                    : 0;
-                return {
-                  ...s,
-                  outcome,
-                  profit,
-                  resolvedAt: new Date().toLocaleTimeString('ru-RU'),
-                  resolutionNote:
-                    outcome === 'WIN'
-                      ? 'Ставка рассчитана как выигрышная'
-                      : outcome === 'LOSS'
-                      ? 'Ставка не зашла'
-                      : outcome === 'REFUND'
-                      ? 'Возврат ставки'
-                      : 'В ожидании расчета',
-                };
-              })
-            );
-          };
 
           const totalCount = signals.length;
           const winsCount = signals.filter((s) => s.outcome === 'WIN').length;
