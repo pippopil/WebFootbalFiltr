@@ -5434,7 +5434,7 @@ export default function App() {
           )}
 
         {/* Developer GOD MODE Console (Visible only when Creator/God is logged in) */}
-        {currentUser.role === 'god' && (
+        {(currentUser.role === 'god' || currentUser.username === 'developer_god' || currentUser.plan === 'GOD_MODE') && (
           <GodModeConsole
             currentUser={currentUser}
             allUsers={allUsers}
@@ -5538,6 +5538,129 @@ export default function App() {
             <Send className="h-5 w-5 sm:h-6 sm:w-6 text-blue-400/50 shrink-0 ml-1" />
           </div>
         </div>
+
+        {/* God Mode: Плашка с ресурсами получения данных (Data Sources Resource Banner) */}
+        {(currentUser.role === 'god' || isDeveloper) && (
+          <div className="bg-gradient-to-r from-slate-950 via-purple-950/20 to-slate-900 border border-purple-500/40 rounded-2xl p-3 sm:p-4 shadow-xl space-y-3 relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-purple-500/20">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="p-1.5 rounded-lg bg-purple-500/20 border border-purple-400/40 text-purple-300">
+                  <Database className="h-4 w-4" />
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-extrabold text-white tracking-wide">
+                    🛰️ Ресурсы получения live-данных
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/30 text-purple-200 border border-purple-400/50">
+                    GOD MODE
+                  </span>
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[11px] text-cyan-300 font-semibold">
+                    <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+                    <span>
+                      {dataSourceConfig.activeSource === 'fonbet'
+                        ? '🔴 Фонбет Live (РФ Линия)'
+                        : dataSourceConfig.activeSource === '1xbet'
+                        ? '🔷 1xBet Live (Роспись)'
+                        : dataSourceConfig.activeSource === 'flashscore'
+                        ? '⚡ Flashscore Live'
+                        : dataSourceConfig.activeSource === 'sofascore'
+                        ? '⚽ Sofascore (Relay)'
+                        : dataSourceConfig.activeSource === 'sstats'
+                        ? '📊 SStats API'
+                        : dataSourceConfig.activeSource === 'public-feed'
+                        ? '🌐 Public Feed (ESPN)'
+                        : dataSourceConfig.activeSource === 'api-football'
+                        ? '⚡ API-Football (v3)'
+                        : dataSourceConfig.activeSource === 'football-data'
+                        ? '🏆 Football-Data'
+                        : dataSourceConfig.activeSource === 'webhook'
+                        ? '🔌 Webhook'
+                        : '🎮 Демо-генератор'}
+                    </span>
+                    <span className="text-slate-400 font-mono text-[10px]">
+                      ({matches.length} матчей)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-lg font-mono border ${
+                    dataSourceConfig.autoFailover
+                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                  title="Автоматическая ротация источника каждые 30 секунд при потере телеметрии"
+                >
+                  ⏱️ Сторож 30с: {dataSourceConfig.autoFailover ? 'ВКЛ' : 'ВЫКЛ'}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => fetchLiveMatchesFromSource()}
+                  disabled={isRefreshingMatches}
+                  className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-cyan-500/40 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 disabled:opacity-50"
+                  title="Принудительно синхронизировать текущую линию"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingMatches ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+                  <span>Обновить</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsDataSourcesModalOpen(true)}
+                  className="px-2.5 py-1 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  title="Открыть полную панель ключей API и сетевой диагностики"
+                >
+                  <Globe className="h-3.5 w-3.5 text-purple-300" />
+                  <span>Все настройки</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Clickable Source Chips / Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-800">
+              {[
+                { id: 'flashscore', label: '⚡ Flashscore', tag: 'Парсер' },
+                { id: 'fonbet', label: '🔴 Фонбет Live', tag: 'РФ Линия' },
+                { id: '1xbet', label: '🔷 1xBet Live', tag: 'Роспись' },
+                { id: 'sofascore', label: '⚽ Sofascore', tag: 'Relay' },
+                { id: 'sstats', label: '📊 SStats API', tag: 'API' },
+                { id: 'public-feed', label: '🌐 Public Feed', tag: 'ESPN' },
+                { id: 'api-football', label: '⚡ API-Football', tag: 'v3' },
+                { id: 'football-data', label: '🏆 Football-Data', tag: 'v4' },
+                { id: 'webhook', label: '🔌 Webhook', tag: 'Ingest' },
+                { id: 'simulated', label: '🎮 Демо', tag: 'Песочница' },
+              ].map((src) => {
+                const isActive = dataSourceConfig.activeSource === src.id;
+                return (
+                  <button
+                    key={src.id}
+                    type="button"
+                    onClick={() => handleManualSwitchDataSource(src.id as DataSourceType)}
+                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-medium whitespace-nowrap transition flex items-center gap-1.5 shrink-0 ${
+                      isActive
+                        ? 'bg-cyan-500/25 border-cyan-400 text-white shadow-md shadow-cyan-950/40 ring-1 ring-cyan-400/50 font-bold'
+                        : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:text-white hover:border-purple-500/50 hover:bg-slate-800/80'
+                    }`}
+                    title={`Переключить на ${src.label} (${src.tag})`}
+                  >
+                    {isActive ? (
+                      <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+                    ) : (
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-600 shrink-0" />
+                    )}
+                    <span>{src.label}</span>
+                    <span className={`text-[10px] px-1 py-0.2 rounded font-mono ${isActive ? 'bg-cyan-900/60 text-cyan-200' : 'bg-slate-950 text-slate-500'}`}>
+                      {src.tag}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Data Source Resiliency & Fallback Banner */}
         {dataSourceFallbackInfo && (

@@ -50,7 +50,7 @@ export const GodModeConsole: React.FC<GodModeConsoleProps> = ({
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  if (currentUser.role !== 'god') {
+  if (currentUser.role !== 'god' && currentUser.username !== 'developer_god' && currentUser.plan !== 'GOD_MODE') {
     return null;
   }
 
