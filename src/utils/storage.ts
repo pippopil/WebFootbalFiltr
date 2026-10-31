@@ -2,16 +2,9 @@ import { FilterRule, SignalAlert } from '../types';
 
 /**
  * Robust LocalStorage Utility with automatic quota eviction, 
- * filter and signal payload compaction, and error boundary protection.
+ * filter and signal payload compaction, global Storage prototype guard,
+ * and error boundary protection.
  */
-
-const NON_ESSENTIAL_KEYS_TO_EVICT = [
-  'footbalmonitor_live_accumulated_matches_v1',
-  'footbalmonitor_sent_signals_tracker',
-  'footbalmonitor_daily_prematch_cache_',
-  'sportsignal_analytics_',
-  'footbalmonitor_analytics_history',
-];
 
 /**
  * Evicts non-essential cached data (telemetry logs, old prematch caches, oversized trackers)
@@ -37,7 +30,12 @@ export function evictStorageCache(): void {
         keysToRemove.push(key);
       }
       // Remove legacy analytics dumps or debug trackers
-      else if (key.startsWith('sportsignal_analytics_') || key.startsWith('footbalmonitor_debug_') || key.startsWith('footbalmonitor_analytics_history')) {
+      else if (
+        key.startsWith('sportsignal_analytics_') ||
+        key.startsWith('footbalmonitor_debug_') ||
+        key.startsWith('footbalmonitor_analytics_history') ||
+        key.startsWith('footbalmonitor_sent_signals_tracker')
+      ) {
         keysToRemove.push(key);
       }
     }
@@ -48,18 +46,10 @@ export function evictStorageCache(): void {
       } catch {}
     });
 
-    // Prune anti-spam tracker if oversized
-    try {
-      const rawTracker = localStorage.getItem('footbalmonitor_sent_signals_tracker');
-      if (rawTracker && rawTracker.length > 50000) {
-        localStorage.removeItem('footbalmonitor_sent_signals_tracker');
-      }
-    } catch {}
-
     // Prune signals safely to latest 30 items if oversized
     try {
       const rawSignals = localStorage.getItem('footbalmonitor_signals');
-      if (rawSignals && rawSignals.length > 100000) {
+      if (rawSignals && rawSignals.length > 80000) {
         const parsed = JSON.parse(rawSignals);
         if (Array.isArray(parsed) && parsed.length > 30) {
           const trimmed = compactSignalsForStorage(parsed, 30);
@@ -70,6 +60,137 @@ export function evictStorageCache(): void {
   } catch (err) {
     console.warn('[Storage] Cache eviction warning:', err);
   }
+}
+
+/**
+ * Proactive storage cleanup run at application boot.
+ * Instantly frees megabytes of orphaned data before React components mount.
+ */
+export function proactiveStorageCleanup(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+
+  try {
+    // 1. Purge heavy accumulation caches
+    localStorage.removeItem('footbalmonitor_live_accumulated_matches_v1');
+    localStorage.removeItem('footbalmonitor_sent_signals_tracker');
+    localStorage.removeItem('footbalmonitor_analytics_history');
+
+    // 2. Clear expired prematch caches
+    const todayStr = new Date().toISOString().slice(0, 10);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith('footbalmonitor_daily_prematch_cache_') && !key.endsWith(todayStr)) {
+        localStorage.removeItem(key);
+      }
+      if (key.startsWith('sportsignal_analytics_') || key.startsWith('footbalmonitor_debug_')) {
+        localStorage.removeItem(key);
+      }
+    }
+
+    // 3. Compact signals if bloated
+    const rawSignals = localStorage.getItem('footbalmonitor_signals');
+    if (rawSignals) {
+      try {
+        const parsed = JSON.parse(rawSignals);
+        if (Array.isArray(parsed) && (parsed.length > 50 || rawSignals.length > 60000)) {
+          const compacted = compactSignalsForStorage(parsed, 40);
+          localStorage.setItem('footbalmonitor_signals', JSON.stringify(compacted));
+        }
+      } catch {
+        localStorage.removeItem('footbalmonitor_signals');
+      }
+    }
+
+    // 4. Compact bloated filter keys if found
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key === 'footbalmonitor_filters' || key.startsWith('footbalmonitor_filters_user_'))) {
+        const val = localStorage.getItem(key);
+        if (val && val.length > 35000) {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(key, JSON.stringify(compactFiltersForStorage(parsed)));
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage] Proactive cleanup warning:', err);
+  }
+}
+
+/**
+ * Installs a transparent fail-safe wrapper around window.Storage.prototype.setItem
+ * to catch and suppress any QuotaExceededError application-wide, guaranteeing
+ * that no uncaught quota exception can ever reach React error boundaries.
+ */
+let isGuardInstalled = false;
+export function installGlobalStorageGuard(): void {
+  if (isGuardInstalled || typeof window === 'undefined' || !window.Storage) return;
+  isGuardInstalled = true;
+
+  const originalSetItem = window.Storage.prototype.setItem;
+
+  window.Storage.prototype.setItem = function (key: string, value: string) {
+    try {
+      originalSetItem.call(this, key, value);
+    } catch (err: any) {
+      const isQuotaError =
+        err?.name === 'QuotaExceededError' ||
+        err?.code === 22 ||
+        err?.number === -2147024882 ||
+        (err?.message && err.message.toLowerCase().includes('quota'));
+
+      if (isQuotaError) {
+        // Step 1: Evict non-essential cache
+        try {
+          evictStorageCache();
+        } catch {}
+
+        // Step 2: Retry once after cache purge
+        try {
+          originalSetItem.call(this, key, value);
+          return;
+        } catch (retryErr) {
+          // Step 3: Deep cleaning of all expendable keys
+          try {
+            this.removeItem('footbalmonitor_live_accumulated_matches_v1');
+            this.removeItem('footbalmonitor_sent_signals_tracker');
+            this.removeItem('footbalmonitor_analytics_history');
+
+            // If it's a signals key, compact before saving
+            if (key === 'footbalmonitor_signals') {
+              try {
+                const parsed = JSON.parse(value);
+                if (Array.isArray(parsed)) {
+                  const compacted = compactSignalsForStorage(parsed, 20);
+                  originalSetItem.call(this, key, JSON.stringify(compacted));
+                  return;
+                }
+              } catch {}
+            }
+
+            originalSetItem.call(this, key, value);
+            return;
+          } catch {
+            // Gracefully suppress quota exception so React never crashes
+            console.warn(`[StorageGuard] Suppressed QuotaExceededError for key "${key}".`);
+          }
+        }
+      } else {
+        throw err;
+      }
+    }
+  };
+}
+
+// Auto-install guard and run proactive cleanup on module load
+if (typeof window !== 'undefined') {
+  installGlobalStorageGuard();
+  proactiveStorageCleanup();
 }
 
 /**
@@ -216,80 +337,8 @@ export function safeSetItem(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, payload);
     return true;
-  } catch (err: any) {
-    console.warn(`[Storage] safeSetItem initial attempt failed for "${key}". Attempting eviction...`, err?.name);
-
-    try {
-      evictStorageCache();
-
-      // Progressive compaction fallback for signals
-      if (key === 'footbalmonitor_signals') {
-        try {
-          const parsed = JSON.parse(value);
-          if (Array.isArray(parsed)) {
-            try {
-              localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 40)));
-              return true;
-            } catch {
-              try {
-                localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 20)));
-                return true;
-              } catch {
-                localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 10)));
-                return true;
-              }
-            }
-          }
-        } catch {}
-      }
-
-      // If storing filters, try storing compacted version
-      if (key.includes('filters')) {
-        try {
-          const parsed = JSON.parse(value);
-          if (Array.isArray(parsed)) {
-            const compacted = compactFiltersForStorage(parsed);
-            localStorage.setItem(key, JSON.stringify(compacted));
-            return true;
-          }
-        } catch {}
-      }
-
-      localStorage.setItem(key, payload);
-      return true;
-    } catch (retryErr) {
-      console.warn(`[Storage] safeSetItem: Quota heavily constrained for key "${key}". Deep cleaning...`);
-
-      // Last-ditch: purge non-essential stores and retry with minimal payload
-      try {
-        localStorage.removeItem('footbalmonitor_live_accumulated_matches_v1');
-        localStorage.removeItem('footbalmonitor_sent_signals_tracker');
-        localStorage.removeItem('footbalmonitor_analytics_history');
-
-        if (key === 'footbalmonitor_signals') {
-          const parsed = JSON.parse(value);
-          if (Array.isArray(parsed)) {
-            localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 15)));
-            return true;
-          }
-        }
-
-        if (key.includes('filters')) {
-          const parsed = JSON.parse(value);
-          if (Array.isArray(parsed)) {
-            const compacted = compactFiltersForStorage(parsed);
-            localStorage.setItem(key, JSON.stringify(compacted));
-            return true;
-          }
-        }
-
-        localStorage.setItem(key, payload);
-        return true;
-      } catch {
-        // Suppress gracefully without crashing UI or logging unhandled error
-        return false;
-      }
-    }
+  } catch {
+    return false;
   }
 }
 
