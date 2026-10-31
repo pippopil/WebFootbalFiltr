@@ -19,6 +19,9 @@ import {
   detectBetActionBadge,
   getCanonicalMatchKey,
   getStrategyTargetCluster,
+  computeTeamWinStreakFromMatches,
+  getTeamWinStreak,
+  getTeamRecentForm,
 } from '../src/algorithms';
 import { getStrategyCardDisplayName } from '../src/utils/filterDefaults';
 import { EXPANDED_DEFAULT_FILTERS } from '../src/data/defaultFilters';
@@ -1703,6 +1706,104 @@ const sig72: SignalAlert = {
 };
 const res72Win = evaluateSignalOutcome(sig72, [1, 0], false, undefined, undefined, { minute: 36, matchStatus: 'LIVE' });
 assert(res72Win.outcome === 'WIN', 'Strategy 72 resolves as WIN when goal is scored in 1st half (min 36, 1:0)');
+
+// ----------------------------------------------------
+// TEST GROUP 20: Team Win Streak & Pre-match History Analysis
+// ----------------------------------------------------
+console.log('\n--- Test Group 20: Team Win Streak & Pre-match History Analysis ---');
+
+// 1. computeTeamWinStreakFromMatches calculation
+const matchesStreak4 = [
+  { result: 'W' as const },
+  { result: 'W' as const },
+  { result: 'W' as const },
+  { result: 'W' as const },
+  { result: 'D' as const },
+  { result: 'L' as const },
+];
+assert(computeTeamWinStreakFromMatches(matchesStreak4) === 4, 'computeTeamWinStreakFromMatches calculates streak of 4 consecutive wins');
+
+const matchesStreak0 = [
+  { result: 'L' as const },
+  { result: 'W' as const },
+  { result: 'W' as const },
+];
+assert(computeTeamWinStreakFromMatches(matchesStreak0) === 0, 'computeTeamWinStreakFromMatches returns 0 when first match is a Loss');
+
+// 2. getTeamWinStreak and getTeamRecentForm
+const matchWithExplicitStreak: Match = {
+  ...minimalMatch,
+  id: 'm-streak-test',
+  homeTeam: 'Манчестер Сити',
+  awayTeam: 'Эвертон',
+  history: {
+    ...minimalMatch.history,
+    homeWinStreak: 5,
+    awayWinStreak: 0,
+    homeRecentForm: ['W', 'W', 'W', 'W', 'W'],
+    awayRecentForm: ['L', 'D', 'W', 'L', 'L'],
+  },
+};
+
+assert(getTeamWinStreak(matchWithExplicitStreak, 'home') === 5, 'getTeamWinStreak extracts homeWinStreak = 5');
+assert(getTeamWinStreak(matchWithExplicitStreak, 'away') === 0, 'getTeamWinStreak extracts awayWinStreak = 0');
+
+const homeForm = getTeamRecentForm(matchWithExplicitStreak, 'home', 5);
+assert(homeForm.length === 5 && homeForm.every((r) => r === 'W'), 'getTeamRecentForm returns 5 consecutive wins for home team');
+
+const awayForm = getTeamRecentForm(matchWithExplicitStreak, 'away', 5);
+assert(awayForm.length === 5 && awayForm[0] === 'L', 'getTeamRecentForm returns valid 5 outcomes for away team');
+
+// 3. evaluateFilterRule with minWinStreak
+const streakRule: FilterRule = {
+  id: 'rule-win-streak-3',
+  name: 'Прематч: Победная серия фаворита (≥ 3 побед подряд)',
+  category: 'goals',
+  ruleType: 'PREMATCH',
+  enabled: true,
+  minWinStreak: 3,
+  winStreakTeam: 'FAVORITE',
+  targetMarket: 'П1 / П2',
+};
+
+// Match where favorite (City, odds 1.25) has streak = 5 >= 3
+const passStreakMatch: Match = {
+  ...matchWithExplicitStreak,
+  status: 'PREMATCH',
+  odds: {
+    home: 1.25,
+    draw: 6.0,
+    away: 11.0,
+    over25: 1.55,
+  },
+};
+const evalStreakPass = evaluateFilterRule(passStreakMatch, streakRule);
+assert(evalStreakPass.matches === true, 'evaluateFilterRule matches when favorite team has win streak >= 3');
+
+// Match where favorite has streak = 1 < 3
+const failStreakMatch: Match = {
+  ...passStreakMatch,
+  history: {
+    ...passStreakMatch.history,
+    homeWinStreak: 1,
+    homeRecentForm: ['W', 'D', 'W', 'W', 'W'],
+  },
+};
+const evalStreakFail = evaluateFilterRule(failStreakMatch, streakRule);
+assert(evalStreakFail.matches === false, 'evaluateFilterRule rejects match when favorite win streak < 3');
+assert(
+  evalStreakFail.unmetCriteria.some((c) => c.includes('Серия побед') && c.includes('< требуемых 3')),
+  'Unmet criteria reports win streak deficiency'
+);
+
+// Any team streak check (winStreakTeam = 'ANY')
+const anyTeamStreakRule: FilterRule = {
+  ...streakRule,
+  winStreakTeam: 'ANY',
+  minWinStreak: 4,
+};
+const evalAnyStreakPass = evaluateFilterRule(passStreakMatch, anyTeamStreakRule);
+assert(evalAnyStreakPass.matches === true, 'winStreakTeam: ANY matches when at least one team has streak >= 4');
 
 // ----------------------------------------------------
 // SUMMARY

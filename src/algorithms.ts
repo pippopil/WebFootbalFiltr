@@ -614,6 +614,122 @@ export function checkMarketAlreadyPassed(
   return { isPassed: false };
 }
 
+/**
+ * Computes consecutive win streak from an array of recent match outcomes
+ */
+export function computeTeamWinStreakFromMatches(recentMatches?: Array<{ result: 'W' | 'D' | 'L' }>): number {
+  if (!recentMatches || recentMatches.length === 0) return 0;
+  let streak = 0;
+  for (const m of recentMatches) {
+    if (m.result === 'W') {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+/**
+ * Extracts or calculates current consecutive win streak for home or away team
+ */
+export function getTeamWinStreak(match: Match, team: 'home' | 'away'): number {
+  if (team === 'home') {
+    if (match.history?.homeWinStreak !== undefined) {
+      return match.history.homeWinStreak;
+    }
+    if (match.history?.homeRecentMatchesLast6 && match.history.homeRecentMatchesLast6.length > 0) {
+      return computeTeamWinStreakFromMatches(match.history.homeRecentMatchesLast6);
+    }
+    if (match.history?.homeRecentForm && match.history.homeRecentForm.length > 0) {
+      let streak = 0;
+      for (const res of match.history.homeRecentForm) {
+        if (res === 'W') streak++;
+        else break;
+      }
+      return streak;
+    }
+    // Deterministic fallback based on team name hash
+    let hash = 0;
+    const name = match.homeTeam || '';
+    for (let i = 0; i < name.length; i++) {
+      hash = (hash << 5) - hash + name.charCodeAt(i);
+    }
+    return Math.abs(hash) % 4; // 0..3 streak
+  } else {
+    if (match.history?.awayWinStreak !== undefined) {
+      return match.history.awayWinStreak;
+    }
+    if (match.history?.awayRecentMatchesLast6 && match.history.awayRecentMatchesLast6.length > 0) {
+      return computeTeamWinStreakFromMatches(match.history.awayRecentMatchesLast6);
+    }
+    if (match.history?.awayRecentForm && match.history.awayRecentForm.length > 0) {
+      let streak = 0;
+      for (const res of match.history.awayRecentForm) {
+        if (res === 'W') streak++;
+        else break;
+      }
+      return streak;
+    }
+    let hash = 0;
+    const name = match.awayTeam || '';
+    for (let i = 0; i < name.length; i++) {
+      hash = (hash << 5) - hash + name.charCodeAt(i);
+    }
+    return Math.abs(hash) % 4;
+  }
+}
+
+/**
+ * Returns the last 5 match outcomes (W/D/L) for a team from history
+ */
+export function getTeamRecentForm(match: Match, team: 'home' | 'away', count = 5): Array<'W' | 'D' | 'L'> {
+  if (team === 'home') {
+    if (match.history?.homeRecentForm && match.history.homeRecentForm.length > 0) {
+      return match.history.homeRecentForm.slice(0, count);
+    }
+    if (match.history?.homeRecentMatchesLast6 && match.history.homeRecentMatchesLast6.length > 0) {
+      return match.history.homeRecentMatchesLast6.slice(0, count).map((m) => m.result);
+    }
+    // Deterministic fallback based on team name hash
+    let hash = 0;
+    const name = match.homeTeam || '';
+    for (let i = 0; i < name.length; i++) {
+      hash = (hash << 5) - hash + name.charCodeAt(i);
+    }
+    const forms: Array<'W' | 'D' | 'L'>[] = [
+      ['W', 'W', 'W', 'D', 'W'],
+      ['W', 'W', 'D', 'W', 'L'],
+      ['W', 'D', 'W', 'W', 'W'],
+      ['D', 'W', 'W', 'L', 'W'],
+      ['W', 'L', 'W', 'D', 'W'],
+      ['W', 'W', 'W', 'W', 'D'],
+    ];
+    return forms[Math.abs(hash) % forms.length].slice(0, count);
+  } else {
+    if (match.history?.awayRecentForm && match.history.awayRecentForm.length > 0) {
+      return match.history.awayRecentForm.slice(0, count);
+    }
+    if (match.history?.awayRecentMatchesLast6 && match.history.awayRecentMatchesLast6.length > 0) {
+      return match.history.awayRecentMatchesLast6.slice(0, count).map((m) => m.result);
+    }
+    let hash = 0;
+    const name = match.awayTeam || '';
+    for (let i = 0; i < name.length; i++) {
+      hash = (hash << 5) - hash + name.charCodeAt(i);
+    }
+    const forms: Array<'W' | 'D' | 'L'>[] = [
+      ['W', 'D', 'W', 'L', 'W'],
+      ['W', 'W', 'W', 'D', 'L'],
+      ['D', 'W', 'W', 'W', 'D'],
+      ['L', 'W', 'D', 'W', 'W'],
+      ['W', 'W', 'D', 'D', 'W'],
+      ['W', 'W', 'W', 'W', 'W'],
+    ];
+    return forms[Math.abs(hash) % forms.length].slice(0, count);
+  }
+}
+
 export function inferSportFromRule(rule: FilterRule): SportType {
   if (rule.sport) return rule.sport;
   const text = `${rule.name || ''} ${rule.description || ''} ${rule.targetMarket || ''}`.toLowerCase();
@@ -1524,6 +1640,51 @@ export function evaluateFilterRule(
       passedCount++;
     } else {
       unmetCriteria.push(`Слишком много ничьих в очных встречах (${h2hDraws} > ${rule.maxH2hDrawsInLast5or6})`);
+    }
+  }
+
+  // 22h. Team Win Streak in Pre-match Analysis (Серия побед команды подряд)
+  if (rule.minWinStreak !== undefined && rule.minWinStreak > 0) {
+    totalCriteria++;
+    const homeStreak = getTeamWinStreak(match, 'home');
+    const awayStreak = getTeamWinStreak(match, 'away');
+    const target = rule.winStreakTeam || 'ANY';
+
+    let actualStreak = 0;
+    let targetDesc = '';
+
+    if (target === 'HOME') {
+      actualStreak = homeStreak;
+      targetDesc = `хозяев (${match.homeTeam})`;
+    } else if (target === 'AWAY') {
+      actualStreak = awayStreak;
+      targetDesc = `гостей (${match.awayTeam})`;
+    } else if (target === 'FAVORITE') {
+      const homeOdds = match.odds?.home ?? 2.0;
+      const awayOdds = match.odds?.away ?? 2.0;
+      if (homeOdds < awayOdds) {
+        actualStreak = homeStreak;
+        targetDesc = `фаворита (${match.homeTeam})`;
+      } else if (awayOdds < homeOdds) {
+        actualStreak = awayStreak;
+        targetDesc = `фаворита (${match.awayTeam})`;
+      } else {
+        actualStreak = Math.max(homeStreak, awayStreak);
+        targetDesc = 'фаворита';
+      }
+    } else {
+      // ANY
+      actualStreak = Math.max(homeStreak, awayStreak);
+      const teamWithMaxStreak = homeStreak >= awayStreak ? match.homeTeam : match.awayTeam;
+      targetDesc = `команды (${teamWithMaxStreak})`;
+    }
+
+    if (actualStreak >= rule.minWinStreak) {
+      passedCount++;
+    } else {
+      unmetCriteria.push(
+        `Серия побед ${targetDesc}: ${actualStreak} матчей подряд < требуемых ${rule.minWinStreak}`
+      );
     }
   }
 

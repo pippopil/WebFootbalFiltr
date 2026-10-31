@@ -27,6 +27,7 @@ import {
   FileText,
   Lock,
   Crown,
+  Trophy,
 } from 'lucide-react';
 import { FilterRule, Match, ScoreCondition, FilterCategory, TelegramBotProfile } from '../types';
 import { evaluateFilterRule } from '../algorithms';
@@ -2251,6 +2252,51 @@ export const FilterBuilderModal: React.FC<FilterBuilderModalProps> = ({
                   }
                   className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-xs text-white font-mono focus:border-purple-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Проверка на серию побед команды (Streak) для прематч-анализа */}
+              <div className="p-2.5 rounded-lg bg-slate-900/80 border border-emerald-500/30 space-y-1.5">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="font-semibold text-emerald-300 flex items-center gap-1">
+                    <Trophy className="h-3.5 w-3.5 text-emerald-400" />
+                    Серия побед подряд (≥ побед):
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono">Прематч Streak</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    placeholder="Напр. 3 победы"
+                    value={formData.minWinStreak ?? ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        minWinStreak: e.target.value !== '' ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                  <select
+                    value={formData.winStreakTeam || 'ANY'}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        winStreakTeam: e.target.value as any,
+                      })
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ANY">Любая команда</option>
+                    <option value="FAVORITE">Фаворит матча</option>
+                    <option value="HOME">Хозяева (К1)</option>
+                    <option value="AWAY">Гости (К2)</option>
+                  </select>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Проверяет форму по истории: победная серия команды подряд (динамика W/D/L)
+                </p>
               </div>
 
               <label className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80 cursor-pointer hover:border-slate-700 transition">

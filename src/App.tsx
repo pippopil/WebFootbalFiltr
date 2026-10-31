@@ -177,6 +177,7 @@ import { voiceAnnouncer } from './services/voiceAlertAnnouncer';
 import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { StrategyAuditLogModal } from './components/StrategyAuditLogModal';
 import { MatchXgTimelineChart } from './components/MatchXgTimelineChart';
+import { TeamFormSparkline } from './components/TeamFormSparkline';
 import { logStrategyTrigger, logStrategyResolution } from './services/strategyAuditLogger';
 import { runDailyPrematchAnalysis } from './services/prematchScheduler';
 import { AppLogo } from './components/AppLogo';
@@ -6758,6 +6759,9 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Sparkline график динамики последних 5 матчей команд (В/Н/П) и серии побед */}
+                      <TeamFormSparkline match={match} />
+
                       {/* Matching Filters badges on card */}
                       {matchingRules.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-slate-800/80 flex flex-wrap gap-1.5 items-center">
@@ -7432,6 +7436,11 @@ export default function App() {
                         />
                       </div>
                     </div>
+                  </div>
+
+                  {/* Team Form & Win Streak Dynamics Sparkline */}
+                  <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                    <TeamFormSparkline match={selectedMatch} />
                   </div>
 
                   {/* Offensive Trend Intensity & Momentum Consistency Sparkline */}
