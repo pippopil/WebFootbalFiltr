@@ -1512,8 +1512,11 @@ const sig69: SignalAlert = {
   ruleName: strat69.name,
   marketSuggestion: strat69.targetMarket,
 };
-const res69Win = evaluateSignalOutcome(sig69, [1, 1], true, undefined, undefined, { minute: 90, matchStatus: 'FT' });
-assert(res69Win.outcome === 'WIN', 'Strategy 69 resolves as WIN (Push/Win for F(0) or 1X) on 1:1 draw at FT');
+const res69Refund = evaluateSignalOutcome(sig69, [1, 1], true, undefined, undefined, { minute: 90, matchStatus: 'FT' });
+assert(res69Refund.outcome === 'REFUND', 'Strategy 69 resolves as REFUND (возврат ставки по Форе 0) on 1:1 draw at FT');
+assert(res69Refund.shouldResolve === true, 'Strategy 69 shouldResolve is true on draw');
+const res69Win = evaluateSignalOutcome(sig69, [2, 1], true, undefined, undefined, { minute: 90, matchStatus: 'FT' });
+assert(res69Win.outcome === 'WIN', 'Strategy 69 resolves as WIN on favored team victory at FT');
 
 // ----------------------------------------------------
 // TEST GROUP 18: Unambiguous TB/TM Bet Detection & Super-Combo Synergy

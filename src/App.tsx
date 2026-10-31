@@ -2314,6 +2314,7 @@ export default function App() {
   );
   const lastStatsReceivedTimestampRef = useRef<number>(Date.now());
   const latestKnownMatchesRef = useRef<Map<string, Match>>(new Map());
+  const resolvedSignalIdsRef = useRef<Set<string>>(new Set());
 
   // Data Sources configuration state
   const [isRefreshingMatches, setIsRefreshingMatches] = useState<boolean>(false);
@@ -3598,7 +3599,10 @@ export default function App() {
       const histMatches = loadAccumulatedLiveMatches();
 
       signals.forEach((sig) => {
-        if (sig.outcome !== 'PENDING') return;
+        if (sig.outcome !== 'PENDING' || resolvedSignalIdsRef.current.has(sig.id)) {
+          resolvedSignalIdsRef.current.add(sig.id);
+          return;
+        }
 
         let match: Match | undefined = matches.find((m) => m.id === sig.matchId);
         let matchSourceType = 'live';
@@ -3698,6 +3702,12 @@ export default function App() {
         );
 
         if (evalRes.shouldResolve) {
+          // 🛑 1. Synchronously claim resolution lock to prevent any race condition or duplicate send
+          if (resolvedSignalIdsRef.current.has(sig.id)) {
+            return;
+          }
+          resolvedSignalIdsRef.current.add(sig.id);
+
           // Record 1st-half score snapshot on match history if not yet recorded
           if ((match.status === 'HT' || match.minute >= 45) && !match.history?.firstHalfScore) {
             match.history = { ...match.history, firstHalfScore: [match.score[0], match.score[1]] };
@@ -3757,6 +3767,9 @@ export default function App() {
           const botTokenToUse = sig.botToken || telegramConfig.botToken;
           const chatIdToUse = sig.chatId || telegramConfig.channelId;
 
+          // 🛑 2. Synchronously update local React state so signals array immediately reflects resolved outcome
+          setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
+
           // Dispatch result to Telegram if signal was configured for Telegram
           if (sig.sentToTelegram && telegramConfig.autoSend && botTokenToUse && chatIdToUse) {
             const resolvedHtml = formatResolvedTelegramAlert(
@@ -3780,34 +3793,35 @@ export default function App() {
               }).catch(() => {});
             }
 
-            // 2. Dispatch a new result alert notification to Telegram (replies to original with sound/push)
+            // 2. Dispatch a single result alert notification to Telegram (replies to original with sound/push)
             sendTelegramMessage(
               resolvedHtml,
               false,
               {
                 matchId: sig.matchId,
                 ruleId: sig.ruleId,
-                force: true,
+                canonicalKey: `res_${sig.id}`,
+                force: false,
                 botToken: botTokenToUse,
                 chatId: chatIdToUse,
                 replyToMessageId: sig.telegramMessageId,
               }
             ).then((res) => {
-              setSignals((curr) =>
-                curr.map((s) =>
-                  s.id === sig.id
-                    ? {
-                        ...updatedSignal,
-                        telegramEdited: true,
-                        telegramEditedAt: new Date().toLocaleTimeString('ru-RU'),
-                        telegramStatusText: `Результат доставлен в TG (${evalRes.outcome === 'WIN' ? '✅ WIN' : '❌ LOSS'})`,
-                      }
-                    : s
-                )
-              );
+              if (res?.ok) {
+                setSignals((curr) =>
+                  curr.map((s) =>
+                    s.id === sig.id
+                      ? {
+                          ...s,
+                          telegramEdited: true,
+                          telegramEditedAt: new Date().toLocaleTimeString('ru-RU'),
+                          telegramStatusText: `Результат доставлен в TG (${evalRes.outcome === 'WIN' ? '✅ WIN' : evalRes.outcome === 'REFUND' ? '🔄 REFUND' : '❌ LOSS'})`,
+                        }
+                      : s
+                  )
+                );
+              }
             }).catch(() => {});
-          } else {
-            setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
           }
 
           // In-app notifications: Web Push & Audio

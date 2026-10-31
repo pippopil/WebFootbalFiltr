@@ -406,6 +406,20 @@ async function startServer() {
     const normalizedSnippet = text.slice(0, 160).replace(/\d+['′’]/g, '').trim();
     const textHash = `${cleanChat}__hash_${normalizedSnippet}`;
 
+    // Strict deduplication for resolution alerts ('res_...') - resolutions can never be sent more than once per signal
+    if (canonicalKey && canonical_key && typeof canonical_key === 'string' && canonical_key.startsWith('res_')) {
+      const existingRes = recentDispatchedSignals.get(canonicalKey);
+      if (existingRes) {
+        return res.json({
+          ok: true,
+          duplicateSuppressed: true,
+          message: 'Результат расчета по данному сигналу уже отправлен в Telegram (подавлен дубликат исхода)',
+          elapsedSec: Math.floor((Date.now() - existingRes.timestamp) / 1000),
+          cooldownSeconds: cooldown_seconds,
+        });
+      }
+    }
+
     if (!force) {
       // 1. Check canonical strategy & match duplication (cross-provider resilient)
       if (canonicalKey) {

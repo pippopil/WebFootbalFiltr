@@ -4482,17 +4482,24 @@ export function evaluateSignalOutcome(
     }
   }
 
-  // 0c-9. Стратегии 63-67 (Стратегии из сканера)
+  // 0c-9. Стратегии 63-67, 70-72 (Стратегии голов из фото-сканера)
   const isPhotoScannerGoal =
-    signal.ruleId === 'strat-photo-home-goal-17-20' ||
-    signal.ruleId === 'strat-photo-ht-goal-92' ||
-    signal.ruleId === 'strat-photo-match-goal-multi' ||
-    signal.ruleId === 'strat-photo-goal-95-h2h' ||
-    signal.ruleId === 'strat-photo-goal-98-combo' ||
-    signal.ruleId === 'strat-photo-all-in-one-68-75' ||
-    signal.ruleId === 'strat-photo-kef2-ht-over05' ||
-    signal.ruleId === 'strat-photo-kef-1h-value' ||
-    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] >= 63 && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] <= 72);
+    signal.ruleId !== 'strat-pdf-three-matches-theory' &&
+    signal.ruleId !== 'strat-pdf-15-param-value-drop' &&
+    (
+      signal.ruleId === 'strat-photo-home-goal-17-20' ||
+      signal.ruleId === 'strat-photo-ht-goal-92' ||
+      signal.ruleId === 'strat-photo-match-goal-multi' ||
+      signal.ruleId === 'strat-photo-goal-95-h2h' ||
+      signal.ruleId === 'strat-photo-goal-98-combo' ||
+      signal.ruleId === 'strat-photo-all-in-one-68-75' ||
+      signal.ruleId === 'strat-photo-kef2-ht-over05' ||
+      signal.ruleId === 'strat-photo-kef-1h-value' ||
+      (signal.ruleId && (
+        (PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] >= 63 && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] <= 67) ||
+        (PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] >= 70 && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] <= 72)
+      ))
+    );
 
   if (isPhotoScannerGoal) {
     if (signal.ruleId === 'strat-photo-home-goal-17-20' && curHome > initHome) {
@@ -4531,23 +4538,64 @@ export function evaluateSignalOutcome(
     return { outcome: 'PENDING', shouldResolve: false };
   }
 
-  // 0c-10. Стратегия 68 (Теория трёх матчей) & 69 (15 параметров)
-  const isPdfStrategy =
+  // 0c-10. Стратегия 68 (Теория трёх матчей: 1X)
+  const isStrat68 =
     signal.ruleId === 'strat-pdf-three-matches-theory' ||
-    signal.ruleId === 'strat-pdf-15-param-value-drop' ||
-    (signal.ruleId && (PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 68 || PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 69));
+    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 68) ||
+    ruleNameLower.includes('стратегия 68') ||
+    ruleNameLower.includes('теория трёх матчей');
 
-  if (isPdfStrategy) {
+  if (isStrat68) {
     const isActuallyComplete =
       matchContext?.matchStatus === 'FT' ||
       (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
     if (isActuallyComplete) {
-      const isWinOrPush = curHome >= curAway;
+      const isWin1X = curHome >= curAway;
       return {
-        outcome: isWinOrPush ? 'WIN' : 'LOSS',
-        note: isWinOrPush
-          ? `Стратегия по аналитической модели зашла: итог ${curHome}:${curAway}`
-          : `Неожиданный результат: итог ${curHome}:${curAway}`,
+        outcome: isWin1X ? 'WIN' : 'LOSS',
+        note: isWin1X
+          ? `Теория трёх матчей (1X) зашла: итог ${curHome}:${curAway}`
+          : `Теория трёх матчей (1X) не зашла: победа гостей (${curHome}:${curAway})`,
+        shouldResolve: true,
+      };
+    }
+    return { outcome: 'PENDING', shouldResolve: false };
+  }
+
+  // 0c-11. Стратегия 69 (15 параметров: Фора (0) / Ф(0))
+  const isStrat69 =
+    signal.ruleId === 'strat-pdf-15-param-value-drop' ||
+    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 69) ||
+    ruleNameLower.includes('стратегия 69') ||
+    ruleNameLower.includes('15 параметров') ||
+    market.includes('фора (0)') ||
+    market.includes('ф(0)');
+
+  if (isStrat69) {
+    const isActuallyComplete =
+      matchContext?.matchStatus === 'FT' ||
+      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
+    if (isActuallyComplete) {
+      // 🤝 При ничейном результате по стратегии с Форой (0) фиксируется ВОЗВРАТ (REFUND) - не проигрыш и не победа!
+      if (curHome === curAway) {
+        return {
+          outcome: 'REFUND',
+          note: `Фора (0) возврат ставки: ничейный результат (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+
+      // Определение команды с перевесом/падением кэфов
+      const homeOdds = (signal.statsSnapshot as any)?.homeOdds ?? 1.8;
+      const awayOdds = (signal.statsSnapshot as any)?.awayOdds ?? 2.5;
+      const favoredIsHome = homeOdds <= awayOdds;
+
+      const isWin = favoredIsHome ? curHome > curAway : curAway > curHome;
+      return {
+        outcome: isWin ? 'WIN' : 'LOSS',
+        note: isWin
+          ? `Фора (0) зашла: победа валуйной команды (${curHome}:${curAway})`
+          : `Фора (0) не сыграла: поражение команды (${curHome}:${curAway})`,
         shouldResolve: true,
       };
     }
