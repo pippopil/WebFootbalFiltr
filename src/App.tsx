@@ -109,6 +109,13 @@ import {
   ALERT_SOUND_PROFILES,
 } from './utils/audioAlerts';
 import { exportSignalsToExcelCsv } from './utils/exportReports';
+import {
+  safeSetItem,
+  safeGetItem,
+  safeRemoveItem,
+  compactFiltersForStorage,
+  rehydrateStoredFilters,
+} from './utils/storage';
 
 import {
   Match,
@@ -1725,7 +1732,7 @@ export default function App() {
           const combined = Array.from(dedupFiltersMap.values());
 
           if (!migrationFlag) {
-            localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
+            safeSetItem('footbalmonitor_user_launched_only_v2', 'true');
             // If previous session had massive bulk enabled, default to only filter #1 launched
             return combined.map((f: FilterRule, idx: number) => ({
               ...f,
@@ -1738,7 +1745,7 @@ export default function App() {
       } catch (e) {}
     }
 
-    localStorage.setItem('footbalmonitor_user_launched_only_v2', 'true');
+    safeSetItem('footbalmonitor_user_launched_only_v2', 'true');
     if (isFree && uid !== 'user-god-developer' && !uid.includes('god')) {
       return [createCleanBlankFilter(uid)];
     }
@@ -1760,19 +1767,20 @@ export default function App() {
   const [isBacktestModalOpen, setIsBacktestModalOpen] = useState<boolean>(false);
   const [isAISynthesizerOpen, setIsAISynthesizerOpen] = useState<boolean>(false);
 
-  // Save users & current user id
+  // Save users & current user id safely
   useEffect(() => {
-    localStorage.setItem('footbalmonitor_users', JSON.stringify(allUsers));
+    safeSetItem('footbalmonitor_users', JSON.stringify(allUsers));
   }, [allUsers]);
 
   useEffect(() => {
-    localStorage.setItem('footbalmonitor_current_user_id', currentUserId);
+    safeSetItem('footbalmonitor_current_user_id', currentUserId);
   }, [currentUserId]);
 
-  // Save filters isolated to the active user
+  // Save filters isolated to the active user safely with quota-safe compaction
   useEffect(() => {
     if (currentUser?.id) {
-      localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(filters));
+      const compacted = compactFiltersForStorage(filters);
+      safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compacted));
     }
   }, [filters, currentUser?.id]);
 
@@ -1791,9 +1799,9 @@ export default function App() {
       setFilters(restored);
       try {
         if (currentUser?.id) {
-          localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(restored));
+          safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compactFiltersForStorage(restored)));
         }
-        localStorage.setItem('footbalmonitor_filters', JSON.stringify(restored));
+        safeSetItem('footbalmonitor_filters', JSON.stringify(compactFiltersForStorage(restored)));
       } catch {}
     }
   }, [filters.length, currentUser?.id]);
@@ -1937,9 +1945,9 @@ export default function App() {
 
   // User Management & Cabinet Handlers
   const handleSelectUser = (newUser: UserProfile) => {
-    // 1. Save current user's filters
+    // 1. Save current user's filters safely
     if (currentUser?.id) {
-      localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(filters));
+      safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compactFiltersForStorage(filters)));
     }
 
     // Ensure selected user is in allUsers state
@@ -1952,31 +1960,26 @@ export default function App() {
     });
 
     setCurrentUserId(newUser.id);
-    localStorage.setItem('footbalmonitor_current_user_id', newUser.id);
+    safeSetItem('footbalmonitor_current_user_id', newUser.id);
 
     // If user has a default preferred data source, automatically switch activeSource to it
     if (newUser.defaultDataSource && newUser.defaultDataSource !== dataSourceConfig.activeSource) {
       setDataSourceConfig((prev) => {
         const updated = { ...prev, activeSource: newUser.defaultDataSource! };
-        try {
-          localStorage.setItem('footbalmonitor_datasource_config', JSON.stringify(updated));
-        } catch {}
+        safeSetItem('footbalmonitor_datasource_config', JSON.stringify(updated));
         return updated;
       });
       fetchLiveMatchesFromSource(newUser.defaultDataSource);
     }
 
-    // 2. Load selected user's filters
+    // 2. Load selected user's filters safely
     const isNewUserFree = newUser.plan === 'FREE';
-    const userSaved = localStorage.getItem(`footbalmonitor_filters_user_${newUser.id}`);
+    const userSaved = safeGetItem(`footbalmonitor_filters_user_${newUser.id}`);
     if (userSaved) {
       try {
         const parsed = JSON.parse(userSaved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const hasPresets = parsed.some((p: FilterRule) => p.isPreset);
-          const rawRules = hasPresets
-            ? parsed
-            : [...EXPANDED_DEFAULT_FILTERS, ...parsed.filter((p: FilterRule) => !p.isPreset)];
+          const rawRules = rehydrateStoredFilters(parsed, EXPANDED_DEFAULT_FILTERS, newUser.id);
 
           if (isNewUserFree && newUser.id !== 'user-god-developer' && !newUser.id.includes('god')) {
             // Free accounts only get their custom filters (starting from clean blank)
@@ -4598,9 +4601,9 @@ export default function App() {
     setFilters(restored);
     try {
       if (currentUser?.id) {
-        localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(restored));
+        safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compactFiltersForStorage(restored)));
       }
-      localStorage.setItem('footbalmonitor_filters', JSON.stringify(restored));
+      safeSetItem('footbalmonitor_filters', JSON.stringify(compactFiltersForStorage(restored)));
     } catch {}
   };
 
@@ -4614,9 +4617,9 @@ export default function App() {
       const updated = prev.map((f) => ({ ...f, enabled: false }));
       try {
         if (currentUser?.id) {
-          localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(updated));
+          safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compactFiltersForStorage(updated)));
         }
-        localStorage.setItem('footbalmonitor_filters', JSON.stringify(updated));
+        safeSetItem('footbalmonitor_filters', JSON.stringify(compactFiltersForStorage(updated)));
       } catch {}
       return updated;
     });
@@ -4628,9 +4631,9 @@ export default function App() {
       const updated = prev.map((f) => ({ ...f, enabled: true }));
       try {
         if (currentUser?.id) {
-          localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(updated));
+          safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compactFiltersForStorage(updated)));
         }
-        localStorage.setItem('footbalmonitor_filters', JSON.stringify(updated));
+        safeSetItem('footbalmonitor_filters', JSON.stringify(compactFiltersForStorage(updated)));
       } catch {}
       return updated;
     });
