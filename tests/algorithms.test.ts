@@ -1301,6 +1301,46 @@ const sig62: SignalAlert = {
 };
 const res62Win = evaluateSignalOutcome(sig62, [6, 4], false, undefined, undefined, { minute: 42, matchStatus: 'LIVE' });
 assert(res62Win.outcome === 'WIN', 'Strategy 62 resolves as WIN when 1st set reaches 10 total games (6:4)');
+const res62SetsWin = evaluateSignalOutcome(sig62, [2, 1], true, undefined, undefined, { minute: 85, matchStatus: 'FT' });
+assert(res62SetsWin.outcome === 'WIN', 'Strategy 62 resolves as WIN on FT with 3 sets played');
+
+// Strategy 49: Tennis Set 2 Comeback
+const strat49 = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-tennis-set2-comeback')!;
+assert(strat49 !== undefined, 'Strategy 49 (Tennis Set 2 Comeback) exists in default filters');
+const sig49: SignalAlert = {
+  ...cornerSignal,
+  id: 'sig-49',
+  minute: 45,
+  score: '0:1',
+  sport: 'tennis',
+  ruleId: 'strat-tennis-set2-comeback',
+  ruleName: strat49.name,
+  marketSuggestion: strat49.targetMarket,
+  statsSnapshot: {
+    ...cornerSignal.statsSnapshot!,
+    homeScore: 0,
+    awayScore: 1,
+    homeOdds: 1.35,
+    awayOdds: 3.10,
+  } as any,
+};
+const res49ComebackWin = evaluateSignalOutcome(sig49, [1, 1], false, undefined, undefined, { minute: 65, matchStatus: 'LIVE' });
+assert(res49ComebackWin.outcome === 'WIN', 'Strategy 49 resolves as WIN when favorite levels the match (1:1 in sets)');
+assert(res49ComebackWin.shouldResolve === true, 'Strategy 49 shouldResolve is true');
+
+const res49Loss = evaluateSignalOutcome(sig49, [0, 2], true, undefined, undefined, { minute: 78, matchStatus: 'FT' });
+assert(res49Loss.outcome === 'LOSS', 'Strategy 49 resolves as LOSS when underdog closes match 2:0');
+
+// Telegram resolution formatting for tennis
+const tennisAlertHtml = formatResolvedTelegramAlert(
+  { ...sig49, outcome: 'WIN', profit: 700, resolutionNote: 'Камбэк зашёл!' },
+  '2:1',
+  'WIN',
+  { homeTeam: 'Carlos Alcaraz', awayTeam: 'Jannik Sinner', league: 'ATP Masters', country: 'Испания' }
+);
+assert(tennisAlertHtml.includes('🎾'), 'Tennis resolution alert includes 🎾 emoji');
+assert(tennisAlertHtml.includes('РЕЗУЛЬТАТ ПО СТРАТЕГИИ (ТЕННИС)'), 'Tennis resolution alert includes tennis metric block');
+assert(tennisAlertHtml.includes('СИГНАЛ ЗАШЁЛ (WIN)'), 'Tennis resolution alert declares WIN status');
 
 // ----------------------------------------------------
 // Test Group 17: Scanner Photos (63-67) & PDF Books (68-69) Strategies

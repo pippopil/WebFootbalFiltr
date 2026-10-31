@@ -3542,16 +3542,22 @@ export default function App() {
 
           // Occasional goal during heavy pressure
           const homeScores = isHomePressuring && deltaShots > 0 && Math.random() > 0.92;
-          const awayScores = !isHomePressuring && deltaShots > 0 && Math.random() > 0.94;
           const nextScore: [number, number] = [
             m.score[0] + (homeScores ? 1 : 0),
             m.score[1] + (awayScores ? 1 : 0),
           ];
 
+          // Sports completion criteria
+          const isTennisDone = m.sport === 'tennis' && (nextScore[0] >= 2 || nextScore[1] >= 2 || nextMinute >= 80);
+          const isHockeyDone = m.sport === 'hockey' && nextMinute >= 60;
+          const isBasketDone = m.sport === 'basketball' && nextMinute >= 40;
+          const isTableTennisDone = (m.sport === 'table_tennis' || m.sport === 'volleyball') && (nextScore[0] >= 3 || nextScore[1] >= 3);
+          const isFt = nextMinute >= 90 || isTennisDone || isHockeyDone || isBasketDone || isTableTennisDone;
+
           const updatedMatch: Match = {
             ...m,
             minute: nextMinute,
-            status: nextMinute >= 90 ? 'FT' : m.status,
+            status: isFt ? 'FT' : m.status,
             score: nextScore,
             stats: {
               ...m.stats,
@@ -3643,9 +3649,40 @@ export default function App() {
 
         if (!match) return;
 
-        // Only genuine FT status or finished regulation time (>=92' for football, >=40' for basketball) marks a match as finished
-        const isRegulationOver = match.sport === 'basketball' ? match.minute >= 40 : match.minute >= 92;
-        const isFinished = match.status === 'FT' || (isRegulationOver && match.status !== 'LIVE');
+        // Multi-sport match finish detection (Tennis, Basketball, Hockey, Table Tennis, Football)
+        const isTennisCompleted =
+          match.sport === 'tennis' &&
+          (match.status === 'FT' || match.score[0] >= 2 || match.score[1] >= 2 || (match.minute >= 75 && match.status !== 'LIVE'));
+
+        const isHockeyCompleted =
+          match.sport === 'hockey' && (match.status === 'FT' || (match.minute >= 60 && match.status !== 'LIVE'));
+
+        const isBasketballCompleted =
+          match.sport === 'basketball' && (match.status === 'FT' || (match.minute >= 40 && match.status !== 'LIVE'));
+
+        const isTableTennisCompleted =
+          (match.sport === 'table_tennis' || match.sport === 'volleyball') &&
+          (match.status === 'FT' || match.score[0] >= 3 || match.score[1] >= 3 || (match.minute >= 25 && match.status !== 'LIVE'));
+
+        const isRegulationOver =
+          match.sport === 'basketball'
+            ? match.minute >= 40
+            : match.sport === 'hockey'
+            ? match.minute >= 60
+            : match.sport === 'tennis'
+            ? (match.score[0] >= 2 || match.score[1] >= 2 || match.minute >= 75)
+            : match.sport === 'volleyball' || match.sport === 'table_tennis'
+            ? (match.score[0] >= 3 || match.score[1] >= 3 || match.minute >= 25)
+            : match.minute >= 92;
+
+        const isFinished =
+          match.status === 'FT' ||
+          match.status === 'FINISHED' ||
+          isTennisCompleted ||
+          isHockeyCompleted ||
+          isBasketballCompleted ||
+          isTableTennisCompleted ||
+          (isRegulationOver && match.status !== 'LIVE');
 
         const evalRes = evaluateSignalOutcome(
           sig,

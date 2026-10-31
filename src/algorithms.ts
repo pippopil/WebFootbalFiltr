@@ -2577,7 +2577,20 @@ export function detectStrategyMetricCategory(
     return 'basketball';
   }
 
-  // 4. Goals / score (голы, ТБ, ТМ, победы, обе забьют, таймы)
+  // 4. Tennis (теннис, геймы, сеты)
+  if (
+    cat === 'tennis' ||
+    sport === 'tennis' ||
+    id.includes('tennis') ||
+    name.includes('теннис') ||
+    name.includes('tennis') ||
+    market.includes('гейм') ||
+    market.includes('сет')
+  ) {
+    return 'tennis';
+  }
+
+  // 5. Goals / score (голы, ТБ, ТМ, победы, обе забьют, таймы)
   return 'goals';
 }
 
@@ -2633,6 +2646,22 @@ export function getInitialStrategyMetric(
       initialTotal: total,
       initialBreakdown: `${h}:${a}`,
       initialValueText: `${h}:${a} (${total} очков, разрыв ${diff} пт) на ${match.minute}'`,
+    };
+  }
+
+  if (cat === 'tennis' || match.sport === 'tennis') {
+    const h = match.score[0] ?? 0;
+    const a = match.score[1] ?? 0;
+    const total = h + a;
+    const isSets = h <= 3 && a <= 3;
+    const unitLabel = isSets ? 'сетов' : 'геймов';
+    return {
+      category: 'tennis',
+      label: 'Теннис (Счёт / Сеты)',
+      icon: '🎾',
+      initialTotal: total,
+      initialBreakdown: `${h}:${a}`,
+      initialValueText: `${h}:${a} (${total} ${unitLabel}) на ${match.minute}'`,
     };
   }
 
@@ -2748,6 +2777,35 @@ export function resolveStrategyMetric(
       finalValueText: `${finalH}:${finalA} (${finalTotal} очков)`,
       delta,
       deltaText: `${deltaSign} очков после сигнала (было ${initH}:${initA} ➔ стало ${finalH}:${finalA})`,
+    };
+  }
+
+  if (cat === 'tennis' || signal.sport === 'tennis') {
+    const scoreParts = (signal.score || '0:0').split(':').map((s) => parseInt(s.trim(), 10));
+    const initH = isNaN(scoreParts[0]) ? (signal.statsSnapshot?.homeScore ?? 0) : scoreParts[0];
+    const initA = isNaN(scoreParts[1]) ? (signal.statsSnapshot?.awayScore ?? 0) : scoreParts[1];
+    const initTotal = initH + initA;
+
+    const finalH = currentScoreTuple[0] ?? initH;
+    const finalA = currentScoreTuple[1] ?? initA;
+    const finalTotal = finalH + finalA;
+    const delta = finalTotal - initTotal;
+    const deltaSign = delta >= 0 ? `+${delta}` : `${delta}`;
+    const isSets = initH <= 3 && initA <= 3 && finalH <= 3 && finalA <= 3;
+    const unitLabel = isSets ? 'сетов' : 'геймов';
+
+    return {
+      category: 'tennis',
+      label: 'Теннис (Счёт / Геймы)',
+      icon: '🎾',
+      initialTotal: initTotal,
+      initialBreakdown: `${initH}:${initA}`,
+      initialValueText: `${initH}:${initA} (${initTotal} ${unitLabel}) на ${signal.minute}'`,
+      finalTotal,
+      finalBreakdown: `${finalH}:${finalA}`,
+      finalValueText: `${finalH}:${finalA} (${finalTotal} ${unitLabel})`,
+      delta,
+      deltaText: `${deltaSign} ${unitLabel} после сигнала (${initH}:${initA} ➔ ${finalH}:${finalA})`,
     };
   }
 
@@ -3483,6 +3541,14 @@ export function formatResolvedTelegramAlert(
       `   • <b>По завершению:</b> <b>${metric.finalValueText}</b>\n` +
       `   • <b>Итоговая динамика:</b> <b><u>${metric.deltaText}</u></b>\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  } else if (metric.category === 'tennis' || signal.sport === 'tennis') {
+    metricSection =
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🎾 <b>РЕЗУЛЬТАТ ПО СТРАТЕГИИ (ТЕННИС):</b>\n` +
+      `   • <b>Счёт на момент сигнала:</b> <b>${metric.initialValueText}</b>\n` +
+      `   • <b>Итог:</b> <b>${metric.finalValueText}</b>\n` +
+      `   • <b>Итоговая динамика:</b> <b><u>${metric.deltaText}</u></b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   } else {
     metricSection =
       `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -3528,13 +3594,20 @@ export function formatResolvedTelegramAlert(
       : 'НЕ ПРОШЛО ❌'
     : 'ВОЗВРАТ 🔄';
 
+  const sportIcon =
+    signal.sport === 'tennis' ? '🎾' :
+    signal.sport === 'basketball' ? '🏀' :
+    signal.sport === 'hockey' ? '🏒' :
+    signal.sport === 'volleyball' ? '🏐' :
+    signal.sport === 'table_tennis' ? '🏓' : '⚽';
+
   return (
     `${statusHeader}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🏷 <b>Категория:</b> ${betTypeLabel}\n` +
     `📋 <b>${strategyTag}</b>\n` +
     `🏆 <b>${country} | ${league}</b>\n` +
-    `⚽ <b>${home} ${finalScore} ${away}</b> ${matchStatusTag}\n` +
+    `${sportIcon} <b>${home} ${finalScore} ${away}</b> ${matchStatusTag}\n` +
     `${scoreChangeNote}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     (expectedActionText ? `🎯 <b>${expectedActionText}</b>\n` : '') +
@@ -4190,7 +4263,7 @@ export function evaluateSignalOutcome(
     return { outcome: 'PENDING', shouldResolve: false };
   }
 
-  // 0c-8. Стратегия 62 (Теннис B.O.S.): Модель подаванов Big Server (ТБ 9.5 в 1-м сете)
+  // 0c-8. 🎾 TENNIS STRATEGIES RESOLUTION (Стратегия 62, 49 и все стратегии на теннис)
   const isTennisBosBigserver =
     signal.ruleId === 'strat-tennis-bos-bigserver-tb95' ||
     (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 62) ||
@@ -4198,24 +4271,215 @@ export function evaluateSignalOutcome(
     ruleNameLower.includes('подаванов') ||
     ruleNameLower.includes('big server');
 
-  if (isTennisBosBigserver) {
-    if (currentTotalGoals >= 10 || (curHome >= 5 && curAway >= 5)) {
+  const isTennisSet2Comeback =
+    signal.ruleId === 'strat-tennis-set2-comeback' ||
+    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 49) ||
+    ruleNameLower.includes('камбэк фаворита во 2-м') ||
+    ruleNameLower.includes('камбэк во 2') ||
+    ruleNameLower.includes('стратегия 49');
+
+  const isGeneralTennis =
+    signal.sport === 'tennis' ||
+    ruleNameLower.includes('теннис') ||
+    ruleNameLower.includes('tennis') ||
+    market.includes('теннис');
+
+  if (isTennisBosBigserver || isTennisSet2Comeback || isGeneralTennis) {
+    // Strategy 62: Big Server (ТБ 9.5 в 1-м сете)
+    if (isTennisBosBigserver) {
+      // 1. In games count: 5:5, 6:4, 7:5, 7:6 or 10+ games
+      if (currentTotalGoals >= 10 || (curHome >= 5 && curAway >= 5)) {
+        return {
+          outcome: 'WIN',
+          note: `Теннис B.O.S.: ТБ 9.5 в сете подаванов зашёл! Счёт ${curHome}:${curAway} (${currentTotalGoals} геймов)`,
+          shouldResolve: true,
+        };
+      }
+      // If 1st set completed in games (6:0..6:3 = LOSS, 6:4..7:6 = WIN)
+      if (curHome >= 6 || curAway >= 6) {
+        return {
+          outcome: currentTotalGoals >= 10 ? 'WIN' : 'LOSS',
+          note: currentTotalGoals >= 10
+            ? `Теннис B.O.S.: ТБ 9.5 сыграл (${curHome}:${curAway})`
+            : `Теннис B.O.S.: ранний брейк, сет завершился ${curHome}:${curAway} (<10 геймов)`,
+          shouldResolve: true,
+        };
+      }
+      // In sets count: if match reached multiple sets (e.g. 1:1, 2:1) -> TB 9.5 definitely passed
+      if ((curHome >= 1 && curAway >= 1) || (curHome + curAway >= 2)) {
+        return {
+          outcome: 'WIN',
+          note: `Теннис B.O.S.: плотная борьба в матче (${curHome}:${curAway} по сетам), ТБ 9.5 зашёл!`,
+          shouldResolve: true,
+        };
+      }
+      if (isMatchFinished) {
+        const isWin = currentTotalGoals >= 10 || goalsSinceSignal > 0 || (curHome + curAway >= 2);
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin
+            ? `Теннис B.O.S.: ТБ 9.5 сыграл, итог матча ${curHome}:${curAway}`
+            : `Теннис B.O.S.: ТБ 9.5 не пробит, итог матча ${curHome}:${curAway}`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // Strategy 49: Камбэк фаворита во 2-м сете
+    if (isTennisSet2Comeback) {
+      const homeOdds = (signal.statsSnapshot as any)?.homeOdds ?? 1.5;
+      const awayOdds = (signal.statsSnapshot as any)?.awayOdds ?? 2.5;
+      const favIsHome = homeOdds < awayOdds;
+
+      const favSets = favIsHome ? curHome : curAway;
+      const dogSets = favIsHome ? curAway : curHome;
+      const initFavSets = favIsHome ? initHome : initAway;
+
+      // Did favorite score a set since signal or equalize to 1:1?
+      if (favSets > initFavSets || (favSets >= 1 && dogSets >= 1 && curHome === curAway)) {
+        return {
+          outcome: 'WIN',
+          note: `Теннис: Камбэк фаворита во 2-м сете зашёл! Счёт по сетам ${curHome}:${curAway}`,
+          shouldResolve: true,
+        };
+      }
+
+      // If underdog won match 2:0 without favorite taking a set
+      if (dogSets >= 2 && favSets === 0) {
+        return {
+          outcome: 'LOSS',
+          note: `Теннис: Камбэк не состоялся, аутсайдер выиграл 2:0 (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+
+      if (isMatchFinished) {
+        const isWin = favSets > dogSets || (favSets > initFavSets);
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin
+            ? `Теннис: Камбэк фаворита подтверждён, итог ${curHome}:${curAway}`
+            : `Теннис: Фаворит уступил во 2-м сете, итог ${curHome}:${curAway}`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // Other tennis markets (ТБ, ТМ, П1, П2)
+    if (market.includes('тб') || market.includes('over') || market.includes('больше')) {
+      const tbMatch = market.match(/(?:тб|over|больше)\s*(\d+(?:\.5)?)/i);
+      const threshold = tbMatch ? parseFloat(tbMatch[1]) : (initialTotalGoals > 6 ? 9.5 : 2.5);
+
+      if (currentTotalGoals >= Math.ceil(threshold)) {
+        return {
+          outcome: 'WIN',
+          note: `Теннис: ТБ ${threshold} зашёл (${curHome}:${curAway}, тотал ${currentTotalGoals})`,
+          shouldResolve: true,
+        };
+      }
+      if (isMatchFinished) {
+        const isWin = currentTotalGoals >= threshold;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin
+            ? `Теннис: Итоговый тотал ${currentTotalGoals} >= ${threshold} (ТБ зашёл)`
+            : `Теннис: Итоговый тотал ${currentTotalGoals} < ${threshold} (ТБ не пробит)`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    if (market.includes('тм') || market.includes('under') || market.includes('меньше')) {
+      const tmMatch = market.match(/(?:тм|under|меньше)\s*(\d+(?:\.5)?)/i);
+      const threshold = tmMatch ? parseFloat(tmMatch[1]) : 9.5;
+
+      if (currentTotalGoals > threshold) {
+        return {
+          outcome: 'LOSS',
+          note: `Теннис: ТМ ${threshold} проигран: тотал превышен (${curHome}:${curAway}, сумма ${currentTotalGoals})`,
+          shouldResolve: true,
+        };
+      }
+      if (isMatchFinished) {
+        const isWin = currentTotalGoals <= threshold;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin
+            ? `Теннис: ТМ ${threshold} сыграл, итоговый тотал ${currentTotalGoals}`
+            : `Теннис: ТМ ${threshold} не сыграл, итоговый тотал ${currentTotalGoals}`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // Winner markets (П1 / П2 / Победа)
+    if (market.includes('п1') || market.includes('победа 1') || market.includes('победа хозяев') || market.includes('победа игрока 1')) {
+      if (curHome >= 2) {
+        return {
+          outcome: 'WIN',
+          note: `Теннис: П1 зашла, победа первого игрока (${curHome}:${curAway})!`,
+          shouldResolve: true,
+        };
+      }
+      if (curAway >= 2) {
+        return {
+          outcome: 'LOSS',
+          note: `Теннис: П1 не зашла, победа соперника (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      if (isMatchFinished) {
+        const isWin = curHome > curAway;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin ? `Теннис: П1 зашла (${curHome}:${curAway})` : `Теннис: П1 не зашла (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    if (market.includes('п2') || market.includes('победа 2') || market.includes('победа гостей') || market.includes('победа игрока 2')) {
+      if (curAway >= 2) {
+        return {
+          outcome: 'WIN',
+          note: `Теннис: П2 зашла, победа второго игрока (${curHome}:${curAway})!`,
+          shouldResolve: true,
+        };
+      }
+      if (curHome >= 2) {
+        return {
+          outcome: 'LOSS',
+          note: `Теннис: П2 не зашла, победа первого игрока (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      if (isMatchFinished) {
+        const isWin = curAway > curHome;
+        return {
+          outcome: isWin ? 'WIN' : 'LOSS',
+          note: isWin ? `Теннис: П2 зашла (${curHome}:${curAway})` : `Теннис: П2 не зашла (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
+    // General tennis resolution on match finish
+    if (isMatchFinished) {
+      const isWin = goalsSinceSignal > 0 || currentTotalGoals > initialTotalGoals;
       return {
-        outcome: 'WIN',
-        note: `Теннис B.O.S.: ТБ 9.5 в сете подаванов зашёл! Счёт ${curHome}:${curAway} (${currentTotalGoals} геймов)`,
+        outcome: isWin ? 'WIN' : 'LOSS',
+        note: isWin
+          ? `Теннис: событие завершилось успешно (${curHome}:${curAway})`
+          : `Теннис: событие не прошло (${curHome}:${curAway})`,
         shouldResolve: true,
       };
     }
-    if (curHome >= 6 || curAway >= 6) {
-      return {
-        outcome: currentTotalGoals >= 10 ? 'WIN' : 'LOSS',
-        note: currentTotalGoals >= 10
-          ? `Теннис B.O.S.: ТБ 9.5 сыграл (${curHome}:${curAway})`
-          : `Теннис B.O.S.: ранний брейк, сет завершился ${curHome}:${curAway} (<10 геймов)`,
-        shouldResolve: true,
-      };
-    }
-    return { outcome: 'PENDING', shouldResolve: false };
   }
 
   // 0c-9. Стратегии 63-67 (Стратегии из сканера)
