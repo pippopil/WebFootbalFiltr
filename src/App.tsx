@@ -114,6 +114,7 @@ import {
   safeGetItem,
   safeRemoveItem,
   compactFiltersForStorage,
+  compactSignalsForStorage,
   rehydrateStoredFilters,
 } from './utils/storage';
 
@@ -1886,15 +1887,15 @@ export default function App() {
     }
   }, [activeTab]);
   
-  // Persistent signals tracker state (Strictly genuine live signals, zero fake seeds, max 200)
+  // Persistent signals tracker state (Strictly genuine live signals, zero fake seeds, max 100)
   const [signals, setSignals] = useState<SignalAlert[]>(() => {
-    const saved = localStorage.getItem('footbalmonitor_signals');
+    const saved = safeGetItem('footbalmonitor_signals');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          // Remove any legacy synthetic seed alerts and keep max 200
-          return parsed.filter((s: SignalAlert) => !s.id.startsWith('sig-seed-')).slice(0, 200);
+          // Remove any legacy synthetic seed alerts and keep max 100
+          return parsed.filter((s: SignalAlert) => !s.id.startsWith('sig-seed-')).slice(0, 100);
         }
       } catch (e) {
         // fallback
@@ -1903,26 +1904,19 @@ export default function App() {
     return [];
   });
 
-  // Automatic cleanup of old signals in memory if count exceeds 200 (prevents storage quota & build crashes)
+  // Automatic cleanup of old signals in memory if count exceeds 100 (prevents storage quota & memory bloat)
   useEffect(() => {
-    if (signals.length > 200) {
-      setSignals((prev) => (prev.length > 200 ? prev.slice(0, 200) : prev));
+    if (signals.length > 100) {
+      setSignals((prev) => (prev.length > 100 ? prev.slice(0, 100) : prev));
     }
   }, [signals.length]);
 
-  // Save signals to localStorage safely (strictly capped to 200 with fail-safe quota recovery)
+  // Save signals to localStorage safely using progressive compaction and cache eviction
   useEffect(() => {
-    const safeSlice = signals.slice(0, 200);
     try {
-      localStorage.setItem('footbalmonitor_signals', JSON.stringify(safeSlice));
-    } catch (e) {
-      console.warn('Signals: local storage quota warning, auto-pruning to 100 to prevent crash');
-      try {
-        localStorage.setItem('footbalmonitor_signals', JSON.stringify(safeSlice.slice(0, 100)));
-      } catch (err2) {
-        console.error('Failed to save signals even after trimming', err2);
-      }
-    }
+      const compacted = compactSignalsForStorage(signals, 80);
+      safeSetItem('footbalmonitor_signals', JSON.stringify(compacted));
+    } catch {}
   }, [signals]);
 
   // Signal tracker UI filters
@@ -4642,8 +4636,8 @@ export default function App() {
   const handleClearSignals = () => {
     setSignals([]);
     try {
-      localStorage.setItem('footbalmonitor_signals', JSON.stringify([]));
-      localStorage.removeItem('footbalmonitor_sent_signals');
+      safeSetItem('footbalmonitor_signals', JSON.stringify([]));
+      safeRemoveItem('footbalmonitor_sent_signals');
     } catch {}
   };
 

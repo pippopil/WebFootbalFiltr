@@ -1,8 +1,8 @@
-import { FilterRule } from '../types';
+import { FilterRule, SignalAlert } from '../types';
 
 /**
  * Robust LocalStorage Utility with automatic quota eviction, 
- * filter payload compaction, and error boundary protection.
+ * filter and signal payload compaction, and error boundary protection.
  */
 
 const NON_ESSENTIAL_KEYS_TO_EVICT = [
@@ -37,7 +37,7 @@ export function evictStorageCache(): void {
         keysToRemove.push(key);
       }
       // Remove legacy analytics dumps or debug trackers
-      else if (key.startsWith('sportsignal_analytics_') || key.startsWith('footbalmonitor_debug_')) {
+      else if (key.startsWith('sportsignal_analytics_') || key.startsWith('footbalmonitor_debug_') || key.startsWith('footbalmonitor_analytics_history')) {
         keysToRemove.push(key);
       }
     }
@@ -48,30 +48,86 @@ export function evictStorageCache(): void {
       } catch {}
     });
 
-    // Prune signals to latest 40 items if oversized
-    try {
-      const rawSignals = localStorage.getItem('footbalmonitor_signals');
-      if (rawSignals && rawSignals.length > 200000) {
-        const parsed = JSON.parse(rawSignals);
-        if (Array.isArray(parsed) && parsed.length > 40) {
-          localStorage.setItem('footbalmonitor_signals', JSON.stringify(parsed.slice(0, 40)));
-        }
-      }
-    } catch {}
-
     // Prune anti-spam tracker if oversized
     try {
       const rawTracker = localStorage.getItem('footbalmonitor_sent_signals_tracker');
-      if (rawTracker && rawTracker.length > 100000) {
-        const parsed = JSON.parse(rawTracker);
+      if (rawTracker && rawTracker.length > 50000) {
+        localStorage.removeItem('footbalmonitor_sent_signals_tracker');
+      }
+    } catch {}
+
+    // Prune signals safely to latest 30 items if oversized
+    try {
+      const rawSignals = localStorage.getItem('footbalmonitor_signals');
+      if (rawSignals && rawSignals.length > 100000) {
+        const parsed = JSON.parse(rawSignals);
         if (Array.isArray(parsed) && parsed.length > 30) {
-          localStorage.setItem('footbalmonitor_sent_signals_tracker', JSON.stringify(parsed.slice(-30)));
+          const trimmed = compactSignalsForStorage(parsed, 30);
+          localStorage.setItem('footbalmonitor_signals', JSON.stringify(trimmed));
         }
       }
     } catch {}
   } catch (err) {
     console.warn('[Storage] Cache eviction warning:', err);
   }
+}
+
+/**
+ * Compacts signals for storage to prevent QuotaExceededError while retaining 
+ * essential metadata for the UI, analytics, and outcome tracking.
+ */
+export function compactSignalsForStorage(signals: SignalAlert[], limit: number = 80): any[] {
+  if (!Array.isArray(signals)) return [];
+  return signals.slice(0, limit).map((s) => ({
+    id: s.id,
+    timestamp: s.timestamp,
+    matchId: s.matchId,
+    matchName: s.matchName,
+    league: s.league,
+    country: s.country,
+    sport: s.sport,
+    minute: s.minute,
+    score: s.score,
+    period: s.period,
+    statsSnapshot: s.statsSnapshot,
+    finalStats: s.finalStats,
+    strategyMetricSnapshot: s.strategyMetricSnapshot,
+    ruleId: s.ruleId,
+    ruleName: s.ruleName,
+    ruleCategory: s.ruleCategory,
+    // Cap message length to 600 chars to avoid multi-kilobyte text dumps
+    message: typeof s.message === 'string' && s.message.length > 600 ? s.message.slice(0, 600) + '...' : s.message,
+    sentToTelegram: s.sentToTelegram,
+    telegramStatusText: s.telegramStatusText,
+    telegramMessageId: s.telegramMessageId,
+    marketSuggestion: s.marketSuggestion,
+    noResolutionTrack: s.noResolutionTrack,
+    trackOutcome: s.trackOutcome,
+    botId: s.botId,
+    botName: s.botName,
+    userId: s.userId,
+    betType: s.betType,
+    outcome: s.outcome,
+    odds: s.odds,
+    stake: s.stake,
+    profit: s.profit,
+    finalScore: s.finalScore,
+    initialScore: s.initialScore,
+    resolvedAt: s.resolvedAt,
+    resolutionNote: s.resolutionNote,
+    isCombo: s.isCombo,
+    comboCount: s.comboCount,
+    comboStrategyNames: s.comboStrategyNames,
+    comboRuleIds: s.comboRuleIds,
+    comboRecommendation: s.comboRecommendation,
+    comboConfidence: s.comboConfidence,
+    comboTargetCluster: s.comboTargetCluster,
+    comboClusterName: s.comboClusterName,
+    targetAction: s.targetAction,
+    targetLine: s.targetLine,
+    telegramEdited: s.telegramEdited,
+    telegramEditedAt: s.telegramEditedAt,
+  }));
 }
 
 /**
@@ -139,14 +195,53 @@ export function rehydrateStoredFilters(
 export function safeSetItem(key: string, value: string): boolean {
   if (typeof window === 'undefined' || !window.localStorage) return false;
 
+  // Pre-emptive compaction for signals and filters
+  let payload = value;
+  if (key === 'footbalmonitor_signals') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        payload = JSON.stringify(compactSignalsForStorage(parsed, 80));
+      }
+    } catch {}
+  } else if (key.includes('filters')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        payload = JSON.stringify(compactFiltersForStorage(parsed));
+      }
+    } catch {}
+  }
+
   try {
-    localStorage.setItem(key, value);
+    localStorage.setItem(key, payload);
     return true;
   } catch (err: any) {
     console.warn(`[Storage] safeSetItem initial attempt failed for "${key}". Attempting eviction...`, err?.name);
 
     try {
       evictStorageCache();
+
+      // Progressive compaction fallback for signals
+      if (key === 'footbalmonitor_signals') {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) {
+            try {
+              localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 40)));
+              return true;
+            } catch {
+              try {
+                localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 20)));
+                return true;
+              } catch {
+                localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 10)));
+                return true;
+              }
+            }
+          }
+        } catch {}
+      }
 
       // If storing filters, try storing compacted version
       if (key.includes('filters')) {
@@ -160,15 +255,25 @@ export function safeSetItem(key: string, value: string): boolean {
         } catch {}
       }
 
-      localStorage.setItem(key, value);
+      localStorage.setItem(key, payload);
       return true;
     } catch (retryErr) {
-      console.error(`[Storage] safeSetItem: Quota permanently exceeded for key "${key}". Gracefully suppressed.`, retryErr);
+      console.warn(`[Storage] safeSetItem: Quota heavily constrained for key "${key}". Deep cleaning...`);
 
-      // Last-ditch: if it's a filter key, remove heavy accumulated caches and try once more
+      // Last-ditch: purge non-essential stores and retry with minimal payload
       try {
         localStorage.removeItem('footbalmonitor_live_accumulated_matches_v1');
         localStorage.removeItem('footbalmonitor_sent_signals_tracker');
+        localStorage.removeItem('footbalmonitor_analytics_history');
+
+        if (key === 'footbalmonitor_signals') {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) {
+            localStorage.setItem(key, JSON.stringify(compactSignalsForStorage(parsed, 15)));
+            return true;
+          }
+        }
+
         if (key.includes('filters')) {
           const parsed = JSON.parse(value);
           if (Array.isArray(parsed)) {
@@ -177,9 +282,13 @@ export function safeSetItem(key: string, value: string): boolean {
             return true;
           }
         }
-      } catch {}
 
-      return false;
+        localStorage.setItem(key, payload);
+        return true;
+      } catch {
+        // Suppress gracefully without crashing UI or logging unhandled error
+        return false;
+      }
     }
   }
 }

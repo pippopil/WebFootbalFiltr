@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Match, FilterRule, DataSourceConfig, DataSourceType } from '../types';
 import { EXPANDED_DEFAULT_FILTERS } from '../data/defaultFilters';
+import { safeSetItem, compactFiltersForStorage } from '../utils/storage';
 
 interface GodModeConsoleProps {
   currentUser: UserProfile;
@@ -92,8 +93,8 @@ export const GodModeConsole: React.FC<GodModeConsoleProps> = ({
     }));
     onSetFilters(restored);
     try {
-      localStorage.setItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(restored));
-      localStorage.setItem('footbalmonitor_filters', JSON.stringify(restored));
+      safeSetItem(`footbalmonitor_filters_user_${currentUser.id}`, JSON.stringify(compactFiltersForStorage(restored)));
+      safeSetItem('footbalmonitor_filters', JSON.stringify(compactFiltersForStorage(restored)));
     } catch {}
     showStatus('Все 50+ заводских алгоритмов платформы успешно восстановлены!');
   };
