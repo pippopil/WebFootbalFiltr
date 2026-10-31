@@ -823,9 +823,39 @@ async function startServer() {
       ? (uniqueEvents.reduce((acc, e) => acc + (e.odds || 1.75), 0) / total).toFixed(2)
       : '1.75';
 
-    // List of the ACTUAL real unique signals that triggered in THIS bot with strategy metric result
+    // Sports breakdown
+    const sportsCounts = new Map<string, { total: number; win: number; loss: number; refund: number; pending: number }>();
+    uniqueEvents.forEach((e) => {
+      const sp = e.sport || 'football';
+      const cur = sportsCounts.get(sp) || { total: 0, win: 0, loss: 0, refund: 0, pending: 0 };
+      cur.total++;
+      if (e.outcome === 'WIN') cur.win++;
+      else if (e.outcome === 'LOSS') cur.loss++;
+      else if (e.outcome === 'REFUND') cur.refund++;
+      else cur.pending++;
+      sportsCounts.set(sp, cur);
+    });
+
+    const sportIcons: Record<string, string> = {
+      football: '⚽ Футбол',
+      tennis: '🎾 Теннис',
+      basketball: '🏀 Баскетбол',
+      hockey: '🏒 Хоккей',
+      volleyball: '🏐 Волейбол',
+      table_tennis: '🏓 Настольный теннис',
+    };
+
+    const sportsBreakdownLines = Array.from(sportsCounts.entries()).map(([sp, stat]) => {
+      const label = sportIcons[sp] || `🏆 ${sp}`;
+      const res = stat.win + stat.loss;
+      const rate = res > 0 ? `${((stat.win / res) * 100).toFixed(0)}%` : '—';
+      return `   • ${label}: ${stat.total} сигн. [✅ ${stat.win} | ❌ ${stat.loss}${stat.refund > 0 ? ` | 🔄 ${stat.refund}` : ''}${stat.pending > 0 ? ` | ⏳ ${stat.pending} в игре` : ''}] WR: <b>${rate}</b>`;
+    }).join('\n');
+
+    // List of signals for the day (expanded up to 35 items safely within Telegram 4096 chars limit)
+    const maxSignalsInText = 35;
     const signalsList = uniqueEvents
-      .slice(0, 15)
+      .slice(0, maxSignalsInText)
       .map((e, idx) => {
         const icon = e.outcome === 'WIN' ? '✅' : e.outcome === 'LOSS' ? '❌' : e.outcome === 'REFUND' ? '🔄' : '⏳';
         const outcomeLabel =
@@ -835,10 +865,10 @@ async function startServer() {
             ? `[-1.00ф]`
             : e.outcome === 'REFUND'
             ? `[0.00ф]`
-            : `[LIVE]`;
+            : `[⏳ В ИГРЕ]`;
         const metricDetail = e.metricSummary
-          ? `\n     └ 📊 <i>Итог стратегии: ${e.metricSummary}</i>`
-          : (e.finalScore ? ` | FT: ${e.finalScore}` : '');
+          ? `\n     └ 📊 <i>Итог: ${e.metricSummary}</i>`
+          : (e.finalScore ? ` | Счёт: ${e.finalScore}` : '');
         return (
           `  ${idx + 1}. ${icon} <b>${e.matchName}</b>\n` +
           `     ↳ <i>${e.ruleName}</i> | Кэф: ${e.odds.toFixed(2)} | ${e.targetMarket || 'Исход'} ${outcomeLabel}${metricDetail}`
@@ -846,20 +876,24 @@ async function startServer() {
       })
       .join('\n');
 
+    const completionRate = total > 0 ? ((resolved / total) * 100).toFixed(0) : '0';
+
     return (
-      `📊 <b>СУТОЧНЫЙ ОТЧЁТ: ${botName}</b>\n` +
-      `📅 <i>Дата: ${dateStr} | 23:59 МСК</i>\n\n` +
-      `🎯 <b>Всего сигналов в боте:</b> ${total}\n` +
+      `📊 <b>СУТОЧНЫЙ ОТЧЁТ ЗА ДЕНЬ: ${botName}</b>\n` +
+      `📅 <i>Период: ${dateStr} (полная статистика за 24ч) | 23:59 МСК</i>\n\n` +
+      `🎯 <b>Всего сигналов за сутки:</b> <b>${total}</b>\n` +
       `✅ <b>Прошло (WIN):</b> <b>${won}</b> (${winRate}%)\n` +
       `❌ <b>Не прошло (LOSS):</b> <b>${lost}</b>\n` +
-      (refund > 0 ? `🔄 <b>Возврат (REFUND):</b> ${refund}\n` : '') +
-      (pending > 0 ? `⏳ <b>В игре (LIVE):</b> ${pending}\n` : '') +
+      (refund > 0 ? `🔄 <b>Возврат (REFUND):</b> <b>${refund}</b>\n` : '') +
+      (pending > 0 ? `⏳ <b>В игре (ожидают свистка):</b> <b>${pending}</b>\n` : '') +
+      `📌 <b>Статус расчета событий:</b> завершено <b>${resolved}/${total}</b> (${completionRate}%)\n` +
       `\n` +
       `💰 <b>Итоговый профит:</b> <b>${profitSign} флэта (${rublesSign} ₽)</b>\n` +
       `📈 <b>Средний кэф:</b> ${avgOdds}\n` +
       `💎 <b>ROI:</b> ${roiSign}%\n\n` +
-      `📋 <b>Сработавшие сигналы в этом боте:</b>\n${signalsList}\n` +
-      (total > 15 ? `\n<i>... и еще ${total - 15} сигналов</i>\n` : '\n') +
+      (sportsBreakdownLines ? `🏆 <b>Статистика по видам спорта:</b>\n${sportsBreakdownLines}\n\n` : '') +
+      `📋 <b>Реестр сигналов за сутки (${Math.min(total, maxSignalsInText)} из ${total}):</b>\n${signalsList}\n` +
+      (total > maxSignalsInText ? `\n<i>... и еще ${total - maxSignalsInText} сигналов за сегодня</i>\n` : '\n') +
       `🤖 <i>SportSignal AI Automated Engine</i>`
     );
   }

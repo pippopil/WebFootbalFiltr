@@ -107,6 +107,8 @@ import {
   playAlertSound,
   AlertSoundType,
   ALERT_SOUND_PROFILES,
+  isSoundMuted,
+  setSoundMuted,
 } from './utils/audioAlerts';
 import { exportSignalsToExcelCsv } from './utils/exportReports';
 import {
@@ -2432,39 +2434,32 @@ export default function App() {
     };
   });
 
-  // Sound notifications state (Web Audio API alerts)
+  // Sound notifications state (Web Audio API alerts & Forced Mute)
   const [isSoundAlertsEnabled, setIsSoundAlertsEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('footbalmonitor_sound_alerts') !== 'false';
+    return !isSoundMuted();
   });
 
   const toggleSoundAlerts = () => {
-    setIsSoundAlertsEnabled((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('footbalmonitor_sound_alerts', String(next));
-      } catch {}
-      if (next) {
-        // Confirmation test chime
+    const currentlyMuted = isSoundMuted();
+    const nextMuted = !currentlyMuted;
+    setSoundMuted(nextMuted);
+    setIsSoundAlertsEnabled(!nextMuted);
+
+    if (nextMuted) {
+      // Forcibly kill voice announcer and speech synthesis
+      voiceAnnouncer.setEnabled(false);
+      setIsVoiceAlertsEnabled(false);
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
-          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-          if (AudioCtx) {
-            const ctx = new AudioCtx();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.12, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.25);
-          }
+          window.speechSynthesis.cancel();
         } catch {}
       }
-      return next;
-    });
+    } else {
+      // Test chime upon unmuting
+      try {
+        playAlertSound(alertSoundType, 0.25);
+      } catch {}
+    }
   };
 
   // Tracked / Favorite Matches (отслеживание конкретных матчей по фильтрам)
@@ -2523,7 +2518,7 @@ export default function App() {
   }, []);
 
   const playSignalSound = useCallback(() => {
-    if (!isSoundAlertsEnabled) return;
+    if (isSoundMuted() || !isSoundAlertsEnabled) return;
     try {
       playAlertSound(alertSoundType, 0.35);
       triggerTgHaptic('medium');
@@ -3337,8 +3332,11 @@ export default function App() {
   };
 
   // Helper: get the EXACT real signals routed to a specific bot
-  const getSignalsForSpecificBot = (bot: { id: string; botToken: string; channelId: string; isDefault?: boolean }) => {
-    return signals.filter((sig) => {
+  const getSignalsForSpecificBot = (
+    bot: { id: string; botToken: string; channelId: string; isDefault?: boolean },
+    sourceSignals: SignalAlert[] = signals
+  ) => {
+    return sourceSignals.filter((sig) => {
       // 1. Explicit botId
       if (sig.botId && sig.botId === bot.id) return true;
       // 2. Direct token and chat match
@@ -3373,8 +3371,74 @@ export default function App() {
     setSendingDailyReport(true);
     try {
       const dateStr = new Date().toLocaleDateString('ru-RU');
+
+      // Pre-evaluate any pending signals whose matches are concluded to ensure accurate 24h win/loss stats
+      const histMatches = loadAccumulatedLiveMatches();
+      const resolvedSignalsForReport = signals.map((sig) => {
+        if (sig.outcome !== 'PENDING') return sig;
+        let match: Match | undefined = matches.find((m) => m.id === sig.matchId);
+        if (!match) {
+          const sigCanonical = getCanonicalMatchKey(sig as any);
+          match = matches.find((m) => getCanonicalMatchKey(m) === sigCanonical);
+        }
+        if (!match && sig.matchName) {
+          const parts = sig.matchName.split(' vs ');
+          const h = (parts[0] || '').trim().toLowerCase();
+          const a = (parts[1] || '').trim().toLowerCase();
+          if (h && a) {
+            match = matches.find((m) => m.homeTeam.toLowerCase().includes(h) && m.awayTeam.toLowerCase().includes(a));
+          }
+        }
+        if (!match) match = latestKnownMatchesRef.current.get(sig.matchId);
+        if (!match) {
+          const foundHist = histMatches.find((h) => h.id === sig.matchId);
+          if (foundHist) {
+            match = {
+              id: foundHist.id,
+              homeTeam: foundHist.homeTeam,
+              awayTeam: foundHist.awayTeam,
+              league: foundHist.league,
+              country: foundHist.country,
+              countryCode: foundHist.countryCode,
+              score: foundHist.finalScore,
+              minute: 90,
+              status: 'FT',
+              sport: sig.sport || 'football',
+              stats: {
+                possession: [50, 50],
+                dangerousAttacks: [0, 0],
+                attacks: [0, 0],
+                shotsOnTarget: [0, 0],
+                shotsOffTarget: [0, 0],
+                corners: [0, 0],
+                yellowCards: [0, 0],
+                redCards: [0, 0],
+                xg: [0, 0],
+              },
+              momentum: [],
+              lastEvent: 'Матч завершён',
+              odds: { home: 2.0, draw: 3.0, away: 2.0, over25: 1.85 },
+              source: 'History Core',
+            };
+          }
+        }
+        if (match) {
+          const isDone = match.status === 'FT' || match.status === 'FINISHED' || match.minute >= 90;
+          const evalRes = evaluateSignalOutcome(sig, match.score, isDone, match.stats?.corners, match.stats, { matchStatus: match.status, minute: match.minute });
+          if (evalRes.shouldResolve) {
+            return {
+              ...sig,
+              outcome: evalRes.outcome,
+              finalScore: `${match.score[0]}:${match.score[1]}`,
+              resolutionNote: evalRes.note,
+            };
+          }
+        }
+        return sig;
+      });
+
       const botsPayload = targetBots.map((bot) => {
-        const botSignals = getSignalsForSpecificBot(bot);
+        const botSignals = getSignalsForSpecificBot(bot, resolvedSignalsForReport);
         return {
           bot_token: bot.botToken,
           chat_id: bot.channelId,
@@ -3590,8 +3654,6 @@ export default function App() {
 
   // Automated outcome evaluation and Telegram message rewriting on match completion or goal
   useEffect(() => {
-    if (telegramConfig.autoUpdateOnFinish === false) return;
-
     // Keep memory cache of all seen matches updated
     matches.forEach((m) => latestKnownMatchesRef.current.set(m.id, m));
 
@@ -3606,6 +3668,20 @@ export default function App() {
 
         let match: Match | undefined = matches.find((m) => m.id === sig.matchId);
         let matchSourceType = 'live';
+
+        if (!match) {
+          const sigCanonical = getCanonicalMatchKey(sig as any);
+          match = matches.find((m) => getCanonicalMatchKey(m) === sigCanonical);
+        }
+
+        if (!match && sig.matchName) {
+          const parts = sig.matchName.split(' vs ');
+          const h = (parts[0] || '').trim().toLowerCase();
+          const a = (parts[1] || '').trim().toLowerCase();
+          if (h && a) {
+            match = matches.find((m) => m.homeTeam.toLowerCase().includes(h) && m.awayTeam.toLowerCase().includes(a));
+          }
+        }
 
         if (!match) {
           match = latestKnownMatchesRef.current.get(sig.matchId);
@@ -3625,6 +3701,7 @@ export default function App() {
                 score: foundHist.finalScore,
                 minute: lastSnap?.minute || 90,
                 status: 'FT',
+                sport: sig.sport || 'football',
                 stats: {
                   possession: lastSnap?.stats?.possession || [50, 50],
                   dangerousAttacks: lastSnap?.stats?.dangerousAttacks || [0, 0],
@@ -3651,7 +3728,39 @@ export default function App() {
           }
         }
 
-        if (!match) return;
+        // If match dropped out of live feeds or concluded in real life:
+        if (!match) {
+          const sigScoreParts = (sig.score || '0:0').split(':').map((s) => parseInt(s.trim(), 10) || 0);
+          const parts = (sig.matchName || '').split(' vs ');
+          match = {
+            id: sig.matchId || `fin-${sig.id}`,
+            homeTeam: parts[0]?.trim() || 'Хозяева',
+            awayTeam: parts[1]?.trim() || 'Гости',
+            league: sig.league || 'Лига',
+            country: sig.country || 'Мир',
+            countryCode: '⚽',
+            score: [sigScoreParts[0], sigScoreParts[1]],
+            minute: 90,
+            status: 'FT',
+            sport: sig.sport || 'football',
+            stats: {
+              possession: [50, 50],
+              dangerousAttacks: [0, 0],
+              attacks: [0, 0],
+              shotsOnTarget: [0, 0],
+              shotsOffTarget: [0, 0],
+              corners: [0, 0],
+              yellowCards: [0, 0],
+              redCards: [0, 0],
+              xg: [0, 0],
+            },
+            momentum: [],
+            lastEvent: 'Матч завершён',
+            odds: { home: 2.0, draw: 3.0, away: 2.0, over25: 1.85 },
+            source: 'Telemetry Archive',
+          };
+          matchSourceType = 'archived_completed';
+        }
 
         // Multi-sport match finish detection (Tennis, Basketball, Hockey, Table Tennis, Football)
         const isTennisCompleted =
@@ -3677,7 +3786,7 @@ export default function App() {
             ? (match.score[0] >= 2 || match.score[1] >= 2 || match.minute >= 75)
             : match.sport === 'volleyball' || match.sport === 'table_tennis'
             ? (match.score[0] >= 3 || match.score[1] >= 3 || match.minute >= 25)
-            : match.minute >= 92;
+            : match.minute >= 90;
 
         const isFinished =
           match.status === 'FT' ||
@@ -3770,8 +3879,12 @@ export default function App() {
           // 🛑 2. Synchronously update local React state so signals array immediately reflects resolved outcome
           setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
 
-          // Dispatch result to Telegram if signal was configured for Telegram
-          if (sig.sentToTelegram && telegramConfig.autoSend && botTokenToUse && chatIdToUse) {
+          // Dispatch result to Telegram if bot token and chat are configured
+          const shouldSendTelegramOutcome =
+            telegramConfig.autoSend &&
+            Boolean(botTokenToUse && chatIdToUse);
+
+          if (shouldSendTelegramOutcome) {
             const resolvedHtml = formatResolvedTelegramAlert(
               updatedSignal,
               finalScoreStr,
@@ -3824,12 +3937,32 @@ export default function App() {
             }).catch(() => {});
           }
 
+          // Record resolution event on backend server for Daily Telegram report
+          try {
+            fetch('/api/telegram/record-event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                matchName: `${match.homeTeam} vs ${match.awayTeam}`,
+                league: match.league,
+                sport: match.sport || sig.sport || 'football',
+                ruleName: sig.ruleName,
+                targetMarket: sig.marketSuggestion,
+                odds: sig.odds,
+                outcome: evalRes.outcome,
+                botId: sig.botId,
+                botToken: botTokenToUse,
+                chatId: chatIdToUse,
+              }),
+            }).catch(() => {});
+          } catch {}
+
           // In-app notifications: Web Push & Audio
           triggerWebPushNotification(
-            `${evalRes.outcome === 'WIN' ? '✅ СИГНАЛ ЗАШЁЛ (WIN)' : '❌ СИГНАЛ НЕ ЗАШЁЛ'}: ${match.homeTeam} vs ${match.awayTeam}`,
+            `${evalRes.outcome === 'WIN' ? '✅ СИГНАЛ ЗАШЁЛ (WIN)' : evalRes.outcome === 'REFUND' ? '🔄 ВОЗВРАТ (REFUND)' : '❌ СИГНАЛ НЕ ЗАШЁЛ'}: ${match.homeTeam} vs ${match.awayTeam}`,
             `Счёт: ${finalScoreStr}. Исход: ${evalRes.note || evalRes.outcome}`
           );
-          if (evalRes.outcome === 'WIN') {
+          if (evalRes.outcome === 'WIN' && !isSoundMuted() && isSoundAlertsEnabled) {
             playAlertSound('ping', 0.35);
           }
 
@@ -3842,9 +3975,9 @@ export default function App() {
     };
 
     checkPendingSignals();
-    const intervalTimer = setInterval(checkPendingSignals, 5000);
+    const intervalTimer = setInterval(checkPendingSignals, 4000);
     return () => clearInterval(intervalTimer);
-  }, [matches, telegramConfig.autoUpdateOnFinish]);
+  }, [matches, telegramConfig.autoSend, telegramConfig.botToken, telegramConfig.channelId, isSoundAlertsEnabled]);
 
   // Check filter triggers and auto-send alerts with Anti-Spam deduplication
   // CRITICAL: ONLY run filters that are explicitly launched (enabled === true) by the current user!
@@ -5209,7 +5342,7 @@ export default function App() {
               </span>
             </button>
 
-            {/* Audio Alerts & Sound Profile Selector */}
+            {/* Audio Alerts & Sound Profile Selector (with Forced Mute) */}
             <div className="relative">
               <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 overflow-hidden shadow-sm">
                 <button
@@ -5219,8 +5352,13 @@ export default function App() {
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold transition ${
                     isSoundAlertsEnabled
                       ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-                      : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                      : 'bg-rose-500/25 text-rose-300 border-r border-rose-500/40 hover:bg-rose-500/35 animate-pulse'
                   }`}
+                  title={
+                    isSoundAlertsEnabled
+                      ? 'Звук активен. Нажмите, чтобы принудительно отключить весь звук'
+                      : 'ЗВУК ПРИНУДИТЕЛЬНО ОТКЛЮЧЕН. Нажмите, чтобы включить'
+                  }
                 >
                   {isSoundAlertsEnabled ? (
                     <Volume2 className="h-4 w-4 text-emerald-400" />
@@ -5228,7 +5366,7 @@ export default function App() {
                     <VolumeX className="h-4 w-4 text-rose-400" />
                   )}
                   <span className="hidden sm:inline font-mono">
-                    {isSoundAlertsEnabled ? t('soundActive') : t('soundInactive')}
+                    {isSoundAlertsEnabled ? t('soundActive') : 'Без звука'}
                   </span>
                 </button>
                 <button
@@ -5242,9 +5380,9 @@ export default function App() {
               </div>
 
               {isSoundSelectorOpen && (
-                <div className="absolute right-0 mt-1.5 w-60 p-2 rounded-2xl bg-slate-900/95 border border-slate-700 shadow-2xl z-50 text-xs space-y-1.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute right-0 mt-1.5 w-64 p-2.5 rounded-2xl bg-slate-900/95 border border-slate-700 shadow-2xl z-50 text-xs space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
                   <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 px-1 text-[11px] text-slate-400">
-                    <span className="font-bold text-white">Звуковое оповещение</span>
+                    <span className="font-bold text-white">Управление звуком</span>
                     <button
                       type="button"
                       onClick={() => setIsSoundSelectorOpen(false)}
@@ -5253,6 +5391,37 @@ export default function App() {
                       ✕
                     </button>
                   </div>
+
+                  {/* Forced Mute Master Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleSoundAlerts();
+                      setIsSoundSelectorOpen(false);
+                    }}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-sm ${
+                      isSoundAlertsEnabled
+                        ? 'bg-rose-600/20 text-rose-200 hover:bg-rose-600/30 border border-rose-500/40'
+                        : 'bg-emerald-600/25 text-emerald-200 hover:bg-emerald-600/35 border border-emerald-500/50'
+                    }`}
+                  >
+                    {isSoundAlertsEnabled ? (
+                      <>
+                        <VolumeX className="h-4 w-4 text-rose-400" />
+                        <span>Отключить звук принудительно</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="h-4 w-4 text-emerald-400" />
+                        <span>Включить звук оповещений</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="text-[10px] text-slate-400 px-1 font-semibold uppercase tracking-wider">
+                    Профиль звукового сигнала:
+                  </div>
+
                   {ALERT_SOUND_PROFILES.map((prof) => (
                     <button
                       key={prof.id}
@@ -5260,7 +5429,9 @@ export default function App() {
                       onClick={() => {
                         setAlertSoundType(prof.id);
                         localStorage.setItem('sportsignal_sound_type', prof.id);
-                        playAlertSound(prof.id, 0.35);
+                        if (isSoundAlertsEnabled) {
+                          playAlertSound(prof.id, 0.35);
+                        }
                         triggerTgHaptic('light');
                         setIsSoundSelectorOpen(false);
                       }}
@@ -5282,13 +5453,18 @@ export default function App() {
                       )}
                     </button>
                   ))}
-                  <div className="pt-1 border-t border-slate-800 flex justify-between items-center px-1">
+                  <div className="pt-1.5 border-t border-slate-800 flex justify-between items-center px-1">
                     <button
                       type="button"
-                      onClick={() => playAlertSound(alertSoundType, 0.4)}
-                      className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 py-1"
+                      onClick={() => {
+                        if (isSoundAlertsEnabled) {
+                          playAlertSound(alertSoundType, 0.4);
+                        }
+                      }}
+                      disabled={!isSoundAlertsEnabled}
+                      className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 py-1 disabled:opacity-40"
                     >
-                      ▶ Прослушать текущий
+                      ▶ Прослушать
                     </button>
                     <button
                       type="button"
@@ -9091,62 +9267,75 @@ export default function App() {
                 </div>
 
                 <div className="space-y-6">
-                  {/* Tracker KPI Cards */}
+                  {/* Tracker KPI Cards (Full 24h & Live Outcome Stats) */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                    <div className="text-[11px] text-slate-400">Проходимость (Win Rate)</div>
-                    <div className="text-2xl font-bold font-mono mt-1 text-white">
+                    <div className="text-[11px] text-slate-400 font-semibold">Проходимость (Win Rate)</div>
+                    <div className="text-2xl font-bold font-mono mt-1 text-white flex items-baseline gap-1.5">
                       <span
                         className={
                           winRate >= 65
                             ? 'text-emerald-400'
                             : winRate >= 50
                             ? 'text-amber-400'
-                            : 'text-rose-400'
+                            : resolvedCount > 0 ? 'text-rose-400' : 'text-slate-400'
                         }
                       >
-                        {winRate}%
+                        {resolvedCount > 0 ? `${winRate}%` : '—'}
                       </span>
+                      {resolvedCount > 0 && (
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          (из {resolvedCount} заверш.)
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1">
-                      {winsCount} зашло / {lossesCount} не зашло
+                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-emerald-400 font-bold">✅ {winsCount}</span>
+                      <span>/</span>
+                      <span className="text-rose-400 font-bold">❌ {lossesCount}</span>
+                      {refundsCount > 0 && (
+                        <>
+                          <span>/</span>
+                          <span className="text-sky-400 font-bold">🔄 {refundsCount}</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                    <div className="text-[11px] text-slate-400">Чистый профит (PnL)</div>
+                    <div className="text-[11px] text-slate-400 font-semibold">Чистый профит (PnL)</div>
                     <div className="text-2xl font-bold font-mono mt-1">
-                      <span className={totalProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      <span className={totalProfit > 0 ? 'text-emerald-400' : totalProfit < 0 ? 'text-rose-400' : 'text-slate-300'}>
                         {totalProfit >= 0 ? `+${totalProfit.toLocaleString('ru-RU')}` : totalProfit.toLocaleString('ru-RU')} ₽
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1">
-                      {totalProfit >= 0 ? '+' : ''}{(totalProfit / 1000).toFixed(2)} флетов (флет 1 000 ₽)
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {totalProfit >= 0 ? '+' : ''}{(totalProfit / 1000).toFixed(2)} флэтов (1 флэт = 1 000 ₽)
                     </div>
                   </div>
 
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                    <div className="text-[11px] text-slate-400">Доходность (ROI)</div>
+                    <div className="text-[11px] text-slate-400 font-semibold">Доходность (ROI)</div>
                     <div className="text-2xl font-bold font-mono mt-1">
-                      <span className={roi >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      <span className={roi > 0 ? 'text-emerald-400' : roi < 0 ? 'text-rose-400' : 'text-slate-300'}>
                         {roi >= 0 ? `+${roi}%` : `${roi}%`}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1">
-                      Оборот: {(resolvedCount * 1000).toLocaleString('ru-RU')} ₽
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      Оборот ставок: {(resolvedCount * 1000).toLocaleString('ru-RU')} ₽
                     </div>
                   </div>
 
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                    <div className="text-[11px] text-slate-400">Всего сигналов</div>
-                    <div className="text-2xl font-bold font-mono mt-1 text-white">
-                      {totalCount}
-                      <span className="text-xs font-normal text-slate-500 ml-1.5 font-sans">
-                        ({pendingCount} в игре)
+                    <div className="text-[11px] text-slate-400 font-semibold">Сигналы (За сутки)</div>
+                    <div className="text-2xl font-bold font-mono mt-1 text-white flex items-baseline gap-2">
+                      <span>{totalCount}</span>
+                      <span className="text-xs font-semibold text-amber-400 font-sans">
+                        [{pendingCount} в игре]
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1">
-                      {refundsCount > 0 ? `${refundsCount} возвратов • ` : ''}Авто-фиксация
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      Расчитано: {resolvedCount} из {totalCount} ({totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 0}%)
                     </div>
                   </div>
                 </div>

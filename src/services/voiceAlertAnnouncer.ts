@@ -2,6 +2,7 @@
 // Live Multilingual Voice & Audio Announcer for SportSignal AI
 
 import { Language } from '../i18n/translations';
+import { isSoundMuted } from '../utils/audioAlerts';
 
 export interface VoiceAlertPayload {
   strategyName: string;
@@ -33,7 +34,7 @@ class VoiceAlertAnnouncerService {
   }
 
   public isEnabled(): boolean {
-    return this.enabled;
+    return this.enabled && !isSoundMuted();
   }
 
   public setEnabled(val: boolean) {
@@ -56,6 +57,7 @@ class VoiceAlertAnnouncerService {
 
   // Play synthetic attention chime prior to voice speech
   public playChime() {
+    if (isSoundMuted()) return;
     try {
       if (typeof window === 'undefined') return;
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -106,7 +108,7 @@ class VoiceAlertAnnouncerService {
 
   // Announce signal verbally in the given language
   public announceSignal(payload: VoiceAlertPayload, lang: Language = 'ru') {
-    if (!this.enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (isSoundMuted() || !this.enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) {
       return;
     }
 

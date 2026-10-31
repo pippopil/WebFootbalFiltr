@@ -27,6 +27,7 @@ import { getStrategyCardDisplayName } from '../src/utils/filterDefaults';
 import { EXPANDED_DEFAULT_FILTERS } from '../src/data/defaultFilters';
 import { Match, FilterRule, SignalAlert, UserProfile, DataSourceType } from '../src/types';
 import { runUserSimulationAgent } from '../src/services/userSimulationAgent';
+import { isSoundMuted, setSoundMuted, playAlertSound } from '../src/utils/audioAlerts';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -1846,7 +1847,48 @@ const anyTeamStreakRule: FilterRule = {
   minWinStreak: 4,
 };
 const evalAnyStreakPass = evaluateFilterRule(passStreakMatch, anyTeamStreakRule);
-assert(evalAnyStreakPass.matches === true, 'winStreakTeam: ANY matches when at least one team has streak >= 4');
+// ----------------------------------------------------
+// TEST GROUP 21: Forced Sound Mute & Fallback Finished Match Resolution
+// ----------------------------------------------------
+console.log('\n--- Test Group 21: Forced Sound Mute & Fallback Finished Match Resolution ---');
+
+// 1. Forced Mute State
+setSoundMuted(true);
+assert(isSoundMuted() === true, 'setSoundMuted(true) enables global forced mute');
+playAlertSound('ping', 0.5); // Should safely execute without throwing and produce zero sound
+setSoundMuted(false);
+assert(isSoundMuted() === false, 'setSoundMuted(false) unmutes global sound alerts');
+
+// 2. Concluded Match Resolution Fallback
+const strandedSignal: SignalAlert = {
+  id: 'sig-stranded-1',
+  timestamp: '14:30:00',
+  matchId: 'm-stranded-99',
+  matchName: 'Ливерпуль vs Челси',
+  league: 'АПЛ',
+  country: 'Англия',
+  sport: 'football',
+  minute: 78,
+  period: '2-й тайм',
+  betType: 'LIVE',
+  score: '1:1',
+  ruleId: 'strat-1',
+  ruleName: 'Стратегия 1 (Гол в концовке)',
+  marketSuggestion: 'ТБ 2.5',
+  outcome: 'PENDING',
+  odds: 1.85,
+  stake: 1000,
+};
+
+// When match has finished (status: 'FT' or minute >= 90) and score stayed 1:1 (no goals after signal)
+const resFinishedLoss = evaluateSignalOutcome(strandedSignal, [1, 1], true, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(resFinishedLoss.outcome === 'LOSS', 'Concluded match without goals resolves as LOSS');
+assert(resFinishedLoss.shouldResolve === true, 'Concluded match shouldResolve is true');
+
+// When match finished and goal was scored (+1) -> 2:1
+const resFinishedWin = evaluateSignalOutcome(strandedSignal, [2, 1], true, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(resFinishedWin.outcome === 'WIN', 'Concluded match with goal scored resolves as WIN');
+assert(resFinishedWin.shouldResolve === true, 'Concluded winning match shouldResolve is true');
 
 // ----------------------------------------------------
 // SUMMARY

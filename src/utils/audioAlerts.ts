@@ -40,9 +40,49 @@ export const ALERT_SOUND_PROFILES: SoundProfileInfo[] = [
 ];
 
 let globalAudioCtx: AudioContext | null = null;
+let isForcedMutedState: boolean = (() => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return (
+      localStorage.getItem('sportsignal_sound_muted') === 'true' ||
+      localStorage.getItem('footbalmonitor_sound_alerts') === 'false'
+    );
+  } catch {
+    return false;
+  }
+})();
+
+export function isSoundMuted(): boolean {
+  if (typeof window !== 'undefined') {
+    try {
+      if (
+        localStorage.getItem('sportsignal_sound_muted') === 'true' ||
+        localStorage.getItem('footbalmonitor_sound_alerts') === 'false'
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+  return isForcedMutedState;
+}
+
+export function setSoundMuted(muted: boolean): void {
+  isForcedMutedState = Boolean(muted);
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('sportsignal_sound_muted', muted ? 'true' : 'false');
+      localStorage.setItem('footbalmonitor_sound_alerts', muted ? 'false' : 'true');
+    } catch {}
+    if (muted && globalAudioCtx && globalAudioCtx.state === 'running') {
+      try {
+        globalAudioCtx.suspend().catch(() => {});
+      } catch {}
+    }
+  }
+}
 
 function getAudioContext(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined' || isSoundMuted()) return null;
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioCtx) return null;
   if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
@@ -58,6 +98,9 @@ function getAudioContext(): AudioContext | null {
  * Play a specific sound profile via Web Audio API synthesis
  */
 export function playAlertSound(type: AlertSoundType = 'whistle', volume = 0.25): void {
+  // 🛑 Strict forced sound mute check
+  if (isSoundMuted()) return;
+
   const ctx = getAudioContext();
   if (!ctx) return;
 
