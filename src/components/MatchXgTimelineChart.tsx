@@ -10,6 +10,7 @@ import {
   Tooltip,
   CartesianGrid,
   ReferenceLine,
+  Legend,
 } from 'recharts';
 import {
   TrendingUp,
@@ -17,8 +18,12 @@ import {
   Flame,
   Target,
   BarChart3,
+  LineChart as LineChartIcon,
   Sparkles,
   Info,
+  ShieldAlert,
+  Award,
+  Zap,
 } from 'lucide-react';
 import { Match } from '../types';
 
@@ -26,9 +31,10 @@ interface MatchXgTimelineChartProps {
   match: Match;
 }
 
-type TimelineViewMode = 'cumulative' | 'danger' | 'shots';
+export type XgChartDisplayType = 'line' | 'bar';
+export type TimelineMetricMode = 'cumulative' | 'danger' | 'shots';
 
-interface TimelinePoint {
+export interface TimelinePoint {
   minute: number;
   minuteLabel: string;
   homeXgCum: number;
@@ -37,18 +43,21 @@ interface TimelinePoint {
   awayThreat: number;
   homeShotXg?: number;
   awayShotXg?: number;
+  homeStepXg: number;
+  awayStepXg: number;
   isGoal?: 'home' | 'away' | null;
   eventDescription?: string;
+  isBigChance?: boolean;
 }
 
 /**
  * Deterministically generates minute-by-minute xG progression and attack danger timeline
  * for a match based on live statistics, momentum, shots, and score.
  */
-function buildXgTimeline(match: Match): TimelinePoint[] {
+export function buildXgTimeline(match: Match): TimelinePoint[] {
   const currentMinute = Math.min(Math.max(match.minute || 1, 1), 90);
-  const targetHomeXg = match.stats?.xg ? match.stats.xg[0] : 1.25;
-  const targetAwayXg = match.stats?.xg ? match.stats.xg[1] : 0.85;
+  const targetHomeXg = match.stats?.xg ? Number(match.stats.xg[0]) : 1.25;
+  const targetAwayXg = match.stats?.xg ? Number(match.stats.xg[1]) : 0.85;
   const homeGoals = match.score ? match.score[0] : 0;
   const awayGoals = match.score ? match.score[1] : 0;
 
@@ -136,6 +145,8 @@ function buildXgTimeline(match: Match): TimelinePoint[] {
         awayXgCum: 0,
         homeThreat: 0,
         awayThreat: 0,
+        homeStepXg: 0,
+        awayStepXg: 0,
       };
     }
 
@@ -156,15 +167,21 @@ function buildXgTimeline(match: Match): TimelinePoint[] {
     const homeThreat = Math.min(100, Math.round(homeShare * 140 + pseudoRand(m + 10) * 20));
     const awayThreat = Math.min(100, Math.round(awayShare * 140 + pseudoRand(m + 20) * 20));
 
+    const isBig = homeShare >= 0.25 || awayShare >= 0.25;
+
     let eventDescription: string | undefined = undefined;
     if (isHomeGoal) {
       eventDescription = `⚽ ГОЛ! ${match.homeTeam} (${homeClamped} xG)`;
     } else if (isAwayGoal) {
       eventDescription = `⚽ ГОЛ! ${match.awayTeam} (${awayClamped} xG)`;
-    } else if (homeShare > 0.22) {
-      eventDescription = `🔥 Голевой момент ${match.homeTeam} (+${homeShare.toFixed(2)} xG)`;
-    } else if (awayShare > 0.22) {
-      eventDescription = `🔥 Голевой момент ${match.awayTeam} (+${awayShare.toFixed(2)} xG)`;
+    } else if (homeShare >= 0.25) {
+      eventDescription = `🔥 Опаснейший момент ${match.homeTeam} (+${homeShare.toFixed(2)} xG)`;
+    } else if (awayShare >= 0.25) {
+      eventDescription = `🔥 Опаснейший момент ${match.awayTeam} (+${awayShare.toFixed(2)} xG)`;
+    } else if (homeShare > 0.12) {
+      eventDescription = `Удар ${match.homeTeam} (+${homeShare.toFixed(2)} xG)`;
+    } else if (awayShare > 0.12) {
+      eventDescription = `Удар ${match.awayTeam} (+${awayShare.toFixed(2)} xG)`;
     }
 
     return {
@@ -174,10 +191,13 @@ function buildXgTimeline(match: Match): TimelinePoint[] {
       awayXgCum: awayClamped,
       homeThreat,
       awayThreat,
+      homeStepXg: Number(homeShare.toFixed(2)),
+      awayStepXg: Number(awayShare.toFixed(2)),
       homeShotXg: homeShare > 0.08 ? Number(homeShare.toFixed(2)) : undefined,
       awayShotXg: awayShare > 0.08 ? Number(awayShare.toFixed(2)) : undefined,
       isGoal: isHomeGoal ? 'home' : isAwayGoal ? 'away' : null,
       eventDescription,
+      isBigChance: isBig,
     };
   });
 
@@ -192,12 +212,13 @@ function buildXgTimeline(match: Match): TimelinePoint[] {
 }
 
 export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ match }) => {
-  const [viewMode, setViewMode] = useState<TimelineViewMode>('cumulative');
+  const [displayType, setDisplayType] = useState<XgChartDisplayType>('line');
+  const [metricMode, setMetricMode] = useState<TimelineMetricMode>('cumulative');
 
   const timelineData = useMemo(() => buildXgTimeline(match), [match]);
 
-  const homeXg = match.stats?.xg ? match.stats.xg[0] : 0;
-  const awayXg = match.stats?.xg ? match.stats.xg[1] : 0;
+  const homeXg = match.stats?.xg ? Number(match.stats.xg[0]) : 0;
+  const awayXg = match.stats?.xg ? Number(match.stats.xg[1]) : 0;
   const homeGoals = match.score ? match.score[0] : 0;
   const awayGoals = match.score ? match.score[1] : 0;
 
@@ -214,63 +235,180 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
   const homeOverperformance = Number((homeGoals - homeXg).toFixed(2));
   const awayOverperformance = Number((awayGoals - awayXg).toFixed(2));
 
+  // Count high-threat / big chances (>0.25 xG)
+  const homeBigChances = timelineData.filter((p) => p.homeStepXg >= 0.22).length;
+  const awayBigChances = timelineData.filter((p) => p.awayStepXg >= 0.22).length;
+
+  // Danger leader detection
+  const dangerLeader: 'home' | 'away' | 'equal' =
+    xgDiff > 0.35 ? 'home' : xgDiff < -0.35 ? 'away' : 'equal';
+
+  const leaderTeamName = dangerLeader === 'home' ? match.homeTeam : match.awayTeam;
+
   return (
-    <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-3.5">
-      {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+    <div
+      id="match-inspector-xg-section"
+      className="bg-slate-950/85 border border-slate-800 rounded-2xl p-3.5 sm:p-5 space-y-4 shadow-lg backdrop-blur-sm"
+    >
+      {/* Header with Title & View Switchers */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-emerald-400" />
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-              Динамика xG & Опасность атак
+            <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
+              <span>Сравнение накопленного xG</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                {match.minute}' LIVE
+              </span>
             </h4>
-            <span className="text-[10px] text-slate-500 font-mono">
-              Live {match.minute}'
-            </span>
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            Накопление ожидаемых голов и хронология опасных моментов
+            Динамика создания голевых моментов и накопления ожидаемых голов (Expected Goals)
           </p>
         </div>
 
-        {/* View Mode Segmented Controls */}
-        <div className="inline-flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs font-medium self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => setViewMode('cumulative')}
-            className={`px-2.5 py-1 rounded-md transition flex items-center gap-1.5 ${
-              viewMode === 'cumulative'
-                ? 'bg-emerald-600 text-white font-bold shadow-sm'
-                : 'text-slate-400 hover:text-white'
+        {/* View Mode Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Linear vs Bar Toggle Button */}
+          <div className="inline-flex items-center bg-slate-900 border border-slate-700/80 rounded-xl p-0.5 text-xs">
+            <button
+              id="match-xg-toggle-line-btn"
+              type="button"
+              onClick={() => setDisplayType('line')}
+              className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 font-bold ${
+                displayType === 'line'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+              title="Переключить на линейный график (Area/Line)"
+            >
+              <LineChartIcon className="h-3.5 w-3.5" />
+              <span>Линейный</span>
+            </button>
+            <button
+              id="match-xg-toggle-bar-btn"
+              type="button"
+              onClick={() => setDisplayType('bar')}
+              className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 font-bold ${
+                displayType === 'bar'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+              title="Переключить на столбчатый график (Bar/Columns)"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              <span>Столбчатый</span>
+            </button>
+          </div>
+
+          {/* Metric Selector (Cumulative xG vs Danger Threat vs Shot xG) */}
+          <div className="inline-flex items-center bg-slate-900 border border-slate-800 rounded-xl p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setMetricMode('cumulative')}
+              className={`px-2 py-1 rounded-lg transition ${
+                metricMode === 'cumulative'
+                  ? 'bg-slate-800 text-white font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Накопленная сумма xG по ходу матча"
+            >
+              Накопленный xG
+            </button>
+            <button
+              type="button"
+              onClick={() => setMetricMode('danger')}
+              className={`px-2 py-1 rounded-lg transition flex items-center gap-1 ${
+                metricMode === 'danger'
+                  ? 'bg-slate-800 text-amber-300 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Уровень опасности и давления атак"
+            >
+              <Flame className="h-3 w-3 text-amber-400" />
+              <span>Опасность</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMetricMode('shots')}
+              className={`px-2 py-1 rounded-lg transition flex items-center gap-1 ${
+                metricMode === 'shots'
+                  ? 'bg-slate-800 text-sky-300 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Вес каждого удара/момента"
+            >
+              <Target className="h-3 w-3 text-sky-400" />
+              <span>Удары</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Visual Verdict Banner: Кто создавал более опасные моменты */}
+      <div
+        className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition ${
+          dangerLeader === 'home'
+            ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
+            : dangerLeader === 'away'
+            ? 'bg-sky-950/30 border-sky-500/40 text-sky-200'
+            : 'bg-slate-900/60 border-slate-800 text-slate-300'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`p-2 rounded-lg shrink-0 ${
+              dangerLeader === 'home'
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : dangerLeader === 'away'
+                ? 'bg-sky-500/20 text-sky-400'
+                : 'bg-slate-800 text-slate-400'
             }`}
           >
-            <Activity className="h-3 w-3" />
-            <span>Накопленный xG</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('danger')}
-            className={`px-2.5 py-1 rounded-md transition flex items-center gap-1.5 ${
-              viewMode === 'danger'
-                ? 'bg-emerald-600 text-white font-bold shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Flame className="h-3 w-3 text-amber-400" />
-            <span>Опасность (Threat)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('shots')}
-            className={`px-2.5 py-1 rounded-md transition flex items-center gap-1.5 ${
-              viewMode === 'shots'
-                ? 'bg-emerald-600 text-white font-bold shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <BarChart3 className="h-3 w-3 text-sky-400" />
-            <span>Вес ударов</span>
-          </button>
+            {dangerLeader !== 'equal' ? <Zap className="h-4 w-4" /> : <Activity className="h-4 w-4" />}
+          </div>
+          <div>
+            <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+              Кто создавал более опасные моменты:
+            </div>
+            <div className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
+              {dangerLeader === 'home' ? (
+                <>
+                  <span className="text-emerald-400 font-bold">{match.homeTeam}</span>
+                  <span className="text-slate-300 font-normal">доминирует по остроте</span>
+                  <span className="font-mono text-emerald-300 font-extrabold">(+{Math.abs(xgDiff)} xG)</span>
+                </>
+              ) : dangerLeader === 'away' ? (
+                <>
+                  <span className="text-sky-400 font-bold">{match.awayTeam}</span>
+                  <span className="text-slate-300 font-normal">доминирует по остроте</span>
+                  <span className="font-mono text-sky-300 font-extrabold">(+{Math.abs(xgDiff)} xG)</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-slate-200 font-bold">Паритет по моментам:</span>
+                  <span className="text-slate-400 font-normal">сопоставимая острота атак у ворот</span>
+                  <span className="font-mono text-slate-300 font-bold">(разница {Math.abs(xgDiff)} xG)</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 text-xs font-mono shrink-0">
+          <div className="text-right">
+            <span className="text-[10px] text-slate-400 block font-sans">Острые шансы (&gt;0.22 xG)</span>
+            <span className="font-bold">
+              <span className="text-emerald-400">{homeBigChances}</span> : <span className="text-sky-400">{awayBigChances}</span>
+            </span>
+          </div>
+          <div className="h-6 w-px bg-slate-800" />
+          <div className="text-right">
+            <span className="text-[10px] text-slate-400 block font-sans">Счёт vs xG</span>
+            <span className="font-bold text-white">
+              {homeGoals}:{awayGoals} <span className="text-slate-400 text-[10px]">({homeXg.toFixed(1)}:{awayXg.toFixed(1)})</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -316,7 +454,7 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
           </div>
         </div>
 
-        {/* xG Advantage / Dominance Card */}
+        {/* xG Advantage Card */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 space-y-1">
           <div className="text-[11px] text-slate-400">Перевес по xG</div>
           <div className="text-xl font-bold font-mono">
@@ -341,7 +479,7 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
           </div>
         </div>
 
-        {/* Efficiency / Overperformance Card */}
+        {/* Efficiency Card */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 space-y-1">
           <div className="text-[11px] text-slate-400">Реализация моментов</div>
           <div className="text-sm font-bold font-mono space-y-0.5">
@@ -366,70 +504,161 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
         </div>
       </div>
 
-      {/* Chart Visualization Area */}
-      <div className="h-56 sm:h-64 w-full pt-1">
+      {/* Recharts Visualization Area */}
+      <div className="h-60 sm:h-72 w-full pt-1">
         <ResponsiveContainer width="100%" height="100%">
-          {viewMode === 'cumulative' ? (
-            <ComposedChart
-              data={timelineData}
-              margin={{ top: 12, right: 12, left: -16, bottom: 0 }}
-            >
-              <defs>
-                <linearGradient id="homeXgGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="awayXgGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
+          {metricMode === 'cumulative' ? (
+            displayType === 'line' ? (
+              // 1. CUMULATIVE LINE / AREA CHART
+              <ComposedChart
+                data={timelineData}
+                margin={{ top: 12, right: 12, left: -16, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="homeXgGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.45} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="awayXgGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
 
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
 
-              <XAxis
-                dataKey="minute"
-                tickFormatter={(val) => `${val}'`}
-                stroke="#64748b"
-                fontSize={10}
-                tickLine={false}
-              />
-              <YAxis
-                stroke="#64748b"
-                fontSize={10}
-                domain={[0, 'auto']}
-                tickLine={false}
-                tickFormatter={(val) => Number(val).toFixed(1)}
-              />
+                <XAxis
+                  dataKey="minute"
+                  tickFormatter={(val) => `${val}'`}
+                  stroke="#64748b"
+                  fontSize={10}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="#64748b"
+                  fontSize={10}
+                  domain={[0, 'auto']}
+                  tickLine={false}
+                  tickFormatter={(val) => Number(val).toFixed(1)}
+                />
 
-              <Tooltip content={<CustomCumulativeTooltip homeTeam={match.homeTeam} awayTeam={match.awayTeam} />} />
+                <Tooltip
+                  content={
+                    <CustomCumulativeTooltip
+                      homeTeam={match.homeTeam}
+                      awayTeam={match.awayTeam}
+                      isBar={false}
+                    />
+                  }
+                />
 
-              {/* Halftime 45' separator */}
-              <ReferenceLine x={45} stroke="#475569" strokeDasharray="2 2" label={{ value: 'HT', fill: '#94a3b8', fontSize: 10, position: 'top' }} />
+                {/* Halftime 45' separator */}
+                <ReferenceLine
+                  x={45}
+                  stroke="#475569"
+                  strokeDasharray="2 2"
+                  label={{ value: 'HT', fill: '#94a3b8', fontSize: 10, position: 'top' }}
+                />
 
-              {/* Home Team Cumulative xG Area & Stepped Line */}
-              <Area
-                type="monotone"
-                dataKey="homeXgCum"
-                name={match.homeTeam}
-                stroke="#10b981"
-                strokeWidth={2.5}
-                fill="url(#homeXgGrad)"
-                activeDot={{ r: 5, stroke: '#10b981', strokeWidth: 2, fill: '#022c22' }}
-              />
+                {/* Home Team Cumulative xG Area */}
+                <Area
+                  type="monotone"
+                  dataKey="homeXgCum"
+                  name={match.homeTeam}
+                  stroke="#10b981"
+                  strokeWidth={2.8}
+                  fill="url(#homeXgGrad)"
+                  activeDot={{ r: 5, stroke: '#10b981', strokeWidth: 2, fill: '#022c22' }}
+                />
 
-              {/* Away Team Cumulative xG Area & Stepped Line */}
-              <Area
-                type="monotone"
-                dataKey="awayXgCum"
-                name={match.awayTeam}
-                stroke="#38bdf8"
-                strokeWidth={2.5}
-                fill="url(#awayXgGrad)"
-                activeDot={{ r: 5, stroke: '#38bdf8', strokeWidth: 2, fill: '#082f49' }}
-              />
-            </ComposedChart>
-          ) : viewMode === 'danger' ? (
+                {/* Away Team Cumulative xG Area */}
+                <Area
+                  type="monotone"
+                  dataKey="awayXgCum"
+                  name={match.awayTeam}
+                  stroke="#38bdf8"
+                  strokeWidth={2.8}
+                  fill="url(#awayXgGrad)"
+                  activeDot={{ r: 5, stroke: '#38bdf8', strokeWidth: 2, fill: '#082f49' }}
+                />
+              </ComposedChart>
+            ) : (
+              // 2. CUMULATIVE BAR / COLUMN CHART (Side-by-Side per Minute Interval)
+              <ComposedChart
+                data={timelineData}
+                margin={{ top: 12, right: 12, left: -16, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+
+                <XAxis
+                  dataKey="minute"
+                  tickFormatter={(val) => `${val}'`}
+                  stroke="#64748b"
+                  fontSize={10}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="#64748b"
+                  fontSize={10}
+                  domain={[0, 'auto']}
+                  tickLine={false}
+                  tickFormatter={(val) => Number(val).toFixed(1)}
+                />
+
+                <Tooltip
+                  content={
+                    <CustomCumulativeTooltip
+                      homeTeam={match.homeTeam}
+                      awayTeam={match.awayTeam}
+                      isBar={true}
+                    />
+                  }
+                />
+
+                <ReferenceLine
+                  x={45}
+                  stroke="#475569"
+                  strokeDasharray="2 2"
+                  label={{ value: 'HT', fill: '#94a3b8', fontSize: 10, position: 'top' }}
+                />
+
+                {/* Home Team Cumulative Bar */}
+                <Bar
+                  dataKey="homeXgCum"
+                  name={match.homeTeam}
+                  fill="#10b981"
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={16}
+                />
+
+                {/* Away Team Cumulative Bar */}
+                <Bar
+                  dataKey="awayXgCum"
+                  name={match.awayTeam}
+                  fill="#38bdf8"
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={16}
+                />
+
+                {/* Stepped line comparison overlay */}
+                <Line
+                  type="monotone"
+                  dataKey="homeXgCum"
+                  stroke="#059669"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="awayXgCum"
+                  stroke="#0284c7"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              </ComposedChart>
+            )
+          ) : metricMode === 'danger' ? (
+            // DANGER THREAT VIEW
             <ComposedChart
               data={timelineData}
               margin={{ top: 12, right: 12, left: -16, bottom: 0 }}
@@ -458,31 +687,65 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
                 tickFormatter={(val) => `${val}%`}
               />
 
-              <Tooltip content={<CustomDangerTooltip homeTeam={match.homeTeam} awayTeam={match.awayTeam} />} />
+              <Tooltip
+                content={<CustomDangerTooltip homeTeam={match.homeTeam} awayTeam={match.awayTeam} />}
+              />
 
-              <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="3 3" label={{ value: 'Штурм (Критическая опасность)', fill: '#f87171', fontSize: 10, position: 'insideTopLeft' }} />
+              <ReferenceLine
+                y={70}
+                stroke="#ef4444"
+                strokeDasharray="3 3"
+                label={{
+                  value: 'Штурм (Критическая опасность)',
+                  fill: '#f87171',
+                  fontSize: 10,
+                  position: 'insideTopLeft',
+                }}
+              />
               <ReferenceLine x={45} stroke="#475569" strokeDasharray="2 2" />
 
-              <Line
-                type="monotone"
-                dataKey="homeThreat"
-                name={`${match.homeTeam} (Давление)`}
-                stroke="#10b981"
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="awayThreat"
-                name={`${match.awayTeam} (Давление)`}
-                stroke="#38bdf8"
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 5 }}
-              />
+              {displayType === 'line' ? (
+                <>
+                  <Line
+                    type="monotone"
+                    dataKey="homeThreat"
+                    name={`${match.homeTeam} (Опасность)`}
+                    stroke="#10b981"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="awayThreat"
+                    name={`${match.awayTeam} (Опасность)`}
+                    stroke="#38bdf8"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                  />
+                </>
+              ) : (
+                <>
+                  <Bar
+                    dataKey="homeThreat"
+                    name={`${match.homeTeam} (Опасность)`}
+                    fill="#10b981"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={14}
+                  />
+                  <Bar
+                    dataKey="awayThreat"
+                    name={`${match.awayTeam} (Опасность)`}
+                    fill="#38bdf8"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={14}
+                  />
+                </>
+              )}
             </ComposedChart>
           ) : (
+            // SHOT & CHANCE XG PER MOMENT
             <ComposedChart
               data={timelineData}
               margin={{ top: 12, right: 12, left: -16, bottom: 0 }}
@@ -504,37 +767,66 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
                 tickFormatter={(val) => Number(val).toFixed(2)}
               />
 
-              <Tooltip content={<CustomShotTooltip homeTeam={match.homeTeam} awayTeam={match.awayTeam} />} />
+              <Tooltip
+                content={<CustomShotTooltip homeTeam={match.homeTeam} awayTeam={match.awayTeam} />}
+              />
 
               <ReferenceLine x={45} stroke="#475569" strokeDasharray="2 2" />
 
-              <Bar
-                dataKey="homeShotXg"
-                name={`${match.homeTeam} (Острота шанса)`}
-                fill="#10b981"
-                radius={[4, 4, 0, 0]}
-              />
-              <Bar
-                dataKey="awayShotXg"
-                name={`${match.awayTeam} (Острота шанса)`}
-                fill="#38bdf8"
-                radius={[4, 4, 0, 0]}
-              />
+              {displayType === 'line' ? (
+                <>
+                  <Line
+                    type="monotone"
+                    dataKey="homeStepXg"
+                    name={`${match.homeTeam} (Острота шанса)`}
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#10b981' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="awayStepXg"
+                    name={`${match.awayTeam} (Острота шанса)`}
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#38bdf8' }}
+                  />
+                </>
+              ) : (
+                <>
+                  <Bar
+                    dataKey="homeStepXg"
+                    name={`${match.homeTeam} (Острота шанса)`}
+                    fill="#10b981"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={16}
+                  />
+                  <Bar
+                    dataKey="awayStepXg"
+                    name={`${match.awayTeam} (Острота шанса)`}
+                    fill="#38bdf8"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={16}
+                  />
+                </>
+              )}
             </ComposedChart>
           )}
         </ResponsiveContainer>
       </div>
 
-      {/* Footer Legend & Insight */}
+      {/* Footer Legend & Explanations */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-[11px] text-slate-400">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
             <span className="text-slate-200 font-semibold">{match.homeTeam}</span>
+            <span className="font-mono text-emerald-400 text-[10px]">({homeXg.toFixed(2)} xG)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
             <span className="text-slate-200 font-semibold">{match.awayTeam}</span>
+            <span className="font-mono text-sky-400 text-[10px]">({awayXg.toFixed(2)} xG)</span>
           </div>
         </div>
 
@@ -542,10 +834,10 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
           <Info className="h-3 w-3 text-emerald-400 shrink-0" />
           <span>
             {goalDiff !== 0 && Math.abs(xgDiff) > 0.5 && Math.sign(goalDiff) === Math.sign(xgDiff)
-              ? 'Счёт матча логично отражает превосходство по xG'
+              ? 'Счёт матча закономерно отражает преимущество по xG'
               : goalDiff === 0 && Math.abs(xgDiff) > 0.6
-              ? `Ничья вопреки xG: ${xgDiff > 0 ? match.homeTeam : match.awayTeam} заслуживает победы`
-              : 'Команды создают сопоставимую остроту у ворот'}
+              ? `Ничья вопреки моментам: ${xgDiff > 0 ? match.homeTeam : match.awayTeam} наиграл на гол`
+              : 'Обе команды создают сопоставимую опасность у ворот'}
           </span>
         </div>
       </div>
@@ -557,14 +849,21 @@ export const MatchXgTimelineChart: React.FC<MatchXgTimelineChartProps> = ({ matc
 // Custom Dark Tooltips
 // ==========================================
 
-const CustomCumulativeTooltip: React.FC<any> = ({ active, payload, label, homeTeam, awayTeam }) => {
+const CustomCumulativeTooltip: React.FC<any> = ({
+  active,
+  payload,
+  label,
+  homeTeam,
+  awayTeam,
+  isBar,
+}) => {
   if (!active || !payload || !payload.length) return null;
   const data = payload[0].payload as TimelinePoint;
 
   return (
-    <div className="bg-slate-900/95 border border-slate-700/80 rounded-xl p-2.5 shadow-2xl backdrop-blur-md text-xs space-y-1.5 min-w-[190px]">
+    <div className="bg-slate-900/95 border border-slate-700/80 rounded-xl p-2.5 shadow-2xl backdrop-blur-md text-xs space-y-1.5 min-w-[200px]">
       <div className="flex items-center justify-between pb-1 border-b border-slate-800 font-mono text-[11px] text-slate-400">
-        <span>Минута: {label}'</span>
+        <span>Минута: {label}' {isBar ? '(Столбцы)' : '(Кривая)'}</span>
         {data.eventDescription && (
           <span className="text-amber-400 font-bold truncate max-w-[120px]">{data.eventDescription}</span>
         )}
@@ -576,7 +875,12 @@ const CustomCumulativeTooltip: React.FC<any> = ({ active, payload, label, homeTe
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
             <span className="text-slate-200 font-medium truncate max-w-[110px]">{homeTeam}:</span>
           </div>
-          <span className="font-mono font-bold text-emerald-400">{data.homeXgCum.toFixed(2)} xG</span>
+          <div className="text-right">
+            <span className="font-mono font-bold text-emerald-400">{data.homeXgCum.toFixed(2)} xG</span>
+            {data.homeStepXg > 0 && (
+              <span className="text-[10px] font-mono text-emerald-300 ml-1">(+{data.homeStepXg})</span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-3">
@@ -584,7 +888,12 @@ const CustomCumulativeTooltip: React.FC<any> = ({ active, payload, label, homeTe
             <span className="w-2 h-2 rounded-full bg-sky-400" />
             <span className="text-slate-200 font-medium truncate max-w-[110px]">{awayTeam}:</span>
           </div>
-          <span className="font-mono font-bold text-sky-400">{data.awayXgCum.toFixed(2)} xG</span>
+          <div className="text-right">
+            <span className="font-mono font-bold text-sky-400">{data.awayXgCum.toFixed(2)} xG</span>
+            {data.awayStepXg > 0 && (
+              <span className="text-[10px] font-mono text-sky-300 ml-1">(+{data.awayStepXg})</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -628,22 +937,22 @@ const CustomShotTooltip: React.FC<any> = ({ active, payload, label, homeTeam, aw
   return (
     <div className="bg-slate-900/95 border border-slate-700/80 rounded-xl p-2.5 shadow-2xl backdrop-blur-md text-xs space-y-1.5 min-w-[180px]">
       <div className="text-[11px] font-mono text-slate-400 pb-1 border-b border-slate-800">
-        Острота созданных моментов ({label}')
+        Острота созданных шансов ({label}')
       </div>
       <div className="space-y-1 font-mono">
-        {data.homeShotXg !== undefined && (
+        {data.homeStepXg > 0 && (
           <div className="flex items-center justify-between text-emerald-400">
             <span className="text-slate-300 font-sans truncate max-w-[100px]">{homeTeam}:</span>
-            <span className="font-bold">+{data.homeShotXg.toFixed(2)} xG</span>
+            <span className="font-bold">+{data.homeStepXg.toFixed(2)} xG</span>
           </div>
         )}
-        {data.awayShotXg !== undefined && (
+        {data.awayStepXg > 0 && (
           <div className="flex items-center justify-between text-sky-400">
             <span className="text-slate-300 font-sans truncate max-w-[100px]">{awayTeam}:</span>
-            <span className="font-bold">+{data.awayShotXg.toFixed(2)} xG</span>
+            <span className="font-bold">+{data.awayStepXg.toFixed(2)} xG</span>
           </div>
         )}
-        {data.homeShotXg === undefined && data.awayShotXg === undefined && (
+        {data.homeStepXg === 0 && data.awayStepXg === 0 && (
           <div className="text-[10px] text-slate-500">Позиционная борьба без ударов</div>
         )}
       </div>

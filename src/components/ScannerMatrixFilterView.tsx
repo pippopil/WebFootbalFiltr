@@ -289,6 +289,19 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
   };
 
   const handleSave = () => {
+    if (!isPaidUser) {
+      // If user already has 1 custom filter and selectedFilterId is null or belongs to preset
+      const existingCustom = customFilters;
+      if (existingCustom.length >= 1 && (!selectedFilterId || presetFilters.some((p) => p.id === selectedFilterId))) {
+        // Free user updating their 1 custom filter
+        const targetId = existingCustom[0].id;
+        const rule = buildCurrentRule(targetId);
+        onSaveFilter(rule);
+        setSelectedFilterId(targetId);
+        showNotice(`Ваш бесплатный авторский фильтр «${rule.name}» обновлён!`);
+        return;
+      }
+    }
     const id = selectedFilterId || `matrix-${Date.now()}`;
     const rule = buildCurrentRule(id);
     onSaveFilter(rule);
@@ -297,7 +310,11 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
   };
 
   const handleCleanBlank = () => {
-    setSelectedFilterId(null);
+    if (!isPaidUser && customFilters.length >= 1) {
+      setSelectedFilterId(customFilters[0].id);
+    } else {
+      setSelectedFilterId(null);
+    }
     setFilterName('');
     setFilterDesc('');
     setTargetMarket('');
@@ -315,10 +332,20 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
   };
 
   const handleCreateNew = () => {
+    if (!isPaidUser && customFilters.length >= 1) {
+      if (onUpgradePlan) onUpgradePlan();
+      showNotice('🔒 В тарифе FREE доступен только 1 авторский фильтр. Оформите PRO/VIP для сохранения неограниченного числа стратегий!');
+      return;
+    }
     handleCleanBlank();
   };
 
   const handleDuplicate = () => {
+    if (!isPaidUser) {
+      if (onUpgradePlan) onUpgradePlan();
+      showNotice('🔒 Создание копий и множественных фильтров доступно в тарифах PRO и VIP.');
+      return;
+    }
     if (!selectedFilterId) return;
     const newId = `matrix-${Date.now()}`;
     const cloned = buildCurrentRule(newId);
@@ -578,9 +605,15 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                 type="button"
                 onClick={handleCreateNew}
                 className="p-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition text-xs font-bold"
-                title="Создать новую стратегию"
+                title={!isPaidUser && customFilters.length >= 1 ? 'Сохранение более 1 фильтра доступно в тарифах PRO/VIP' : 'Создать новую стратегию'}
               >
-                <Plus className="h-3.5 w-3.5" />
+                {!isPaidUser && customFilters.length >= 1 ? (
+                  <span className="flex items-center gap-0.5 px-1 text-[10px] text-amber-300 font-mono">
+                    <Lock className="h-3 w-3 text-amber-400" />
+                  </span>
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
               </button>
             </div>
           </div>
@@ -778,13 +811,18 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                             {f.enabled ? 'ON' : 'OFF'}
                           </button>
                         ) : (
-                          <span
-                            className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1"
-                            title="Готовая стратегия доступна на тарифах PRO и VIP"
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onUpgradePlan) onUpgradePlan();
+                            }}
+                            className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 flex items-center gap-1 transition active:scale-95"
+                            title="Готовая стратегия доступна по подписке PRO и VIP. Нажмите для разблокировки"
                           >
-                            <Lock className="h-2.5 w-2.5" />
+                            <Lock className="h-2.5 w-2.5 text-amber-400" />
                             <span>PRO</span>
-                          </span>
+                          </button>
                         )}
                       </div>
 
@@ -851,29 +889,61 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
 
               <div className="space-y-2">
                 <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5">
-                  <Crown className="h-3.5 w-3.5" />
+                  <Lock className="h-3.5 w-3.5 text-amber-400" />
                   Готовая стратегия тарифов PRO & VIP
                 </span>
                 <h3 className="text-xl sm:text-2xl font-black text-white">
                   {selectedRule ? (selectedRule.isPreset && !isDeveloper ? getStrategyCardDisplayName(selectedRule, isDeveloper, filters) : selectedRule.name) : ''}
                 </h3>
-                <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-                  Вшитый алгоритм платформы. Формула и параметры защищены разработчиком от копирования. Доступен для запуска в тарифах PRO и VIP.
-                </p>
+                {selectedRule?.description && (
+                  <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto leading-relaxed">
+                    {selectedRule.description}
+                  </p>
+                )}
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left text-xs space-y-2.5 max-w-md mx-auto text-slate-300">
+              {/* Strategy Parameters Preview for Free Users */}
+              {selectedRule && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-xl mx-auto text-left">
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Проходимость</span>
+                    <span className="text-sm font-black text-emerald-400 font-mono mt-0.5 block">
+                      {selectedRule.verifiedPassRate || '94–98%'}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Целевой исход</span>
+                    <span className="text-xs font-black text-amber-300 truncate mt-0.5 block">
+                      {selectedRule.targetMarket || 'Live тотал / гол'}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Средний кэф</span>
+                    <span className="text-sm font-black text-cyan-300 font-mono mt-0.5 block">
+                      ~{selectedRule.defaultOdds ? selectedRule.defaultOdds.toFixed(2) : '1.80'}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Тайминг</span>
+                    <span className="text-xs font-bold text-slate-200 mt-0.5 block">
+                      {selectedRule.minMinute ?? 0}'–{selectedRule.maxMinute ?? 90}' мин
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-amber-500/30 text-left text-xs space-y-2.5 max-w-xl mx-auto text-slate-300">
                 <div className="font-bold text-white flex items-center gap-1.5 pb-1 border-b border-slate-800">
                   <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                  Возможности тарифов:
+                  <span>Возможности тарифа FREE vs PRO/VIP:</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                  <span><strong>Тариф FREE:</strong> настройка собственных фильтров с чистого бланка по 20+ метрикам.</span>
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <span><strong>Тариф FREE (активен):</strong> настройка и сохранение 1 авторского фильтра с чистого бланка по 20+ метрикам + подключение 1 Telegram-бота.</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <span><strong>Тарифы PRO & VIP:</strong> доступ ко всей библиотеке готовых авторских алгоритмов сервиса + до 5-15 ботов.</span>
+                <div className="flex items-start gap-2">
+                  <Lock className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                  <span><strong>Тарифы PRO & VIP:</strong> запуск 70+ готовых стратегий, синергии алгоритмов, бэктестинг, до 5-15 ботов для разных каналов.</span>
                 </div>
               </div>
 
@@ -881,10 +951,10 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                 <button
                   type="button"
                   onClick={handleCleanBlank}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition active:scale-95"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95"
                 >
-                  <FileText className="h-4 w-4" />
-                  <span>Создать свой фильтр (Чистый бланк)</span>
+                  <FileText className="h-4 w-4 text-emerald-400" />
+                  <span>Настроить свой бесплатный фильтр</span>
                 </button>
                 {onUpgradePlan && (
                   <button
@@ -893,7 +963,7 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                     className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition active:scale-95"
                   >
                     <Crown className="h-4 w-4" />
-                    <span>Разблокировать в тарифе PRO</span>
+                    <span>Разблокировать в тарифе PRO (от 1 990 ₽)</span>
                   </button>
                 )}
               </div>

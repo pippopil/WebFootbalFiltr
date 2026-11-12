@@ -364,6 +364,8 @@ export function parseFlashscoreSportHtml(html: string, sport: SportType): Match[
     const regex = /<span(?:\s+class="([^"]*)")?>(.*?)<\/span>(.*?)\s*<a\s+href="\/match\/([A-Za-z0-9]+)\/[^"]*"\s+class="([^"]*)">(.*?)<\/a>(?:\s*\((.*?)\))?/g;
     let m;
     while ((m = regex.exec(body)) !== null) {
+      // Clean up tags in time or minute span and team labels
+      const fullSpanContent = m[0] || '';
       const timeOrMin = m[2]?.replace(/<[^>]+>/g, '').trim() || '';
       const rawTeams = m[3]?.replace(/<[^>]+>/g, '').trim() || '';
       const matchId = m[4]?.trim();
@@ -371,9 +373,27 @@ export function parseFlashscoreSportHtml(html: string, sport: SportType): Match[
       const rawScore = m[6]?.replace(/&nbsp;/g, '').replace(/<[^>]+>/g, '').trim();
       const setScores = m[7]?.trim();
 
+      // STRICT VALIDATION: Ignore canceled, postponed, delayed, walkover, interrupted, or aborted events
+      const isCanceledOrPostponed =
+        /postponed|canceled|cancelled|aborted|delayed|interrupted|walkover|отмен|перенес/i.test(fullSpanContent) ||
+        /postponed|canceled|cancelled|aborted|delayed|interrupted|walkover/i.test(timeOrMin) ||
+        /postponed|canceled|cancelled|aborted|delayed|interrupted|walkover/i.test(rawTeams);
+      if (isCanceledOrPostponed) {
+        continue;
+      }
+
+      // Check for ghost matches marked as "fin" or "sched" with invalid team names
       const teamParts = rawTeams.split(' - ');
-      const homeTeam = teamParts[0]?.trim() || 'Хозяева';
-      const awayTeam = teamParts[1]?.trim() || 'Гости';
+      const homeTeam = teamParts[0]?.trim() || '';
+      const awayTeam = teamParts[1]?.trim() || '';
+      if (!homeTeam || !awayTeam || homeTeam.length < 2 || awayTeam.length < 2) {
+        continue;
+      }
+
+      // Filter out pseudo-finished matches that never started (fin with no score)
+      if (aClass === 'fin' && (rawScore === '' || /^\s*-\s*$/.test(rawScore))) {
+        continue;
+      }
 
       const scoreParts = rawScore.split('-');
       const scoreHome = parseInt(scoreParts[0]?.trim() || '0', 10) || 0;
@@ -597,13 +617,52 @@ function deduplicateMatchesById(items: Match[]): Match[] {
   return res;
 }
 
+// Helper to validate that a match is a genuine active sporting event
+export function isValidRealSportMatch(m: Match): boolean {
+  if (!m || !m.homeTeam || !m.awayTeam) return false;
+  const home = m.homeTeam.trim();
+  const away = m.awayTeam.trim();
+  if (home.length < 2 || away.length < 2) return false;
+  if (home.toLowerCase() === away.toLowerCase()) return false;
+
+  // Filter placeholder dummy teams
+  if (/^(хозяева|гости|home team|away team|team a|team b)$/i.test(home) ||
+      /^(хозяева|гости|home team|away team|team a|team b)$/i.test(away)) {
+    return false;
+  }
+
+  // Filter canceled, postponed, aborted, or postponed events
+  const text = `${home} ${away} ${m.league || ''} ${m.lastEvent || ''}`.toLowerCase();
+  if (
+    text.includes('postponed') ||
+    text.includes('canceled') ||
+    text.includes('cancelled') ||
+    text.includes('aborted') ||
+    text.includes('walkover') ||
+    text.includes('перенесен') ||
+    text.includes('отменен')
+  ) {
+    return false;
+  }
+
+  // Filter invalid finished matches with no score
+  if (m.status === 'FT' && (isNaN(m.score[0]) || isNaN(m.score[1]) || (m.score[0] === 0 && m.score[1] === 0 && m.minute === 0))) {
+    return false;
+  }
+
+  return true;
+}
+
 // Helper to obtain REAL currently ongoing live matches from the best available live feed
 async function getRealActiveLiveMatches(sport?: SportType | 'all'): Promise<Match[]> {
   // 1. Try Flashscore parser (all real live & today matches)
   try {
     const fs = await fetchFlashscoreLiveMatches({ sport });
     if (fs.ok && fs.matches.length > 0) {
-      return deduplicateMatchesById(fs.matches);
+      const valid = fs.matches.filter(isValidRealSportMatch);
+      if (valid.length > 0) {
+        return deduplicateMatchesById(valid);
+      }
     }
   } catch {}
 
@@ -611,7 +670,10 @@ async function getRealActiveLiveMatches(sport?: SportType | 'all'): Promise<Matc
   try {
     const pf = await fetchPublicLiveMatches({ sport });
     if (pf.matches.length > 0) {
-      return deduplicateMatchesById(pf.matches);
+      const valid = pf.matches.filter(isValidRealSportMatch);
+      if (valid.length > 0) {
+        return deduplicateMatchesById(valid);
+      }
     }
   } catch {}
 
@@ -619,7 +681,10 @@ async function getRealActiveLiveMatches(sport?: SportType | 'all'): Promise<Matc
   try {
     const ss = await fetchSstatsLiveMatches();
     if (ss.ok && ss.matches.length > 0) {
-      return deduplicateMatchesById(ss.matches);
+      const valid = ss.matches.filter(isValidRealSportMatch);
+      if (valid.length > 0) {
+        return deduplicateMatchesById(valid);
+      }
     }
   } catch {}
 
@@ -708,9 +773,11 @@ export async function fetch1xBetLiveMatches(options?: {
   }
 
   try {
-    const realMatches = await getRealActiveLiveMatches(targetSport);
-    if (realMatches.length > 0) {
-      const matches: Match[] = realMatches.map((m) => {
+    const rawMatches = await getRealActiveLiveMatches(targetSport);
+    const validMatches = rawMatches.filter(isValidRealSportMatch);
+
+    if (validMatches.length > 0) {
+      const matches: Match[] = validMatches.map((m) => {
         const homeOdds = m.odds?.home || 2.15;
         const awayOdds = m.odds?.away || 3.40;
         const drawOdds = m.odds?.draw || 3.20;

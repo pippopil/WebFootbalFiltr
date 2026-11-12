@@ -90,6 +90,12 @@ import {
   cleanPresetTitle,
   getStrategyCardDisplayName,
   PRESET_STRATEGY_NUMBER_BY_ID,
+  getSubscriptionTier,
+  getMaxFiltersForTier,
+  getMaxBotsForTier,
+  isSynergyComboAllowed,
+  getAiDailyLimit,
+  isFeatureLockedForUser,
 } from './utils/filterDefaults';
 import { isPwaStandalone } from './utils/pwaManager';
 import { PwaSubscriptionPaywall } from './components/PwaSubscriptionPaywall';
@@ -97,6 +103,7 @@ import { PwaInstallModal } from './components/PwaInstallModal';
 import { ProofOfWinModal, TOP_3_ALGORITHMS_WEEK } from './components/ProofOfWinModal';
 import { ProofOfWinShareModal, ProofItem } from './components/ProofOfWinShareModal';
 import { LeaderboardModal } from './components/LeaderboardModal';
+import { LiveScoreboard } from './components/LiveScoreboard';
 import {
   initTelegramWebApp,
   isRunningInTelegram,
@@ -162,6 +169,9 @@ import {
   detectBetActionBadge,
   getStrategyTargetCluster,
   StrategyTargetCluster,
+  isMatchNotStartedOrUpcoming,
+  isMatchPostponedOrCancelled,
+  formatSignalResolutionNotification,
 } from './algorithms';
 import { FilterBuilderModal } from './components/FilterBuilderModal';
 import { FilterBacktestModal } from './components/FilterBacktestModal';
@@ -189,7 +199,7 @@ import { StrategyAuditLogModal } from './components/StrategyAuditLogModal';
 import { MatchXgTimelineChart } from './components/MatchXgTimelineChart';
 import { TeamFormSparkline } from './components/TeamFormSparkline';
 import { logStrategyTrigger, logStrategyResolution } from './services/strategyAuditLogger';
-import { runDailyPrematchAnalysis } from './services/prematchScheduler';
+import { runDailyPrematchAnalysis, getDailyCachedPrematch } from './services/prematchScheduler';
 import { AppLogo } from './components/AppLogo';
 import { AuthGateModal } from './components/AuthGateModal';
 import { GodModeConsole } from './components/GodModeConsole';
@@ -1611,10 +1621,15 @@ export default function App() {
             : [...EXPANDED_DEFAULT_FILTERS, ...parsed.filter((p: FilterRule) => !p.isPreset)];
 
           if (isFree && uid !== 'user-god-developer' && !uid.includes('god')) {
-            // For free accounts, show ONLY their own custom filters (starting from clean blank)
+            // Free accounts: retain all presets with locks (enabled: false), plus their 1 custom filter
             const customOnly = rawRules.filter((p: FilterRule) => !p.isPreset);
-            if (customOnly.length > 0) return customOnly;
-            return [createCleanBlankFilter(uid)];
+            const userCustom = customOnly.length > 0 ? [customOnly[0]] : [createCleanBlankFilter(uid)];
+            const systemPresets = (hasPresets ? rawRules.filter((p: FilterRule) => p.isPreset) : EXPANDED_DEFAULT_FILTERS).map((p: FilterRule) => ({
+              ...p,
+              enabled: false,
+              userId: uid,
+            }));
+            return [...userCustom, ...systemPresets];
           }
 
           // Update strat-guest-two-quick to 75' rule if present
@@ -1750,7 +1765,14 @@ export default function App() {
 
     safeSetItem('footbalmonitor_user_launched_only_v2', 'true');
     if (isFree && uid !== 'user-god-developer' && !uid.includes('god')) {
-      return [createCleanBlankFilter(uid)];
+      const presets = EXPANDED_DEFAULT_FILTERS.map((f) => ({
+        ...f,
+        sport: (f.sport || inferSportFromRule(f) || 'football') as SportType,
+        enabled: false,
+        userId: uid,
+        botId: DEFAULT_USERS[0].telegramBots.find((b) => b.isDefault)?.id,
+      }));
+      return [createCleanBlankFilter(uid), ...presets];
     }
     return EXPANDED_DEFAULT_FILTERS.map((f, idx) => ({
       ...f,
@@ -1931,8 +1953,63 @@ export default function App() {
   const [aiTargetMatch, setAiTargetMatch] = useState<Match | null>(null);
 
   const handleOpenAIAnalyst = (targetMatch: Match) => {
+    if (!isPaidUser) {
+      alert('🔒 Функция «Ai-аналитика» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+      setActiveTab('cabinet');
+      return;
+    }
     setAiTargetMatch(targetMatch);
     setIsAIModalOpen(true);
+  };
+
+  const handleOpenMomentumRadar = () => {
+    if (!isPaidUser) {
+      alert('🔒 Функция «Радар доминации» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+      setActiveTab('cabinet');
+      return;
+    }
+    triggerTgHaptic('medium');
+    setIsMomentumRadarOpen(true);
+  };
+
+  const handleOpenOddsRadar = () => {
+    if (!isPaidUser) {
+      alert('🔒 Функция «Радар кэфов» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+      setActiveTab('cabinet');
+      return;
+    }
+    triggerTgHaptic('medium');
+    setIsOddsRadarOpen(true);
+  };
+
+  const handleOpenProofOfWin = () => {
+    if (!isPaidUser) {
+      alert('🔒 Функция «Proof-of-Win» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+      setActiveTab('cabinet');
+      return;
+    }
+    triggerTgHaptic('medium');
+    setIsProofOfWinOpen(true);
+  };
+
+  const handleOpenAISynthesizer = () => {
+    if (!isPaidUser) {
+      alert('🔒 Функция «ИИ-синтезатор» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+      setActiveTab('cabinet');
+      return;
+    }
+    triggerTgHaptic('medium');
+    setIsAISynthesizerOpen(true);
+  };
+
+  const handleOpenBankroll = () => {
+    if (!isPaidUser) {
+      alert('🔒 Функция «Банкролл-трекер» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+      setActiveTab('cabinet');
+      return;
+    }
+    triggerTgHaptic('medium');
+    setIsBankrollOpen(true);
   };
 
   // Daily Telegram Report state
@@ -2617,14 +2694,12 @@ export default function App() {
 
   // Initial load of real matches across all sports
   useEffect(() => {
-    if (dataSourceConfig.activeSource !== 'simulated') {
-      fetchLiveMatchesFromSource(dataSourceConfig.activeSource, 'all');
-    }
+    fetchLiveMatchesFromSource(dataSourceConfig.activeSource, 'all');
   }, [dataSourceConfig.activeSource]);
 
   // Periodic auto-refresh for real live matches across all sports
   useEffect(() => {
-    if (dataSourceConfig.activeSource !== 'simulated' && dataSourceConfig.autoRefresh && isMonitoringActive) {
+    if (dataSourceConfig.autoRefresh && isMonitoringActive) {
       const intervalMs = Math.max(15, dataSourceConfig.refreshIntervalSeconds || 25) * 1000;
       const timer = setInterval(() => {
         fetchLiveMatchesFromSource(dataSourceConfig.activeSource, 'all');
@@ -2792,6 +2867,10 @@ export default function App() {
 
   // Export signals to Excel / CSV with comprehensive financial bankroll metrics
   const handleExportSignalsCsv = () => {
+    if (isFeatureLockedForUser('export_audit_csv', currentUser)) {
+      setActiveTab('cabinet');
+      return;
+    }
     if (signals.length === 0) {
       alert('Список сигналов пуст. Дождитесь совпадения сигналов в реальном времени.');
       return;
@@ -3245,6 +3324,14 @@ export default function App() {
   };
 
   const handleSendDailyReport = async (isAutoCron = false, specificBotId?: string) => {
+    if (!isPaidUser) {
+      if (!isAutoCron) {
+        alert('🔒 Функция «СУТОЧНЫЙ ОТЧЕТ» доступна в тарифах PRO и VIP.\nПерейдите в Личный кабинет для активации подписки.');
+        setActiveTab('cabinet');
+      }
+      return;
+    }
+
     const configuredBots = getAllConfiguredBots();
 
     if (configuredBots.length === 0) {
@@ -3314,12 +3401,23 @@ export default function App() {
           }
         }
         if (match) {
-          const isDone = match.status === 'FT' || match.status === 'FINISHED' || match.minute >= 90;
+          if (isMatchNotStartedOrUpcoming(match)) {
+            return sig;
+          }
+          if (isMatchPostponedOrCancelled(match)) {
+            return {
+              ...sig,
+              outcome: 'REFUND' as SignalOutcome,
+              finalScore: `${match.score[0]}:${match.score[1]}`,
+              resolutionNote: 'Матч перенесён или отменён (Возврат ставки, событие не состоялось)',
+            };
+          }
+          const isDone = (match.status === 'FT' || match.status === 'FINISHED' || match.minute >= 90) && match.status !== 'LIVE' && match.status !== 'HT';
           const evalRes = evaluateSignalOutcome(sig, match.score, isDone, match.stats?.corners, match.stats, { matchStatus: match.status, minute: match.minute });
           if (evalRes.shouldResolve) {
             return {
               ...sig,
-              outcome: evalRes.outcome,
+              outcome: evalRes.outcome as SignalOutcome,
               finalScore: `${match.score[0]}:${match.score[1]}`,
               resolutionNote: evalRes.note,
             };
@@ -3483,7 +3581,7 @@ export default function App() {
   // Simulation: live ticking (only when in simulated demo mode)
   useEffect(() => {
     if (!isMonitoringActive) return;
-    if (dataSourceConfig.activeSource !== 'simulated') return;
+    if ((dataSourceConfig.activeSource as string) !== 'simulated') return;
 
     const interval = setInterval(() => {
       setMatches((prev) =>
@@ -3498,6 +3596,7 @@ export default function App() {
 
           // Occasional goal during heavy pressure
           const homeScores = isHomePressuring && deltaShots > 0 && Math.random() > 0.92;
+          const awayScores = !isHomePressuring && deltaShots > 0 && Math.random() > 0.92;
           const nextScore: [number, number] = [
             m.score[0] + (homeScores ? 1 : 0),
             m.score[1] + (awayScores ? 1 : 0),
@@ -3560,6 +3659,12 @@ export default function App() {
         let match: Match | undefined = matches.find((m) => m.id === sig.matchId);
         let matchSourceType = 'live';
 
+        // Strip provider prefixes (1x-, fonbet-, fs-, flashscore-, pre-) to find matching live match
+        if (!match && sig.matchId) {
+          const rawSigId = sig.matchId.replace(/^(?:1x-|fonbet-|fs-|flashscore-|live-|pre-|fin-)/i, '');
+          match = matches.find((m) => m.id.replace(/^(?:1x-|fonbet-|fs-|flashscore-|live-|pre-|fin-)/i, '') === rawSigId);
+        }
+
         if (!match) {
           const sigCanonical = getCanonicalMatchKey(sig as any);
           match = matches.find((m) => getCanonicalMatchKey(m) === sigCanonical);
@@ -3619,54 +3724,111 @@ export default function App() {
           }
         }
 
-        // If match dropped out of live feeds or concluded in real life:
+        // Look in prematch daily cache if still not found
         if (!match) {
-          const sigScoreParts = (sig.score || '0:0').split(':').map((s) => parseInt(s.trim(), 10) || 0);
-          const parts = (sig.matchName || '').split(' vs ');
-          match = {
-            id: sig.matchId || `fin-${sig.id}`,
-            homeTeam: parts[0]?.trim() || 'Хозяева',
-            awayTeam: parts[1]?.trim() || 'Гости',
-            league: sig.league || 'Лига',
-            country: sig.country || 'Мир',
-            countryCode: '⚽',
-            score: [sigScoreParts[0], sigScoreParts[1]],
-            minute: 90,
-            status: 'FT',
-            sport: sig.sport || 'football',
-            stats: {
-              possession: [50, 50],
-              dangerousAttacks: [0, 0],
-              attacks: [0, 0],
-              shotsOnTarget: [0, 0],
-              shotsOffTarget: [0, 0],
-              corners: [0, 0],
-              yellowCards: [0, 0],
-              redCards: [0, 0],
-              xg: [0, 0],
-            },
-            momentum: [],
-            lastEvent: 'Матч завершён',
-            odds: { home: 2.0, draw: 3.0, away: 2.0, over25: 1.85 },
-            source: 'Telemetry Archive',
+          try {
+            const prematchCache = getDailyCachedPrematch();
+            const sigCanonical = getCanonicalMatchKey(sig as any);
+            const cachedPre = prematchCache[sig.matchId] || Object.values(prematchCache).find((c) => getCanonicalMatchKey(c.match) === sigCanonical);
+            if (cachedPre && cachedPre.match) {
+              match = cachedPre.match;
+              matchSourceType = 'prematch_cache';
+            }
+          } catch {}
+        }
+
+        const isPrematchSignal =
+          sig.betType === 'PREMATCH' ||
+          (sig.period && (sig.period.includes('Прематч') || sig.period.includes('ПРЕДМАТЧ') || sig.period === '0\'')) ||
+          sig.ruleId === 'strat-poisson-xg-over25' ||
+          sig.ruleId === 'strat-pdf-three-matches-theory' ||
+          sig.ruleId === 'strat-pdf-15-param-value-drop' ||
+          sig.ruleId === 'strat-prematch-insider-drop' ||
+          sig.ruleId === 'strat-hockey-prematch-h2h' ||
+          sig.ruleId === 'strat-53';
+
+        // 🛑 CRITICAL PREMATCH, UPCOMING & IN-PLAY PROTECTION:
+        // If match is not found in active feeds:
+        // NEVER fabricate a synthetic 'FT 90\'' match with the initial score!
+        // The match is either upcoming, in play, at halftime, or transitioning. Keep it PENDING!
+        if (!match) {
+          return;
+        }
+
+        // Check if match is not started / upcoming / expected
+        const isUpcoming = isMatchNotStartedOrUpcoming(match);
+        if (isUpcoming) {
+          // Event has not started yet or is awaiting kickoff — strictly PENDING
+          return;
+        }
+
+        // Check if match was postponed, cancelled, suspended, delayed, or interrupted
+        const isPostponed = isMatchPostponedOrCancelled(match);
+        if (isPostponed) {
+          // Immediately resolve as REFUND (Возврат) so it is NOT evaluated as LOSS!
+          if (resolvedSignalIdsRef.current.has(sig.id)) {
+            return;
+          }
+          resolvedSignalIdsRef.current.add(sig.id);
+
+          const finalScoreStr = `${match.score[0]}:${match.score[1]}`;
+          const updatedSignal: SignalAlert = {
+            ...sig,
+            outcome: 'REFUND',
+            finalScore: finalScoreStr,
+            profit: 0,
+            resolvedAt: new Date().toLocaleTimeString('ru-RU'),
+            resolutionNote: 'Матч перенесён или отменён (Возврат ставки, событие не состоялось)',
           };
-          matchSourceType = 'archived_completed';
+
+          setSignals((curr) => curr.map((s) => (s.id === sig.id ? updatedSignal : s)));
+
+          // Send Telegram notification about REFUND
+          const botTokenToUse = sig.botToken || telegramConfig.botToken;
+          const chatIdToUse = sig.chatId || telegramConfig.channelId;
+          if (botTokenToUse && chatIdToUse) {
+            const message = formatResolvedTelegramAlert(
+              updatedSignal,
+              finalScoreStr,
+              'REFUND',
+              {
+                homeTeam: match.homeTeam,
+                awayTeam: match.awayTeam,
+                league: match.league,
+                country: match.country,
+              }
+            );
+            sendTelegramMessage(
+              message,
+              false,
+              {
+                matchId: sig.matchId,
+                ruleId: sig.ruleId,
+                canonicalKey: `res_${sig.id}`,
+                force: false,
+                botToken: botTokenToUse,
+                chatId: chatIdToUse,
+                replyToMessageId: sig.telegramMessageId,
+              }
+            ).catch(() => {});
+          }
+          return;
         }
 
         // Multi-sport match finish detection (Tennis, Basketball, Hockey, Table Tennis, Football)
         const isTennisCompleted =
           match.sport === 'tennis' &&
-          (match.status === 'FT' || match.score[0] >= 2 || match.score[1] >= 2 || (match.minute >= 75 && match.status !== 'LIVE'));
+          (match.status === 'FT' || match.score[0] >= 2 || match.score[1] >= 2 || (match.minute >= 75 && (match.status as string) !== 'LIVE'));
 
         const isHockeyCompleted =
-          match.sport === 'hockey' && (match.status === 'FT' || (match.minute >= 60 && match.status !== 'LIVE'));
+          match.sport === 'hockey' && (match.status === 'FT' || (match.minute >= 60 && (match.status as string) !== 'LIVE'));
 
         const isBasketballCompleted =
-          match.sport === 'basketball' && (match.status === 'FT' || (match.minute >= 40 && match.status !== 'LIVE'));
+          match.sport === 'basketball' && (match.status === 'FT' || (match.minute >= 40 && (match.status as string) !== 'LIVE'));
 
         const isTableTennisCompleted =
           (match.sport === 'table_tennis' || match.sport === 'volleyball') &&
-          (match.status === 'FT' || match.score[0] >= 3 || match.score[1] >= 3 || (match.minute >= 25 && match.status !== 'LIVE'));
+          (match.status === 'FT' || match.score[0] >= 3 || match.score[1] >= 3 || (match.minute >= 25 && (match.status as string) !== 'LIVE'));
 
         const isRegulationOver =
           match.sport === 'basketball'
@@ -3680,13 +3842,17 @@ export default function App() {
             : match.minute >= 90;
 
         const isFinished =
-          match.status === 'FT' ||
-          match.status === 'FINISHED' ||
-          isTennisCompleted ||
-          isHockeyCompleted ||
-          isBasketballCompleted ||
-          isTableTennisCompleted ||
-          (isRegulationOver && match.status !== 'LIVE');
+          (match.status as string) !== 'LIVE' &&
+          (match.status as string) !== 'HT' &&
+          (match.status === 'FT' ||
+            match.status === 'FINISHED' ||
+            isTennisCompleted ||
+            isHockeyCompleted ||
+            isBasketballCompleted ||
+            isTableTennisCompleted ||
+            (isRegulationOver && (match.status as string) !== 'LIVE'));
+
+        const effectiveStatus = isFinished ? 'FT' : match.status;
 
         const evalRes = evaluateSignalOutcome(
           sig,
@@ -3695,7 +3861,7 @@ export default function App() {
           match.stats?.corners,
           match.stats,
           {
-            matchStatus: isFinished ? 'FT' : match.status,
+            matchStatus: effectiveStatus,
             minute: match.minute,
             firstHalfScore: match.history?.firstHalfScore,
           }
@@ -3877,12 +4043,16 @@ export default function App() {
 
     // Ensure active filters are strictly unique by id to avoid duplicate triggers
     const seenActiveRuleIds = new Set<string>();
-    const activeLaunchedFilters = filters.filter((f) => {
+    let activeLaunchedFilters = filters.filter((f) => {
       if (!f.enabled || (f.userId && f.userId !== currentUser?.id)) return false;
       if (seenActiveRuleIds.has(f.id)) return false;
       seenActiveRuleIds.add(f.id);
       return true;
     });
+    // Strict Free tier rule: at most 1 filter can be active
+    if (!isPaidUser && activeLaunchedFilters.length > 1) {
+      activeLaunchedFilters = activeLaunchedFilters.slice(0, 1);
+    }
     if (activeLaunchedFilters.length === 0) return;
 
     // Periodic pruning: remove anti-spam tracker records older than 3 hours
@@ -3900,15 +4070,14 @@ export default function App() {
         return;
       }
 
-      // 🛡️ CRITICAL GUARD: Never trigger alerts on demo/mock matches when in real live mode!
+      // 🛡️ CRITICAL GUARD: Never trigger alerts on demo/mock matches in real live mode!
       const isMockMatch = match.id.startsWith('m-') || (match as any).isMock;
-      if (isMockMatch && dataSourceConfig.activeSource !== 'simulated') {
+      if (isMockMatch && (dataSourceConfig.activeSource as string) !== 'simulated') {
         return;
       }
 
       // If in simulated demo mode, NEVER send automated messages to real Telegram bots
-      // to avoid spamming the user's real channel with non-existent simulated games
-      const isSimulatedMode = dataSourceConfig.activeSource === 'simulated';
+      const isSimulatedMode = (dataSourceConfig.activeSource as string) === 'simulated';
       const allowTgInSim = Boolean((dataSourceConfig as any).allowTelegramInSimulation);
 
       const analysis = calculatePressureAnalysis(match);
@@ -4069,7 +4238,15 @@ export default function App() {
           ? cleanDisplay
           : `Стратегия: ${cleanDisplay}`;
 
-        const comboPrefix = isCombo ? `⚡🔥 [СУПЕР-КОМБО: СИНЕРГИЯ ${comboCount} СТРАТЕГИЙ НА «${comboClusterName.toUpperCase()}» (${comboConfidence.toFixed(0)}%)]\n` : '';
+        const userCanAccessCombo = isSynergyComboAllowed(currentUser);
+        const effectiveIsCombo = isCombo && userCanAccessCombo;
+        const isComboLockedForPlan = isCombo && !userCanAccessCombo;
+
+        const comboPrefix = effectiveIsCombo
+          ? `⚡🔥 [СУПЕР-КОМБО: СИНЕРГИЯ ${comboCount} СТРАТЕГИЙ НА «${comboClusterName.toUpperCase()}» (${comboConfidence.toFixed(0)}%)]\n`
+          : isComboLockedForPlan
+          ? `🔒 [СУПЕР-КОМБО СИНЕРГИЯ x${comboCount}: Доступно в тарифе VIP]\n`
+          : '';
 
         const signalMessage = isPrematch
           ? `${simPrefix}${comboPrefix}📋 [ПРЕДМАТЧЕВЫЙ СИГНАЛ ЗА 1 ЧАС] ${match.countryCode} ${match.country} | ${match.league}\n` +
@@ -4085,6 +4262,7 @@ export default function App() {
         const newAlert: SignalAlert = {
           id: alertId,
           timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          createdAt: Date.now(),
           matchId: match.id,
           matchName: `${match.homeTeam} vs ${match.awayTeam}`,
           league: match.league,
@@ -4107,7 +4285,8 @@ export default function App() {
           chatId: targetChatId,
           userId: currentUser?.id,
           // Combo & Action properties
-          isCombo,
+          isCombo: effectiveIsCombo,
+          isComboLockedForPlan,
           comboCount,
           comboStrategyNames,
           comboRuleIds,
@@ -4152,13 +4331,13 @@ export default function App() {
           }
           playSignalSound();
           triggerWebPushNotification(
-            isCombo
+            effectiveIsCombo
               ? `⚡🔥 СУПЕР-КОМБО (${comboCount} стратегий): ${match.homeTeam} vs ${match.awayTeam}`
               : `🔥 Сигнал ${displayRuleName}: ${match.homeTeam} vs ${match.awayTeam}`,
             `Минута ${match.minute}', счёт ${match.score[0]}:${match.score[1]}, кэф ${estimatedOdds.toFixed(2)}. ${betAction.actionBadge}: ${concreteMarketSuggestion}`
           );
           voiceAnnouncer.announceSignal({
-            strategyName: isCombo ? `Супер комбо, ${comboCount} стратегий: ${displayRuleName}` : displayRuleName,
+            strategyName: effectiveIsCombo ? `Супер комбо, ${comboCount} стратегий: ${displayRuleName}` : displayRuleName,
             homeTeam: match.homeTeam,
             awayTeam: match.awayTeam,
             minute: match.minute,
@@ -4178,7 +4357,7 @@ export default function App() {
           inFlightSendingRef.current.add(canonicalRuleKey);
           inFlightSendingRef.current.add(ruleTrackerKey);
 
-          const comboCtx = isCombo
+          const comboCtx = effectiveIsCombo
             ? {
                 isCombo: true,
                 comboCount,
@@ -4213,7 +4392,7 @@ export default function App() {
                       telegramStatusText: res.duplicateSuppressed
                         ? '🛡️ Дубликат подавлен'
                         : res.ok
-                        ? (isCombo
+                        ? (effectiveIsCombo
                             ? `⚡ СУПЕР-КОМБО в TG (${targetBotName} #${res.messageId})`
                             : `Доставлено в TG (${targetBotName} #${res.messageId})`)
                         : (res.error || 'Ошибка отправки'),
@@ -4582,12 +4761,48 @@ export default function App() {
 
   // Filter manager operations
   const handleSaveFilter = (savedRule: FilterRule) => {
+    const tier = getSubscriptionTier(currentUser);
+    const maxAllowed = getMaxFiltersForTier(currentUser);
+
+    // Free tier protections: presets are locked, max 1 custom filter, max 1 enabled
+    if (tier === 'FREE') {
+      if (savedRule.isPreset && savedRule.enabled) {
+        alert('🔒 Готовые стратегии платформы доступны по подписке PRO и VIP. Оформите подписку для запуска!');
+        setActiveTab('cabinet');
+        return;
+      }
+      if (!savedRule.isPreset) {
+        const existingCustom = filters.filter((f) => !f.isPreset);
+        const isExisting = existingCustom.some((f) => f.id === savedRule.id);
+        if (!isExisting && existingCustom.length >= 1) {
+          alert('🔒 В бесплатном тарифе FREE доступно сохранение только 1 авторского фильтра. Для создания неограниченного числа фильтров перейдите на PRO или VIP.');
+          setActiveTab('cabinet');
+          return;
+        }
+      }
+    } else if (tier === 'PRO' && savedRule.enabled) {
+      const activeCount = filters.filter((f) => f.enabled && f.id !== savedRule.id).length;
+      if (activeCount >= maxAllowed) {
+        alert(`🔒 В тарифе PRO доступно до ${maxAllowed} активных фильтров одновременно. Для безлимитного запуска всех стратегий перейдите на VIP.`);
+        setActiveTab('cabinet');
+        return;
+      }
+    }
+
     setFilters((prev) => {
+      let updated: FilterRule[];
       const exists = prev.some((f) => f.id === savedRule.id);
       if (exists) {
-        return prev.map((f) => (f.id === savedRule.id ? savedRule : f));
+        updated = prev.map((f) => (f.id === savedRule.id ? savedRule : f));
+      } else {
+        updated = [savedRule, ...prev];
       }
-      return [savedRule, ...prev];
+
+      // If user is FREE and this filter is enabled, ensure only 1 filter is enabled at a time
+      if (tier === 'FREE' && savedRule.enabled) {
+        updated = updated.map((f) => (f.id === savedRule.id ? f : { ...f, enabled: false }));
+      }
+      return updated;
     });
   };
 
@@ -4596,6 +4811,21 @@ export default function App() {
   };
 
   const handleDuplicateFilter = (rule: FilterRule) => {
+    const tier = getSubscriptionTier(currentUser);
+    const maxAllowed = getMaxFiltersForTier(currentUser);
+    if (tier === 'FREE') {
+      alert('🔒 Создание и копирование нескольких фильтров доступно в тарифах PRO и VIP.');
+      setActiveTab('cabinet');
+      return;
+    }
+    if (tier === 'PRO') {
+      const totalCustom = filters.filter((f) => !f.isPreset).length;
+      if (totalCustom >= maxAllowed) {
+        alert(`🔒 В тарифе PRO доступно до ${maxAllowed} фильтров. Для безлимитного создания перейдите на VIP.`);
+        setActiveTab('cabinet');
+        return;
+      }
+    }
     if (rule.isPreset && !isDeveloper) {
       setLockedPresetNotice(rule);
       return;
@@ -5160,11 +5390,28 @@ export default function App() {
               id="send-daily-report-header-btn"
               onClick={() => handleSendDailyReport(false)}
               disabled={sendingDailyReport}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-              title="Отправить суточный отчёт во все настроенные боты (по 23:59 МСК)"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border shadow-sm transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border-blue-500/40'
+              }`}
+              title={
+                !isPaidUser
+                  ? '🔒 СУТОЧНЫЙ ОТЧЕТ (Доступен в PRO / VIP)'
+                  : 'Отправить суточный отчёт во все настроенные боты (по 23:59 МСК)'
+              }
             >
-              <BarChart3 className={`h-3.5 w-3.5 text-blue-400 ${sendingDailyReport ? 'animate-pulse' : ''}`} />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <BarChart3 className={`h-3.5 w-3.5 text-blue-400 ${sendingDailyReport ? 'animate-pulse' : ''}`} />
+              )}
               <span>{sendingDailyReport ? 'Отправка...' : t('sendDailyReport')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* Monitoring active toggle */}
@@ -5372,28 +5619,48 @@ export default function App() {
             {/* Innovation 1: AI Match Momentum & Goal Radar */}
             <button
               id="open-momentum-radar-btn"
-              onClick={() => {
-                triggerTgHaptic('medium');
-                setIsMomentumRadarOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-600/20 via-teal-600/20 to-emerald-500/20 hover:from-emerald-600/35 hover:to-teal-600/35 text-emerald-300 border border-emerald-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
-              title="AI Радар Доминации и Оценка Гола"
+              onClick={handleOpenMomentumRadar}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border shadow-sm transition hover:scale-[1.02] active:scale-[0.98] ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-gradient-to-r from-emerald-600/20 via-teal-600/20 to-emerald-500/20 hover:from-emerald-600/35 hover:to-teal-600/35 text-emerald-300 border-emerald-500/40'
+              }`}
+              title={!isPaidUser ? '🔒 Радар доминации (Доступен в PRO / VIP)' : 'AI Радар Доминации и Оценка Гола'}
             >
-              <Activity className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Activity className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+              )}
               <span>{t('navMomentumRadar')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* Proof-of-Win Public Checker */}
             <button
-              onClick={() => {
-                triggerTgHaptic('medium');
-                setIsProofOfWinOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm transition hover:scale-[1.02] active:scale-[0.98]"
-              title="Proof-of-Win"
+              onClick={handleOpenProofOfWin}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border shadow-sm transition hover:scale-[1.02] active:scale-[0.98] ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/40'
+              }`}
+              title={!isPaidUser ? '🔒 Proof-of-Win (Доступен в PRO / VIP)' : 'Proof-of-Win'}
             >
-              <Trophy className="h-3.5 w-3.5 text-amber-400" />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Trophy className="h-3.5 w-3.5 text-amber-400" />
+              )}
               <span>{t('navProofOfWin')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* Leaderboard of creators */}
@@ -5412,20 +5679,48 @@ export default function App() {
             <button
               id="open-ai-analyst-header-btn"
               onClick={() => handleOpenAIAnalyst(selectedMatch || matches[0])}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-950/50 border border-indigo-400/30 transition hover:scale-[1.02] active:scale-[0.98]"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border shadow-md transition hover:scale-[1.02] active:scale-[0.98] ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-950/50 border-indigo-400/30'
+              }`}
+              title={!isPaidUser ? '🔒 Ai-аналитика (Доступна в PRO / VIP)' : 'Ai-аналитика'}
             >
-              <Sparkles className="h-3.5 w-3.5 text-indigo-200 animate-pulse" />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 text-indigo-200 animate-pulse" />
+              )}
               <span>{t('navAiAnalyst')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* AI Synthesizer */}
             <button
               id="open-ai-synthesizer-header-btn"
-              onClick={() => setIsAISynthesizerOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white shadow-md shadow-emerald-950/50 border border-emerald-400/40 transition hover:scale-[1.02] active:scale-[0.98]"
+              onClick={handleOpenAISynthesizer}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border shadow-md transition hover:scale-[1.02] active:scale-[0.98] ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white shadow-emerald-950/50 border-emerald-400/40'
+              }`}
+              title={!isPaidUser ? '🔒 ИИ-синтезатор (Доступен в PRO / VIP)' : 'ИИ-синтезатор'}
             >
-              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+              )}
               <span>{t('navAiSynthesizer')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* Strategy Marketplace */}
@@ -5442,26 +5737,48 @@ export default function App() {
 
             {/* Virtual Bankroll & Bet Tracker */}
             <button
-              onClick={() => {
-                triggerTgHaptic('medium');
-                setIsBankrollOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 transition hover:scale-[1.02] active:scale-[0.98]"
+              onClick={handleOpenBankroll}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition hover:scale-[1.02] active:scale-[0.98] ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border-emerald-500/30'
+              }`}
+              title={!isPaidUser ? '🔒 Банкролл-трекер (Доступен в PRO / VIP)' : 'Банкролл-трекер'}
             >
-              <Wallet className="h-3.5 w-3.5 text-emerald-400" />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Wallet className="h-3.5 w-3.5 text-emerald-400" />
+              )}
               <span>{t('navBankroll')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* Odds Radar */}
             <button
-              onClick={() => {
-                triggerTgHaptic('medium');
-                setIsOddsRadarOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition hover:scale-[1.02] active:scale-[0.98]"
+              onClick={handleOpenOddsRadar}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition hover:scale-[1.02] active:scale-[0.98] ${
+                !isPaidUser
+                  ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                  : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/30'
+              }`}
+              title={!isPaidUser ? '🔒 Радар кэфов (Доступен в PRO / VIP)' : 'Радар кэфов'}
             >
-              <TrendingDown className="h-3.5 w-3.5 text-rose-400" />
+              {!isPaidUser ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <TrendingDown className="h-3.5 w-3.5 text-rose-400" />
+              )}
               <span>{t('navOddsRadar')}</span>
+              {!isPaidUser && (
+                <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PRO
+                </span>
+              )}
             </button>
 
             {/* User Cabinet */}
@@ -5797,29 +6114,13 @@ export default function App() {
                 {isDeveloper && <span className="text-[10px] text-cyan-400 font-mono">⚙ (Dev)</span>}
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className={`h-2 w-2 rounded-full shrink-0 ${
-                  dataSourceConfig.activeSource !== 'simulated' ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400 animate-ping'
-                }`} />
+                <span className="h-2 w-2 rounded-full shrink-0 bg-cyan-400 animate-ping" />
                 <span className="text-xs sm:text-sm font-semibold text-white truncate">
                   {isDeveloper ? (
                     dataSourceConfig.activeSource === 'fonbet'
                       ? '🔴 Фонбет Live'
                       : dataSourceConfig.activeSource === '1xbet'
                       ? '🔷 1xBet Live'
-                      : dataSourceConfig.activeSource === 'public-feed'
-                      ? '🌐 Public Feed'
-                      : dataSourceConfig.activeSource === 'sofascore'
-                      ? '⚽ Sofascore Live'
-                      : dataSourceConfig.activeSource === 'sstats'
-                      ? '📊 SStats API'
-                      : dataSourceConfig.activeSource === 'api-football'
-                      ? '⚡ API-Football'
-                      : dataSourceConfig.activeSource === 'football-data'
-                      ? '🏆 Football-Data'
-                      : dataSourceConfig.activeSource === 'webhook'
-                      ? '🔌 Webhook'
-                      : dataSourceConfig.activeSource === 'simulated'
-                      ? '🎮 Демо-генератор'
                       : '⚡ Flashscore'
                   ) : (
                     '🛰️ Live Telemetry Core'
@@ -6146,14 +6447,21 @@ export default function App() {
               {/* Open full Proof-of-Win audit modal */}
               <button
                 type="button"
-                onClick={() => {
-                  triggerTgHaptic('medium');
-                  setIsProofOfWinOpen(true);
-                }}
+                onClick={handleOpenProofOfWin}
                 className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
+                title={!isPaidUser ? '🔒 Proof-of-Win (Доступен в PRO / VIP)' : 'Открыть полный чекер проходимости Proof-of-Win'}
               >
-                <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                {!isPaidUser ? (
+                  <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                ) : (
+                  <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                )}
                 <span>{t('proofOfWinCheckerBtn')}</span>
+                {!isPaidUser && (
+                  <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    PRO
+                  </span>
+                )}
               </button>
 
               {/* Share in TG / VK button */}
@@ -6528,20 +6836,14 @@ export default function App() {
               {/* Feed mode indicator bar */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-lg px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400">
                 <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${dataSourceConfig.activeSource !== 'simulated' ? 'bg-cyan-400' : 'bg-emerald-400'}`} />
+                  <span className="h-2 w-2 rounded-full bg-cyan-400" />
                   <span>
                     {isDeveloper ? (
                       <>
                         {t('feedActiveSource')}: <strong className="text-slate-200">{
                           dataSourceConfig.activeSource === 'fonbet' ? '🔴 Фонбет Live (Легальная РФ Линия • Реальный эфир)' :
                           dataSourceConfig.activeSource === '1xbet' ? '🔷 1xBet Live (Широкая роспись)' :
-                          dataSourceConfig.activeSource === 'flashscore' ? '⚡ Flashscore Live (Парсер)' :
-                          dataSourceConfig.activeSource === 'sstats' ? '📊 SStats.net API' :
-                          dataSourceConfig.activeSource === 'sofascore' ? '⚽ Sofascore Live (Relay)' :
-                          dataSourceConfig.activeSource === 'public-feed' ? '🌐 Реальный онлайн-фид (ESPN)' :
-                          dataSourceConfig.activeSource === 'api-football' ? '⚡ API-Football (v3)' :
-                          dataSourceConfig.activeSource === 'football-data' ? '🏆 Football-Data.org' :
-                          dataSourceConfig.activeSource === 'webhook' ? '🔌 Пользовательский Webhook' : '🎮 Демо-симулятор'
+                          '⚡ Flashscore Live (Парсер)'
                         }</strong>
                       </>
                     ) : (
@@ -6731,11 +7033,20 @@ export default function App() {
                               e.stopPropagation();
                               handleOpenAIAnalyst(match);
                             }}
-                            className="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold flex items-center gap-1 transition"
-                            title="AI Analyst"
+                            className={`px-2 py-0.5 rounded border text-[10px] font-bold flex items-center gap-1 transition ${
+                              !isPaidUser
+                                ? 'bg-slate-900 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                                : 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30'
+                            }`}
+                            title={!isPaidUser ? '🔒 Ai-аналитика (Доступна в PRO / VIP)' : 'AI Analyst'}
                           >
-                            <Sparkles className="h-2.5 w-2.5 text-indigo-400" />
+                            {!isPaidUser ? (
+                              <Lock className="h-2.5 w-2.5 text-amber-400 shrink-0" />
+                            ) : (
+                              <Sparkles className="h-2.5 w-2.5 text-indigo-400" />
+                            )}
                             AI
+                            {!isPaidUser && <span className="text-[8px] text-amber-400 font-extrabold">PRO</span>}
                           </button>
                           <button
                             onClick={(e) => {
@@ -7111,6 +7422,23 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Large Digital LED LiveScoreboard */}
+                  <LiveScoreboard
+                    match={selectedMatch}
+                    onShareResult={() => handleOpenShareResult(selectedMatch)}
+                    isSharing={isGeneratingShareImage}
+                    isFavorite={trackedMatchIds.includes(selectedMatch.id)}
+                    onToggleFavorite={(e) => toggleTrackMatch(selectedMatch.id, e)}
+                    onSearchByCode={(code) => {
+                      setSearchQuery(code);
+                      triggerTgHaptic('light');
+                    }}
+                    onSearchById={(id) => {
+                      setSearchQuery(id);
+                      triggerTgHaptic('light');
+                    }}
+                  />
+
                   {/* Title Bar */}
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-slate-800 pb-4">
                     <div>
@@ -7202,11 +7530,24 @@ export default function App() {
                         <button
                           id="match-inspector-ai-btn"
                           onClick={() => handleOpenAIAnalyst(selectedMatch)}
-                          className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-950/60 border border-indigo-400/30 transition hover:scale-[1.02] active:scale-[0.98]"
-                          title="AI Analyst"
+                          className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition hover:scale-[1.02] active:scale-[0.98] ${
+                            !isPaidUser
+                              ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                              : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-950/60 border border-indigo-400/30'
+                          }`}
+                          title={!isPaidUser ? '🔒 Ai-аналитика (Доступна в PRO / VIP)' : 'AI Analyst'}
                         >
-                          <Sparkles className="h-3.5 w-3.5 text-indigo-200 animate-pulse shrink-0" />
+                          {!isPaidUser ? (
+                            <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                          ) : (
+                            <Sparkles className="h-3.5 w-3.5 text-indigo-200 animate-pulse shrink-0" />
+                          )}
                           <span className="truncate">{t('matchAiAnalyst')}</span>
+                          {!isPaidUser && (
+                            <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              PRO
+                            </span>
+                          )}
                         </button>
 
                         <div className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-mono font-bold">
@@ -7551,6 +7892,9 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Recharts In-Depth Cumulative xG Timeline & Danger Moments Analysis (Linear & Bar Toggle) */}
+                  <MatchXgTimelineChart match={selectedMatch} />
+
                   {/* Team Form & Win Streak Dynamics Sparkline */}
                   <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
                     <TeamFormSparkline match={selectedMatch} />
@@ -7558,9 +7902,6 @@ export default function App() {
 
                   {/* Offensive Trend Intensity & Momentum Consistency Sparkline */}
                   <OffensiveTrendSparkline match={selectedMatch} />
-
-                  {/* Recharts In-Depth xG Timeline & Attack Danger Dynamics */}
-                  <MatchXgTimelineChart match={selectedMatch} />
 
                   {/* Live Odds */}
                   <div className="border-t border-slate-800 pt-4">
@@ -7729,13 +8070,22 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={() => setIsAISynthesizerOpen(true)}
-                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 border border-emerald-400/30 transition active:scale-95"
-                  title="ИИ-Синтезатор: перевести скриншот стратегии, текстовый файл или заметки в готовую карточку (без VPN)"
+                  onClick={handleOpenAISynthesizer}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition active:scale-95 ${
+                    !isPaidUser
+                      ? 'bg-slate-900/90 text-slate-300 border-amber-500/40 hover:bg-slate-800'
+                      : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:opacity-90 text-white shadow-lg shadow-emerald-950/50 border border-emerald-400/30'
+                  }`}
+                  title={!isPaidUser ? '🔒 ИИ-синтезатор (Доступен в PRO / VIP)' : 'ИИ-Синтезатор: перевести скриншот стратегии, текстовый файл или заметки в готовую карточку (без VPN)'}
                 >
-                  <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
+                  {!isPaidUser ? (
+                    <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
+                  )}
                   <span>ИИ-Синтезатор карточек</span>
-                  <span className="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-extrabold font-mono">
+                  <span className="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-extrabold font-mono flex items-center gap-1">
+                    {!isPaidUser && <Lock className="h-2.5 w-2.5 text-amber-400" />}
                     VIP / MAX
                   </span>
                 </button>
@@ -7853,11 +8203,21 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsAISynthesizerOpen(true)}
-                className="self-start md:self-center whitespace-nowrap px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition active:scale-95"
+                onClick={handleOpenAISynthesizer}
+                className={`self-start md:self-center whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition active:scale-95 ${
+                  !isPaidUser
+                    ? 'bg-slate-900 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-950/40'
+                }`}
+                title={!isPaidUser ? '🔒 ИИ-синтезатор (Доступен в PRO / VIP)' : 'Запустить ИИ-Синтез'}
               >
-                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                {!isPaidUser ? (
+                  <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                )}
                 <span>Запустить ИИ-Синтез</span>
+                {!isPaidUser && <span className="text-[10px] text-amber-400 font-extrabold">PRO</span>}
               </button>
             </div>
 
@@ -8564,11 +8924,31 @@ export default function App() {
                             </div>
 
                             <button
-                              onClick={() =>
+                              onClick={() => {
+                                const nextEnabled = !filter.enabled;
+                                if (nextEnabled) {
+                                  const tier = getSubscriptionTier(currentUser);
+                                  const maxAllowed = getMaxFiltersForTier(currentUser);
+                                  const currentlyEnabled = filters.filter((f) => f.enabled && f.id !== filter.id).length;
+                                  if (tier === 'FREE') {
+                                    // FREE allows exactly 1 active filter: switch to this one
+                                    setFilters((prev) =>
+                                      prev.map((f) => ({
+                                        ...f,
+                                        enabled: f.id === filter.id,
+                                      }))
+                                    );
+                                    return;
+                                  } else if (tier === 'PRO' && currentlyEnabled >= maxAllowed) {
+                                    alert(`🔒 В тарифе PRO доступно до ${maxAllowed} активных фильтров одновременно. Для безлимитного запуска перейдите на VIP.`);
+                                    setActiveTab('cabinet');
+                                    return;
+                                  }
+                                }
                                 setFilters((prev) =>
-                                  prev.map((f) => (f.id === filter.id ? { ...f, enabled: !f.enabled } : f))
-                                )
-                              }
+                                  prev.map((f) => (f.id === filter.id ? { ...f, enabled: nextEnabled } : f))
+                                );
+                              }}
                               className={`text-xs px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition ${
                                 filter.enabled
                                   ? 'bg-emerald-500 text-slate-950 border border-emerald-400 hover:bg-emerald-400 shadow-md shadow-emerald-950/40'
@@ -9123,15 +9503,21 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        triggerTgHaptic('medium');
-                        setIsProofOfWinOpen(true);
-                      }}
+                      onClick={handleOpenProofOfWin}
                       className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
-                      title="Публичный чекер проходимости (Proof-of-Win)"
+                      title={!isPaidUser ? '🔒 Proof-of-Win (Доступен в PRO / VIP)' : 'Публичный чекер проходимости (Proof-of-Win)'}
                     >
-                      <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                      {!isPaidUser ? (
+                        <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                      ) : (
+                        <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                      )}
                       <span>Чекер Proof-of-Win</span>
+                      {!isPaidUser && (
+                        <span className="px-1 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          PRO
+                        </span>
+                      )}
                     </button>
 
                     <button
@@ -9329,7 +9715,9 @@ export default function App() {
                 <ScannerSignalsTableView
                   signals={signals}
                   matches={matches}
+                  filters={filters}
                   isMonitoringActive={isMonitoringActive}
+                  isPaidUser={isPaidUser}
                   onToggleMonitoring={() => setIsMonitoringActive(!isMonitoringActive)}
                   onClearSignals={handleClearSignals}
                   onOpenAIAnalyst={(m) => handleOpenAIAnalyst(m)}
@@ -9339,6 +9727,10 @@ export default function App() {
                   onUpdateOutcome={(id, out) => updateSignalOutcome(id, out)}
                   onExportCsv={handleExportSignalsCsv}
                   onOpenAuditLog={() => setIsStrategyAuditLogOpen(true)}
+                  onOpenFilterBacktest={(filter) => {
+                    setBacktestModalFilter(filter);
+                    setIsBacktestModalOpen(true);
+                  }}
                 />
               ) : (
                 <>
@@ -9363,10 +9755,12 @@ export default function App() {
                       className={`border ${
                         sig.isCombo
                           ? 'border-amber-500/60 bg-gradient-to-r from-amber-950/30 via-slate-900 to-indigo-950/30 shadow-lg shadow-amber-950/30 hover:border-amber-400'
+                          : sig.isComboLockedForPlan
+                          ? 'border-purple-500/40 bg-gradient-to-r from-purple-950/20 via-slate-900 to-slate-900 shadow-sm hover:border-purple-400'
                           : 'bg-slate-900 border-slate-800 hover:border-emerald-500/60 hover:bg-slate-900/90 shadow-sm hover:shadow-emerald-950/20'
                       } rounded-xl p-4 space-y-3 transition cursor-pointer group`}
                     >
-                      {/* Super-Combo Top Banner */}
+                      {/* Super-Combo Top Banner (VIP) */}
                       {sig.isCombo && (
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-emerald-500/20 border border-amber-500/40 text-xs">
                           <div className="flex items-center gap-2 font-bold text-amber-200 flex-wrap">
@@ -9381,6 +9775,31 @@ export default function App() {
                           <span className="px-2.5 py-0.5 rounded-full bg-amber-500/30 text-amber-100 text-[11px] font-mono font-bold border border-amber-400/50 self-start sm:self-auto">
                             🎯 ВЕРОЯТНОСТЬ {sig.comboConfidence || 96}% (СИНЕРГИЯ)
                           </span>
+                        </div>
+                      )}
+
+                      {/* Locked Super-Combo Banner for FREE/PRO users */}
+                      {sig.isComboLockedForPlan && (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTab('cabinet');
+                          }}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 rounded-lg bg-purple-950/40 border border-purple-500/40 text-xs hover:border-amber-400/60 transition"
+                        >
+                          <div className="flex items-center gap-2 font-bold text-purple-200 flex-wrap">
+                            <span className="text-sm">🔒👑</span>
+                            <span>СУПЕР-КОМБО: СОВПАДЕНИЕ {sig.comboCount || 2} СТРАТЕГИЙ</span>
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] uppercase font-bold tracking-wider">
+                              ТАРИФ VIP
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[11px] font-bold border border-amber-500/40 self-start sm:self-auto transition"
+                          >
+                            Разблокировать в VIP →
+                          </button>
                         </div>
                       )}
 
@@ -9403,11 +9822,20 @@ export default function App() {
                               const foundMatch = matches.find((m) => m.id === sig.matchId || sig.matchName.includes(m.homeTeam)) || matches[0];
                               handleOpenAIAnalyst(foundMatch);
                             }}
-                            className="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold flex items-center gap-1 transition"
-                            title="Открыть AI-анализ этого матча в один клик"
+                            className={`px-2 py-0.5 rounded border text-[11px] font-semibold flex items-center gap-1 transition ${
+                              !isPaidUser
+                                ? 'bg-slate-900 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                                : 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30'
+                            }`}
+                            title={!isPaidUser ? '🔒 Ai-аналитика (Доступна в PRO / VIP)' : 'Открыть AI-анализ этого матча в один клик'}
                           >
-                            <Sparkles className="h-3 w-3 text-indigo-400" />
+                            {!isPaidUser ? (
+                              <Lock className="h-3 w-3 text-amber-400 shrink-0" />
+                            ) : (
+                              <Sparkles className="h-3 w-3 text-indigo-400" />
+                            )}
                             AI-Разбор
+                            {!isPaidUser && <span className="text-[9px] text-amber-400 font-extrabold">PRO</span>}
                           </button>
                           <button
                             type="button"
@@ -10597,7 +11025,7 @@ export default function App() {
           }}
           onOpenAISynthesizer={() => {
             setIsFilterModalOpen(false);
-            setIsAISynthesizerOpen(true);
+            handleOpenAISynthesizer();
           }}
           onClose={() => {
             setIsFilterModalOpen(false);
@@ -11143,13 +11571,20 @@ export default function App() {
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
-                setIsMomentumRadarOpen(true);
+                handleOpenMomentumRadar();
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-emerald-500/40 flex items-center gap-2.5 text-emerald-300 text-left active:scale-95 transition"
             >
-              <Activity className="h-4 w-4 text-emerald-400 shrink-0 animate-pulse" />
-              <div className="truncate">
-                <div className="font-bold text-white text-xs">{t('navMomentumRadar')}</div>
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <Activity className="h-4 w-4 text-emerald-400 shrink-0 animate-pulse" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('navMomentumRadar')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
                 <div className="text-[10px] text-emerald-400 truncate">10m Goal Radar</div>
               </div>
             </button>
@@ -11161,9 +11596,16 @@ export default function App() {
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-blue-500/30 flex items-center gap-2.5 text-blue-300 text-left active:scale-95 transition"
             >
-              <BarChart3 className="h-4 w-4 text-blue-400 shrink-0" />
-              <div className="truncate">
-                <div className="font-bold text-white text-xs">{t('sendDailyReport')}</div>
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <BarChart3 className="h-4 w-4 text-blue-400 shrink-0" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('sendDailyReport')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
                 <div className="text-[10px] text-blue-400 truncate">Telegram</div>
               </div>
             </button>
@@ -11171,14 +11613,42 @@ export default function App() {
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
-                setIsAISynthesizerOpen(true);
+                handleOpenAISynthesizer();
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-emerald-500/30 flex items-center gap-2.5 text-emerald-300 text-left active:scale-95 transition"
             >
-              <Sparkles className="h-4 w-4 text-amber-300 shrink-0" />
-              <div className="truncate">
-                <div className="font-bold text-white text-xs">{t('navAiSynthesizer')}</div>
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-amber-300 shrink-0" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('navAiSynthesizer')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
                 <div className="text-[10px] text-emerald-400 truncate">AI Prompt / Photo</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsMobileToolsDrawerOpen(false);
+                handleOpenAIAnalyst(selectedMatch || matches[0]);
+              }}
+              className="p-3 rounded-2xl bg-slate-950/80 border border-indigo-500/40 flex items-center gap-2.5 text-indigo-300 text-left active:scale-95 transition"
+            >
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-indigo-300 shrink-0" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('navAiAnalyst')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
+                <div className="text-[10px] text-indigo-400 truncate">AI Match Analyst</div>
               </div>
             </button>
 
@@ -11199,13 +11669,20 @@ export default function App() {
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
-                setIsBankrollOpen(true);
+                handleOpenBankroll();
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center gap-2.5 text-emerald-300 text-left active:scale-95 transition"
             >
-              <Wallet className="h-4 w-4 text-emerald-400 shrink-0" />
-              <div className="truncate">
-                <div className="font-bold text-white text-xs">{t('navBankroll')}</div>
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <Wallet className="h-4 w-4 text-emerald-400 shrink-0" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('navBankroll')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
                 <div className="text-[10px] text-slate-400 truncate">Bankroll Tracker</div>
               </div>
             </button>
@@ -11213,13 +11690,20 @@ export default function App() {
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
-                setIsOddsRadarOpen(true);
+                handleOpenOddsRadar();
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center gap-2.5 text-rose-300 text-left active:scale-95 transition"
             >
-              <TrendingDown className="h-4 w-4 text-rose-400 shrink-0" />
-              <div className="truncate">
-                <div className="font-bold text-white text-xs">{t('navOddsRadar')}</div>
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <TrendingDown className="h-4 w-4 text-rose-400 shrink-0" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('navOddsRadar')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
                 <div className="text-[10px] text-slate-400 truncate">Odds Drop Radar</div>
               </div>
             </button>
@@ -11269,13 +11753,20 @@ export default function App() {
             <button
               onClick={() => {
                 setIsMobileToolsDrawerOpen(false);
-                setIsProofOfWinOpen(true);
+                handleOpenProofOfWin();
               }}
               className="p-3 rounded-2xl bg-slate-950/80 border border-amber-500/40 flex items-center gap-2.5 text-amber-300 text-left active:scale-95 transition"
             >
-              <Trophy className="h-4 w-4 text-amber-400 shrink-0" />
-              <div className="truncate">
-                <div className="font-bold text-white text-xs">{t('navProofOfWin')}</div>
+              {!isPaidUser ? (
+                <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+              ) : (
+                <Trophy className="h-4 w-4 text-amber-400 shrink-0" />
+              )}
+              <div className="truncate flex-1">
+                <div className="font-bold text-white text-xs flex items-center justify-between gap-1">
+                  <span>{t('navProofOfWin')}</span>
+                  {!isPaidUser && <span className="text-[10px] text-amber-400 font-bold">🔒 PRO</span>}
+                </div>
                 <div className="text-[10px] text-amber-300 truncate">Proof-of-Win</div>
               </div>
             </button>

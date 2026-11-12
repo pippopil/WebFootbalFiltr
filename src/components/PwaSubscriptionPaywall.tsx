@@ -170,29 +170,29 @@ export const PwaSubscriptionPaywall: React.FC<PwaSubscriptionPaywallProps> = ({
           <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800/80 flex items-start gap-2.5">
             <Smartphone className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold text-white">Полноэкранный режим</div>
+              <div className="font-bold text-white">Полноэкранный режим PWA</div>
               <div className="text-[11px] text-slate-400">Работа как нативное приложение без рамок браузера</div>
             </div>
           </div>
           <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800/80 flex items-start gap-2.5">
             <BellRing className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold text-white">Web Push в фоне</div>
-              <div className="text-[11px] text-slate-400">Сигналы доставляются даже при закрытом экране</div>
+              <div className="font-bold text-white">Web Push и Telegram</div>
+              <div className="text-[11px] text-slate-400">Сигналы доставляются моментально даже при выключенном экране</div>
             </div>
           </div>
           <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800/80 flex items-start gap-2.5">
             <Sparkles className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold text-white">Все 50 вшитых стратегий</div>
-              <div className="text-[11px] text-slate-400">Готовые проверенные алгоритмы с проходом 96–100%</div>
+              <div className="font-bold text-white">Все 72+ проверенные стратегии</div>
+              <div className="text-[11px] text-slate-400">Готовые проверенные алгоритмы с подтвержденным проходом</div>
             </div>
           </div>
           <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800/80 flex items-start gap-2.5">
             <Zap className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold text-white">До 5-15 Telegram-ботов</div>
-              <div className="text-[11px] text-slate-400">Мгновенная отправка сигналов прямо в ваш Telegram</div>
+              <div className="font-bold text-white">Супер-Комбо и Синергии</div>
+              <div className="text-[11px] text-slate-400">Высокоточные сигналы одновременного пробоя нескольких стратегий</div>
             </div>
           </div>
         </div>
@@ -211,8 +211,8 @@ export const PwaSubscriptionPaywall: React.FC<PwaSubscriptionPaywallProps> = ({
               <span className="text-xs font-bold text-emerald-300">ТАРИФ PRO</span>
               <CheckCircle2 className={`h-4 w-4 ${selectedPlan === 'PRO_ANALYST' ? 'text-emerald-400' : 'text-slate-600'}`} />
             </div>
-            <div className="text-lg font-black text-white mt-1">590 ₽ <span className="text-xs font-normal text-slate-400">/ мес</span></div>
-            <div className="text-[11px] text-slate-400 mt-1">Все 50 стратегий + 5 ботов + PWA</div>
+            <div className="text-lg font-black text-white mt-1">1 490 ₽ <span className="text-xs font-normal text-slate-400">/ мес</span></div>
+            <div className="text-[11px] text-slate-400 mt-1">15 фильтров + 3 бота + 7 аналитических модулей</div>
           </div>
 
           <div
@@ -227,8 +227,8 @@ export const PwaSubscriptionPaywall: React.FC<PwaSubscriptionPaywallProps> = ({
               <span className="text-xs font-bold text-amber-300">ТАРИФ VIP</span>
               <CheckCircle2 className={`h-4 w-4 ${selectedPlan === 'VIP_CLUB' ? 'text-amber-400' : 'text-slate-600'}`} />
             </div>
-            <div className="text-lg font-black text-white mt-1">1 490 ₽ <span className="text-xs font-normal text-slate-400">/ мес</span></div>
-            <div className="text-[11px] text-slate-400 mt-1">Максимальный доступ + 15 ботов</div>
+            <div className="text-lg font-black text-white mt-1">3 990 ₽ <span className="text-xs font-normal text-slate-400">/ мес</span></div>
+            <div className="text-[11px] text-slate-400 mt-1">Безлимит фильтров + 10 ботов + Супер-Комбо + AI</div>
           </div>
         </div>
 

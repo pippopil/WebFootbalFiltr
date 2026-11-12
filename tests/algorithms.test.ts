@@ -22,12 +22,29 @@ import {
   computeTeamWinStreakFromMatches,
   getTeamWinStreak,
   getTeamRecentForm,
+  isMatchNotStartedOrUpcoming,
+  isMatchPostponedOrCancelled,
 } from '../src/algorithms';
-import { getStrategyCardDisplayName } from '../src/utils/filterDefaults';
+import {
+  getStrategyCardDisplayName,
+  isUserPaid,
+  isFeatureLockedForFreeUser,
+  LOCKED_FREE_FEATURE_KEYS,
+  LOCKED_FREE_FEATURE_NAMES,
+  getSubscriptionTier,
+  getMaxFiltersForTier,
+  getMaxBotsForTier,
+  isSynergyComboAllowed,
+  getAiDailyLimit,
+  isFeatureLockedForUser,
+} from '../src/utils/filterDefaults';
 import { EXPANDED_DEFAULT_FILTERS } from '../src/data/defaultFilters';
 import { Match, FilterRule, SignalAlert, UserProfile, DataSourceType } from '../src/types';
 import { runUserSimulationAgent } from '../src/services/userSimulationAgent';
 import { isSoundMuted, setSoundMuted, playAlertSound } from '../src/utils/audioAlerts';
+import { runBacktest } from '../src/backtestEngine';
+import { LARGE_HISTORICAL_MATCHES } from '../src/data/largeHistoricalDatabase';
+import { buildXgTimeline } from '../src/components/MatchXgTimelineChart';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -1194,6 +1211,150 @@ const analysis59 = calculatePressureAnalysis(match59Pass);
 const alert59 = formatExtendedTelegramAlert(match59Pass, stratPoisson59, analysis59);
 assert(alert59.includes('Модель Пуассона') && alert59.includes('+EV'), 'Alert contains Poisson model breakdown and +EV edge');
 
+// 🎯 Strategy 59 Prematch to Live Outcome Evaluation Safeguards
+const sig59Prematch: SignalAlert = {
+  id: 'sig-59-pre',
+  timestamp: '17:30:00',
+  matchId: 'm-poisson-59',
+  matchName: 'Бавария vs Байер Леверкузен',
+  league: 'Бундеслига',
+  country: 'Германия',
+  sport: 'football',
+  minute: 0,
+  period: 'Прематч (за 1 час до матча)',
+  betType: 'PREMATCH',
+  score: '0:0',
+  ruleId: 'strat-poisson-xg-over25',
+  ruleName: stratPoisson59.name,
+  marketSuggestion: 'ТБ 2.5 голов (+EV Пуассон ~1.78)',
+  outcome: 'PENDING',
+  odds: 1.82,
+  stake: 1000,
+};
+
+// 1. Before kickoff (status: PREMATCH) -> PENDING
+const res59BeforeKickoff = evaluateSignalOutcome(sig59Prematch, [0, 0], false, undefined, undefined, { matchStatus: 'PREMATCH', minute: 0 });
+assert(res59BeforeKickoff.outcome === 'PENDING', 'Strategy 59 prematch signal remains PENDING before kickoff');
+assert(res59BeforeKickoff.shouldResolve === false, 'Strategy 59 shouldResolve is false before kickoff');
+
+// 2. Right at kickoff (minute 1, score 0:0, status LIVE) -> MUST BE PENDING (NO PREMATURE LOSS!)
+const res59AtKickoff = evaluateSignalOutcome(sig59Prematch, [0, 0], false, undefined, undefined, { matchStatus: 'LIVE', minute: 1 });
+assert(res59AtKickoff.outcome === 'PENDING', 'Strategy 59 prematch signal remains PENDING when match starts at 0:0 (no premature LOSS)');
+assert(res59AtKickoff.shouldResolve === false, 'Strategy 59 shouldResolve is false at minute 1');
+
+// 3. In-play at minute 35 with 3 goals scored (2:1) -> WIN!
+const res59InPlayWin = evaluateSignalOutcome(sig59Prematch, [2, 1], false, undefined, undefined, { matchStatus: 'LIVE', minute: 35 });
+assert(res59InPlayWin.outcome === 'WIN', 'Strategy 59 resolves as WIN in-play when 3 goals are scored (2:1 at min 35)');
+assert(res59InPlayWin.shouldResolve === true, 'Strategy 59 shouldResolve is true on 3 goals in-play');
+
+// 4. Definite FT at minute 90 with score 1:1 (< 3 goals) -> LOSS (loss ONLY when match is truly complete!)
+const res59AtFtLoss = evaluateSignalOutcome(sig59Prematch, [1, 1], true, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(res59AtFtLoss.outcome === 'LOSS', 'Strategy 59 resolves as LOSS only when match has definitively reached FT at min 90');
+assert(res59AtFtLoss.shouldResolve === true, 'Strategy 59 shouldResolve is true at FT');
+
+// 5. Strategy 46 (Хоккей: Прематч ТБ 5.5) anti-premature loss
+const sig46HockeyPre: SignalAlert = {
+  id: 'sig-46-pre',
+  timestamp: '18:00:00',
+  matchId: 'm-hockey-46',
+  matchName: 'СКА vs ЦСКА',
+  league: 'КХЛ',
+  country: 'Россия',
+  sport: 'hockey',
+  minute: 0,
+  period: 'Прематч',
+  betType: 'PREMATCH',
+  score: '0:0',
+  ruleId: 'strat-hockey-prematch-h2h',
+  ruleName: '🏒 Хоккей: Прематч ТБ 5.5 по очным сериям',
+  marketSuggestion: 'ТБ 5.5 шайб (~1.75)',
+  outcome: 'PENDING',
+  odds: 1.75,
+  stake: 1000,
+};
+
+const res46Kickoff = evaluateSignalOutcome(sig46HockeyPre, [0, 0], false, undefined, undefined, { matchStatus: 'LIVE', minute: 2 });
+assert(res46Kickoff.outcome === 'PENDING', 'Strategy 46 hockey prematch stays PENDING at minute 2 of 1st period');
+assert(res46Kickoff.shouldResolve === false, 'Strategy 46 shouldResolve is false at start of hockey match');
+
+const res46SixGoalsWin = evaluateSignalOutcome(sig46HockeyPre, [3, 3], false, undefined, undefined, { matchStatus: 'LIVE', minute: 48 });
+assert(res46SixGoalsWin.outcome === 'WIN', 'Strategy 46 resolves as WIN when 6 goals are scored in-play');
+
+const res46FtLoss = evaluateSignalOutcome(sig46HockeyPre, [2, 2], true, undefined, undefined, { matchStatus: 'FT', minute: 60 });
+assert(res46FtLoss.outcome === 'LOSS', 'Strategy 46 resolves as LOSS only at FT minute 60');
+
+// 6. Strategy 68 & 69 Prematch anti-premature loss
+const sig68Pre: SignalAlert = {
+  id: 'sig-68-pre',
+  timestamp: '19:00:00',
+  matchId: 'm-68-pre',
+  matchName: 'Интер vs Милан',
+  league: 'Серия А',
+  country: 'Италия',
+  sport: 'football',
+  minute: 0,
+  period: 'Прематч',
+  betType: 'PREMATCH',
+  score: '0:0',
+  ruleId: 'strat-pdf-three-matches-theory',
+  ruleName: 'Стратегия 68',
+  marketSuggestion: 'Двойной шанс 1X (~1.70)',
+  outcome: 'PENDING',
+  odds: 1.70,
+  stake: 1000,
+};
+const res68Kickoff = evaluateSignalOutcome(sig68Pre, [0, 0], false, undefined, undefined, { matchStatus: 'LIVE', minute: 1 });
+assert(res68Kickoff.outcome === 'PENDING', 'Strategy 68 (1X) stays PENDING at minute 1 when match starts at 0:0');
+
+const sig69Pre: SignalAlert = {
+  id: 'sig-69-pre',
+  timestamp: '19:00:00',
+  matchId: 'm-69-pre',
+  matchName: 'Атлетико vs Валенсия',
+  league: 'Ла Лига',
+  country: 'Испания',
+  sport: 'football',
+  minute: 0,
+  period: 'Прематч',
+  betType: 'PREMATCH',
+  score: '0:0',
+  ruleId: 'strat-pdf-15-param-value-drop',
+  ruleName: 'Стратегия 69',
+  marketSuggestion: 'Фора (0) на валуйного соперника (~1.85)',
+  outcome: 'PENDING',
+  odds: 1.85,
+  stake: 1000,
+};
+const res69Kickoff = evaluateSignalOutcome(sig69Pre, [0, 0], false, undefined, undefined, { matchStatus: 'LIVE', minute: 1 });
+assert(res69Kickoff.outcome === 'PENDING', 'Strategy 69 (Фора 0) stays PENDING at minute 1 when match starts at 0:0');
+
+// 7. Strategy 54 (Ничьей не будет 12) anti-premature loss
+const sig54AntiPremature: SignalAlert = {
+  id: 'sig-54-test',
+  timestamp: '20:00:00',
+  matchId: 'm-54-test',
+  matchName: 'Манчестер Юнайтед vs Тоттенхэм',
+  league: 'АПЛ',
+  country: 'Англия',
+  sport: 'football',
+  minute: 46,
+  period: '2-й тайм',
+  betType: 'LIVE',
+  score: '0:0',
+  ruleId: 'strat-54',
+  ruleName: 'Стратегия 54: Ничьей не будет (12)',
+  marketSuggestion: 'Ничьей не будет (12) во 2Т',
+  outcome: 'PENDING',
+  odds: 1.75,
+  stake: 1000,
+};
+const res54AntiMin50 = evaluateSignalOutcome(sig54AntiPremature, [0, 0], false, undefined, undefined, { matchStatus: 'LIVE', minute: 50 });
+assert(res54AntiMin50.outcome === 'PENDING', 'Strategy 54 stays PENDING at minute 50 at 0:0');
+const res54AntiFtWin = evaluateSignalOutcome(sig54AntiPremature, [1, 0], true, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(res54AntiFtWin.outcome === 'WIN', 'Strategy 54 resolves as WIN at FT when there is no draw (1:0)');
+const res54AntiFtLoss = evaluateSignalOutcome(sig54AntiPremature, [1, 1], true, undefined, undefined, { matchStatus: 'FT', minute: 90 });
+assert(res54AntiFtLoss.outcome === 'LOSS', 'Strategy 54 resolves as LOSS at FT on 1:1 draw');
+
 // ----------------------------------------------------
 // Test Group 16: 3 Sports Books Strategies (Hockey 60, Basket 61, Tennis 62)
 // ----------------------------------------------------
@@ -1887,6 +2048,588 @@ assert(resFinishedLoss.shouldResolve === true, 'Concluded match shouldResolve is
 const resFinishedWin = evaluateSignalOutcome(strandedSignal, [2, 1], true, undefined, undefined, { matchStatus: 'FT', minute: 90 });
 assert(resFinishedWin.outcome === 'WIN', 'Concluded match with goal scored resolves as WIN');
 assert(resFinishedWin.shouldResolve === true, 'Concluded winning match shouldResolve is true');
+
+// ----------------------------------------------------
+// TEST GROUP 22: Strategy 71 (2nd Half Goal) & Match Status Lifecycle Guards
+// Matches in not started / upcoming / expected status must remain PENDING (never LOSS).
+// Matches in postponed / cancelled status must resolve as REFUND (never LOSS).
+// Strategy 71 must remain PENDING while in-play at min 55 with 0:0, WIN on goal at min 60, and only LOSS at FT.
+// ----------------------------------------------------
+console.log('\n--- Test Group 22: Strategy 71 & Match Status Lifecycle Guards ---');
+
+// 1. Lifecycle Helper Checks
+assert(
+  isMatchNotStartedOrUpcoming({ status: 'PREMATCH', minute: 0 }) === true,
+  'isMatchNotStartedOrUpcoming returns true for PREMATCH'
+);
+assert(
+  isMatchNotStartedOrUpcoming({ status: 'SCHEDULED', minute: 0 }) === true,
+  'isMatchNotStartedOrUpcoming returns true for SCHEDULED'
+);
+assert(
+  isMatchNotStartedOrUpcoming({ status: 'NOT_STARTED', minute: 0 }) === true,
+  'isMatchNotStartedOrUpcoming returns true for NOT_STARTED'
+);
+assert(
+  isMatchNotStartedOrUpcoming({ status: 'AWAITING', startsInMinutes: 45 }) === true,
+  'isMatchNotStartedOrUpcoming returns true for AWAITING'
+);
+assert(
+  isMatchNotStartedOrUpcoming({ status: 'LIVE', minute: 25 }) === false,
+  'isMatchNotStartedOrUpcoming returns false for ongoing LIVE match'
+);
+
+assert(
+  isMatchPostponedOrCancelled({ status: 'POSTPONED' }) === true,
+  'isMatchPostponedOrCancelled returns true for POSTPONED'
+);
+assert(
+  isMatchPostponedOrCancelled({ status: 'CANCELLED' }) === true,
+  'isMatchPostponedOrCancelled returns true for CANCELLED'
+);
+assert(
+  isMatchPostponedOrCancelled({ status: 'DELAYED', lastEvent: 'Матч перенесён из-за погоды' }) === true,
+  'isMatchPostponedOrCancelled returns true for Russian text "перенесён"'
+);
+assert(
+  isMatchPostponedOrCancelled({ status: 'LIVE', lastEvent: 'Опасная атака' }) === false,
+  'isMatchPostponedOrCancelled returns false for regular LIVE match'
+);
+
+// 2. Signals on Not-Started / Upcoming / Expected Matches Must NEVER Resolve as LOSS!
+const upcomingSignal: SignalAlert = {
+  id: 'sig-upcoming-test',
+  timestamp: '19:00:00',
+  matchId: 'm-upcoming-1',
+  matchName: 'Бавария vs Боруссия Д',
+  league: 'Бундеслига',
+  country: 'Германия',
+  sport: 'football',
+  minute: 0,
+  period: 'Прематч',
+  betType: 'PREMATCH',
+  score: '0:0',
+  ruleId: 'strat-1',
+  ruleName: 'Стратегия 1 (Гол в матче)',
+  marketSuggestion: 'ТБ 1.5',
+  outcome: 'PENDING',
+  odds: 1.85,
+  stake: 1000,
+};
+
+const resPrematchPending = evaluateSignalOutcome(upcomingSignal, [0, 0], false, undefined, undefined, {
+  matchStatus: 'PREMATCH',
+  minute: 0,
+});
+assert(resPrematchPending.outcome === 'PENDING', 'Match in PREMATCH status strictly returns PENDING outcome');
+assert(resPrematchPending.shouldResolve === false, 'Match in PREMATCH status shouldResolve is false');
+
+const resScheduledPending = evaluateSignalOutcome(upcomingSignal, [0, 0], false, undefined, undefined, {
+  matchStatus: 'SCHEDULED',
+  minute: 0,
+});
+assert(resScheduledPending.outcome === 'PENDING', 'Match in SCHEDULED status strictly returns PENDING outcome (never LOSS)');
+assert(resScheduledPending.shouldResolve === false, 'Match in SCHEDULED status shouldResolve is false');
+
+const resAwaitingPending = evaluateSignalOutcome(upcomingSignal, [0, 0], false, undefined, undefined, {
+  matchStatus: 'AWAITING',
+  minute: 0,
+});
+assert(resAwaitingPending.outcome === 'PENDING', 'Match in AWAITING status strictly returns PENDING outcome');
+assert(resAwaitingPending.shouldResolve === false, 'Match in AWAITING status shouldResolve is false');
+
+// 3. Signals on Postponed / Cancelled Matches Must Resolve as REFUND (Never LOSS!)
+const resPostponedRefund = evaluateSignalOutcome(upcomingSignal, [0, 0], false, undefined, undefined, {
+  matchStatus: 'POSTPONED',
+  minute: 0,
+});
+assert(resPostponedRefund.outcome === 'REFUND', 'Match in POSTPONED status strictly resolves as REFUND');
+assert(resPostponedRefund.shouldResolve === true, 'Match in POSTPONED status shouldResolve is true');
+
+const resCancelledRefund = evaluateSignalOutcome(upcomingSignal, [0, 0], false, undefined, undefined, {
+  matchStatus: 'CANCELLED',
+  minute: 0,
+});
+assert(resCancelledRefund.outcome === 'REFUND', 'Match in CANCELLED status strictly resolves as REFUND');
+assert(resCancelledRefund.shouldResolve === true, 'Match in CANCELLED status shouldResolve is true');
+
+// 4. Strategy 71: «Кеф 2 (Strike 92%)» — Гол во 2Т при кэфе от 1.25
+const sigStrat71: SignalAlert = {
+  id: 'sig-strat-71-test',
+  timestamp: '16:05:00',
+  matchId: 'm-live-71',
+  matchName: 'Милан vs Интер',
+  league: 'Серия А',
+  country: 'Италия',
+  sport: 'football',
+  minute: 50,
+  period: '2-й тайм',
+  betType: 'LIVE',
+  score: '0:0',
+  ruleId: 'strat-photo-kef2-ht-over05',
+  ruleName: '🔥 Стратегия 71: «Кеф 2 (Strike 92%)» — Гол во 2Т при кэфе от 1.25',
+  marketSuggestion: 'Гол во 2-м тайме (ТБ 0.5 Since Picked) при кэфе от 1.25 (~1.35)',
+  outcome: 'PENDING',
+  odds: 1.35,
+  stake: 1000,
+};
+
+// At min 55, score is still 0:0, match is LIVE: MUST REMAIN PENDING (User scenario: goal not scored yet, match in progress)
+const resStrat71InPlayNoGoal = evaluateSignalOutcome(sigStrat71, [0, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 55,
+});
+assert(resStrat71InPlayNoGoal.outcome === 'PENDING', 'Strategy 71 at min 55 with 0:0 (in-play) strictly returns PENDING, NOT LOSS');
+assert(resStrat71InPlayNoGoal.shouldResolve === false, 'Strategy 71 at min 55 in-play shouldResolve is false');
+
+// At min 65, goal scored in 2nd half (1:0), match is LIVE: MUST RESOLVE AS WIN!
+const resStrat71InPlayGoal = evaluateSignalOutcome(sigStrat71, [1, 0], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 65,
+});
+assert(resStrat71InPlayGoal.outcome === 'WIN', 'Strategy 71 when goal scored in 2nd half immediately resolves as WIN');
+assert(resStrat71InPlayGoal.shouldResolve === true, 'Strategy 71 when goal scored shouldResolve is true');
+
+// At min 90 FT, score is still 0:0 (no goals after signal): Concludes as LOSS
+const resStrat71FinishedLoss = evaluateSignalOutcome(sigStrat71, [0, 0], true, undefined, undefined, {
+  matchStatus: 'FT',
+  minute: 90,
+});
+assert(resStrat71FinishedLoss.outcome === 'LOSS', 'Strategy 71 resolves as LOSS only when match is concluded FT at 90 min with no goals');
+assert(resStrat71FinishedLoss.shouldResolve === true, 'Strategy 71 at FT shouldResolve is true');
+
+// ----------------------------------------------------
+// TEST GROUP 23: Free Tier Restrictions & Synergy Strategies Operability
+// ----------------------------------------------------
+console.log('\n--- Test Group 23: Free Tier & Synergy Strategies Operability ---');
+
+// 1. Free Tier Plan & Access Verification
+const freeUser: UserProfile = {
+  id: 'usr-free-1',
+  username: 'free_tester',
+  email: 'free@test.com',
+  plan: 'FREE',
+  role: 'user',
+  createdAt: new Date().toISOString(),
+  telegramBots: [
+    {
+      id: 'bot-1',
+      name: 'Channel Bot 1',
+      botToken: '12345:ABC',
+      channelId: '@channel1',
+      isDefault: true,
+      createdAt: new Date().toISOString(),
+    },
+  ],
+};
+assert(isUserPaid(freeUser) === false, 'FREE tier user is identified as non-paid (isUserPaid = false)');
+const maxBotsFree = freeUser.plan === 'FREE' ? 1 : 5;
+assert(maxBotsFree === 1, 'FREE tier allows exactly 1 Telegram bot');
+assert(freeUser.telegramBots.length >= maxBotsFree, 'FREE user with 1 bot reaches max bot limit');
+
+// 2. Synergy Strategy 55: strat-synergy-goal-storm
+const synGoalStorm = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-synergy-goal-storm')!;
+assert(synGoalStorm !== undefined, 'Synergy Strategy (strat-synergy-goal-storm) exists');
+assert(synGoalStorm.minDangerousAttacksTotal === 36, 'Synergy Goal Storm requires minDangerousAttacksTotal >= 36');
+assert(synGoalStorm.minShotsOnTargetTotal === 3, 'Synergy Goal Storm requires minShotsOnTargetTotal >= 3');
+assert(synGoalStorm.maxScoreDiff === 1, 'Synergy Goal Storm permits tight score diff <= 1 (ties or 1-goal diff)');
+
+const matchSynGoalPass: Match = {
+  ...minimalMatch,
+  id: 'm-syn-goal-1',
+  minute: 66,
+  status: 'LIVE',
+  score: [1, 1], // draw 1:1, diff 0 <= 1
+  stats: {
+    ...minimalMatch.stats,
+    dangerousAttacks: [20, 18], // 38 total >= 36
+    shotsOnTarget: [2, 2], // 4 total >= 3
+  },
+};
+const evalSynGoal = evaluateFilterRule(matchSynGoalPass, synGoalStorm);
+assert(evalSynGoal.matches === true, 'Synergy Goal Storm triggers on live match at min 66 with 1:1 and 38 dangerous attacks');
+
+// Outcome resolution for Synergy Goal Storm:
+const sigSynGoal: SignalAlert = {
+  id: 'sig-syn-1',
+  ruleId: 'strat-synergy-goal-storm',
+  ruleName: synGoalStorm.name,
+  targetMarket: synGoalStorm.targetMarket,
+  matchId: matchSynGoalPass.id,
+  sport: 'football',
+  homeTeam: matchSynGoalPass.homeTeam,
+  awayTeam: matchSynGoalPass.awayTeam,
+  league: matchSynGoalPass.league,
+  score: '1:1',
+  minute: 66,
+  timestamp: Date.now(),
+};
+const resSynGoalWin = evaluateSignalOutcome(sigSynGoal, [2, 1], false, undefined, undefined, {
+  matchStatus: 'LIVE',
+  minute: 74,
+});
+assert(resSynGoalWin.outcome === 'WIN', 'Synergy Goal Storm resolves as WIN when goal is scored in 2nd half (2:1)');
+assert(resSynGoalWin.shouldResolve === true, 'Synergy Goal Storm winning result shouldResolve is true');
+
+// 3. Synergy Strategy 56: strat-synergy-cards-derby
+const synCardsDerby = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-synergy-cards-derby')!;
+assert(synCardsDerby !== undefined, 'Synergy Strategy (strat-synergy-cards-derby) exists');
+assert(synCardsDerby.minYellowCardsTotal === 2, 'Synergy Cards Derby requires minYellowCardsTotal >= 2');
+assert(synCardsDerby.minMinute === 48, 'Synergy Cards Derby minMinute is 48');
+
+const matchSynCardsPass: Match = {
+  ...minimalMatch,
+  id: 'm-syn-cards-1',
+  minute: 59,
+  status: 'LIVE',
+  score: [1, 0], // diff 1 <= 1
+  stats: {
+    ...minimalMatch.stats,
+    yellowCards: [1, 2], // 3 total >= 2
+  },
+};
+const evalSynCards = evaluateFilterRule(matchSynCardsPass, synCardsDerby);
+assert(evalSynCards.matches === true, 'Synergy Cards Derby triggers at min 59 with 3 yellow cards and 1:0 score');
+
+// 4. Synergy Strategy 57: strat-synergy-late-corners
+const synCorners = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-synergy-late-corners')!;
+assert(synCorners !== undefined, 'Synergy Strategy (strat-synergy-late-corners) exists');
+assert(synCorners.minTotalCorners === 5, 'Synergy Late Corners requires minTotalCorners >= 5');
+assert(synCorners.minCornersDiff === 2, 'Synergy Late Corners requires minCornersDiff >= 2');
+
+const matchSynCornersPass: Match = {
+  ...minimalMatch,
+  id: 'm-syn-corn-1',
+  minute: 76,
+  status: 'LIVE',
+  score: [0, 1],
+  stats: {
+    ...minimalMatch.stats,
+    corners: [5, 2], // 7 total >= 5, diff 3 >= 2
+  },
+};
+const evalSynCorners = evaluateFilterRule(matchSynCornersPass, synCorners);
+assert(evalSynCorners.matches === true, 'Synergy Late Corners triggers at min 76 with 7 corners and diff 3');
+
+// 5. Synergy Strategy 58: strat-synergy-smart-comeback
+const synComeback = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-synergy-smart-comeback')!;
+assert(synComeback !== undefined, 'Synergy Strategy (strat-synergy-smart-comeback) exists');
+assert(synComeback.minDangerousAttacksDiff === 8, 'Synergy Smart Comeback requires minDangerousAttacksDiff >= 8');
+
+const matchSynComebackPass: Match = {
+  ...minimalMatch,
+  id: 'm-syn-cb-1',
+  minute: 54,
+  status: 'LIVE',
+  score: [0, 1], // ONE_GOAL_DIFF
+  stats: {
+    ...minimalMatch.stats,
+    dangerousAttacks: [32, 22], // diff 10 >= 8
+  },
+};
+const evalSynComeback = evaluateFilterRule(matchSynComebackPass, synComeback);
+assert(evalSynComeback.matches === true, 'Synergy Smart Comeback triggers at min 54 with trailing favorite and 10 diff');
+
+// ----------------------------------------------------
+// Test Group 27: 7 Locked Features for FREE Users
+// 1. СУТОЧНЫЙ ОТЧЕТ
+// 2. Радар доминации
+// 3. Радар кэфов
+// 4. Proof-of-Win
+// 5. Ai-аналитика
+// 6. ИИ-синтезатор
+// 7. Банкролл-трекер
+// ----------------------------------------------------
+console.log('\n--- Test Group 27: 7 Locked Features for FREE Users ---');
+
+const freeUserFeatures: UserProfile = {
+  id: 'user-free-test',
+  username: 'free_trader',
+  displayName: 'Free User',
+  role: 'user',
+  plan: 'FREE',
+};
+
+const proUserFeatures: UserProfile = {
+  id: 'user-pro-test',
+  username: 'pro_analyst',
+  displayName: 'PRO Trader',
+  role: 'pro',
+  plan: 'PRO_ANALYST',
+};
+
+const vipUserFeatures: UserProfile = {
+  id: 'user-vip-test',
+  username: 'vip_club_user',
+  displayName: 'VIP Club Member',
+  role: 'vip',
+  plan: 'VIP_CLUB',
+};
+
+assert(LOCKED_FREE_FEATURE_KEYS.length === 7, 'Exact 7 features are specified in LOCKED_FREE_FEATURE_KEYS');
+
+// 1. СУТОЧНЫЙ ОТЧЕТ
+assert(LOCKED_FREE_FEATURE_NAMES['daily_report'] === 'СУТОЧНЫЙ ОТЧЕТ', 'daily_report maps to "СУТОЧНЫЙ ОТЧЕТ"');
+assert(isFeatureLockedForFreeUser('daily_report', freeUserFeatures) === true, '1. СУТОЧНЫЙ ОТЧЕТ is locked for free user');
+assert(isFeatureLockedForFreeUser('daily_report', proUserFeatures) === false, '1. СУТОЧНЫЙ ОТЧЕТ is unlocked for PRO user');
+assert(isFeatureLockedForFreeUser('daily_report', vipUserFeatures) === false, '1. СУТОЧНЫЙ ОТЧЕТ is unlocked for VIP user');
+
+// 2. Радар доминации
+assert(LOCKED_FREE_FEATURE_NAMES['momentum_radar'] === 'Радар доминации', 'momentum_radar maps to "Радар доминации"');
+assert(isFeatureLockedForFreeUser('momentum_radar', freeUserFeatures) === true, '2. Радар доминации is locked for free user');
+assert(isFeatureLockedForFreeUser('momentum_radar', proUserFeatures) === false, '2. Радар доминации is unlocked for PRO user');
+
+// 3. Радар кэфов
+assert(LOCKED_FREE_FEATURE_NAMES['odds_radar'] === 'Радар кэфов', 'odds_radar maps to "Радар кэфов"');
+assert(isFeatureLockedForFreeUser('odds_radar', freeUserFeatures) === true, '3. Радар кэфов is locked for free user');
+assert(isFeatureLockedForFreeUser('odds_radar', proUserFeatures) === false, '3. Радар кэфов is unlocked for PRO user');
+
+// 4. Proof-of-Win
+assert(LOCKED_FREE_FEATURE_NAMES['proof_of_win'] === 'Proof-of-Win', 'proof_of_win maps to "Proof-of-Win"');
+assert(isFeatureLockedForFreeUser('proof_of_win', freeUserFeatures) === true, '4. Proof-of-Win is locked for free user');
+assert(isFeatureLockedForFreeUser('proof_of_win', proUserFeatures) === false, '4. Proof-of-Win is unlocked for PRO user');
+
+// 5. Ai-аналитика
+assert(LOCKED_FREE_FEATURE_NAMES['ai_analyst'] === 'Ai-аналитика', 'ai_analyst maps to "Ai-аналитика"');
+assert(isFeatureLockedForFreeUser('ai_analyst', freeUserFeatures) === true, '5. Ai-аналитика is locked for free user');
+assert(isFeatureLockedForFreeUser('ai_analyst', proUserFeatures) === false, '5. Ai-аналитика is unlocked for PRO user');
+
+// 6. ИИ-синтезатор
+assert(LOCKED_FREE_FEATURE_NAMES['ai_synthesizer'] === 'ИИ-синтезатор', 'ai_synthesizer maps to "ИИ-синтезатор"');
+assert(isFeatureLockedForFreeUser('ai_synthesizer', freeUserFeatures) === true, '6. ИИ-синтезатор is locked for free user');
+assert(isFeatureLockedForFreeUser('ai_synthesizer', proUserFeatures) === false, '6. ИИ-синтезатор is unlocked for PRO user');
+
+// 7. Банкролл-трекер
+assert(LOCKED_FREE_FEATURE_NAMES['bankroll_tracker'] === 'Банкролл-трекер', 'bankroll_tracker maps to "Банкролл-трекер"');
+assert(isFeatureLockedForFreeUser('bankroll_tracker', freeUserFeatures) === true, '7. Банкролл-трекер is locked for free user');
+assert(isFeatureLockedForFreeUser('bankroll_tracker', proUserFeatures) === false, '7. Банкролл-трекер is unlocked for PRO user');
+
+// ----------------------------------------------------
+// Test Group 28: Automated Backtesting (WinRate, ROI, Drawdown) & Daily Bankroll Yield
+// ----------------------------------------------------
+console.log('\n--- Test Group 28: Automated Backtesting (WinRate, ROI, Drawdown) & Daily Bankroll Yield ---');
+
+// 1. Large historical database verification (1000+ matches)
+assert(LARGE_HISTORICAL_MATCHES.length >= 1000, `LARGE_HISTORICAL_MATCHES contains ${LARGE_HISTORICAL_MATCHES.length} matches (>= 1000 matches)`);
+
+// 2. Automated backtest execution on Strategy 1 (f-1: Доминирование 60-85 мин)
+const stratGoalLate = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'f-1')!;
+assert(stratGoalLate !== undefined, 'Strategy f-1 exists in default filters');
+const btResult1 = runBacktest(stratGoalLate, LARGE_HISTORICAL_MATCHES);
+
+assert(btResult1.totalMatchesScanned >= 1000, 'Backtest scanned 1000+ historical matches');
+assert(btResult1.totalSignals > 0, `Backtest found historical signals for Strategy 1: ${btResult1.totalSignals}`);
+assert(btResult1.winRate >= 0 && btResult1.winRate <= 100, `WinRate is bounded in [0, 100]%: ${btResult1.winRate}%`);
+assert(typeof btResult1.roi === 'number', `ROI is a valid number: ${btResult1.roi}%`);
+assert(btResult1.maxDrawdown >= 0, `Max drawdown is non-negative: ${btResult1.maxDrawdown} flats`);
+assert(btResult1.wins + btResult1.losses + btResult1.refunds === btResult1.totalSignals, 'Wins + Losses + Refunds equals total signals');
+
+// 3. Automated backtest execution on Strategy 64 (HT Goal 92%)
+const stratPhoto64 = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-photo-ht-goal-92')!;
+assert(stratPhoto64 !== undefined, 'Strategy 64 exists in default filters');
+const btResult64 = runBacktest(stratPhoto64, LARGE_HISTORICAL_MATCHES);
+assert(btResult64.totalSignals > 0, `Strategy 64 generates backtest signals: ${btResult64.totalSignals}`);
+assert(btResult64.winRate > 50, `Strategy 64 exhibits high win rate (>50%): ${btResult64.winRate}%`);
+
+// 4. Daily profit and bankroll progression aggregation verification
+const mockResolvedSignals: SignalAlert[] = [
+  {
+    ...cornerSignal,
+    id: 'sig-day-1-a',
+    timestamp: '2026-11-01 14:00:00',
+    outcome: 'WIN',
+    odds: 1.85,
+    stake: 1000,
+    profit: 850,
+  },
+  {
+    ...cornerSignal,
+    id: 'sig-day-1-b',
+    timestamp: '2026-11-01 17:30:00',
+    outcome: 'LOSS',
+    odds: 1.90,
+    stake: 1000,
+    profit: -1000,
+  },
+  {
+    ...cornerSignal,
+    id: 'sig-day-2-a',
+    timestamp: '2026-11-02 12:00:00',
+    outcome: 'WIN',
+    odds: 2.10,
+    stake: 1000,
+    profit: 1100,
+  },
+  {
+    ...cornerSignal,
+    id: 'sig-day-2-b',
+    timestamp: '2026-11-02 19:45:00',
+    outcome: 'WIN',
+    odds: 1.75,
+    stake: 1000,
+    profit: 750,
+  },
+];
+
+// Grouping by day
+const dailyMap = new Map<string, { profit: number; wins: number; losses: number; turnover: number }>();
+for (const s of mockResolvedSignals) {
+  const day = (s.timestamp || '').split(' ')[0] || 'Unknown';
+  const entry = dailyMap.get(day) || { profit: 0, wins: 0, losses: 0, turnover: 0 };
+  entry.profit += s.profit || 0;
+  entry.turnover += s.stake || 1000;
+  if (s.outcome === 'WIN') entry.wins++;
+  if (s.outcome === 'LOSS') entry.losses++;
+  dailyMap.set(day, entry);
+}
+
+const day1 = dailyMap.get('2026-11-01')!;
+assert(day1.profit === -150, `Day 1 profit correctly calculated: ${day1.profit} ₽ (850 - 1000 = -150)`);
+assert(day1.wins === 1 && day1.losses === 1, 'Day 1 record is 1W - 1L');
+
+const day2 = dailyMap.get('2026-11-02')!;
+assert(day2.profit === 1850, `Day 2 profit correctly calculated: ${day2.profit} ₽ (1100 + 750 = 1850)`);
+assert(day2.wins === 2 && day2.losses === 0, 'Day 2 record is 2W - 0L');
+
+const totalProfit = (day1.profit + day2.profit);
+assert(totalProfit === 1700, `Cumulative profit equals 1700 ₽: ${totalProfit}`);
+
+// ----------------------------------------------------
+// Test Group 29: Match Inspector Recharts Cumulative xG & Danger Moments Analysis
+// ----------------------------------------------------
+console.log('\n--- Test Group 29: Match Inspector Recharts Cumulative xG & Danger Moments Analysis ---');
+
+const sampleMatchForXg: Match = {
+  ...minimalMatch,
+  id: 'm-xg-test-1',
+  homeTeam: 'Манчестер Сити',
+  awayTeam: 'Арсенал',
+  minute: 68,
+  score: [2, 1],
+  stats: {
+    ...minimalMatch.stats,
+    xg: [2.14, 0.95],
+    shotsOnTarget: [7, 3],
+    shotsOffTarget: [6, 4],
+    dangerousAttacks: [54, 38],
+  },
+};
+
+const xgTimeline = buildXgTimeline(sampleMatchForXg);
+assert(xgTimeline.length > 5, `xG timeline generates multiple sequential intervals (${xgTimeline.length} points)`);
+assert(xgTimeline[0].minute === 0, 'First timeline point begins at minute 0');
+assert(xgTimeline[0].homeXgCum === 0 && xgTimeline[0].awayXgCum === 0, 'Initial cumulative xG is 0.00 for both teams');
+
+const lastPoint = xgTimeline[xgTimeline.length - 1];
+assert(lastPoint.minute === 68, `Last point corresponds to current match minute (${lastPoint.minute}' === 68')`);
+assert(lastPoint.homeXgCum === 2.14, `Final cumulative xG for home matches live stats: ${lastPoint.homeXgCum} xG`);
+assert(lastPoint.awayXgCum === 0.95, `Final cumulative xG for away matches live stats: ${lastPoint.awayXgCum} xG`);
+
+// Monotonic cumulative progression check
+let isMonotonicHome = true;
+let isMonotonicAway = true;
+for (let i = 1; i < xgTimeline.length; i++) {
+  if (xgTimeline[i].homeXgCum < xgTimeline[i - 1].homeXgCum) isMonotonicHome = false;
+  if (xgTimeline[i].awayXgCum < xgTimeline[i - 1].awayXgCum) isMonotonicAway = false;
+}
+assert(isMonotonicHome === true, 'Home cumulative xG never decreases over time (monotonic accumulation)');
+assert(isMonotonicAway === true, 'Away cumulative xG never decreases over time (monotonic accumulation)');
+
+// Step moments danger check
+const hasMomentSteps = xgTimeline.some((p) => p.homeStepXg > 0 || p.awayStepXg > 0);
+assert(hasMomentSteps === true, 'xG timeline points contain discrete moment increments (homeStepXg / awayStepXg)');
+
+// Big chance detection
+const bigChances = xgTimeline.filter((p) => p.isBigChance || p.homeStepXg >= 0.22 || p.awayStepXg >= 0.22);
+assert(bigChances.length > 0, `Timeline identifies high-threat moments and big chances (>0.22 xG): ${bigChances.length} moments`);
+
+// ----------------------------------------------------
+// Test Group 30: 3-Tier Subscription Model (FREE, PRO, VIP)
+// ----------------------------------------------------
+console.log('\n--- Test Group 30: 3-Tier Subscription Model (FREE, PRO, VIP) ---');
+
+const tierFreeUser: UserProfile = {
+  id: 'u-free-1',
+  email: 'free@footballmonitor.com',
+  name: 'Free User',
+  role: 'user',
+  plan: 'FREE',
+};
+
+const tierProUser: UserProfile = {
+  id: 'u-pro-1',
+  email: 'pro@footballmonitor.com',
+  name: 'Pro User',
+  role: 'pro',
+  plan: 'PRO_ANALYST',
+};
+
+const tierVipUser: UserProfile = {
+  id: 'u-vip-1',
+  email: 'vip@footballmonitor.com',
+  name: 'VIP User',
+  role: 'vip',
+  plan: 'VIP_CLUB',
+};
+
+const tierDeveloperUser: UserProfile = {
+  id: 'u-dev-1',
+  email: 'admin@footballmonitor.com',
+  name: 'Developer Admin',
+  role: 'god',
+  plan: 'GOD_MODE',
+  isDeveloper: true,
+};
+
+// 1. Subscription Tier Resolution
+assert(getSubscriptionTier(null) === 'FREE', 'Null user resolves to FREE tier');
+assert(getSubscriptionTier(undefined) === 'FREE', 'Undefined user resolves to FREE tier');
+assert(getSubscriptionTier(tierFreeUser) === 'FREE', 'Free user profile resolves to FREE tier');
+assert(getSubscriptionTier(tierProUser) === 'PRO', 'Pro user profile resolves to PRO tier');
+assert(getSubscriptionTier(tierVipUser) === 'VIP', 'VIP user profile resolves to VIP tier');
+assert(getSubscriptionTier(tierDeveloperUser) === 'VIP', 'Developer/God user resolves to VIP tier');
+
+// 2. Maximum Filters Allowed per Tier
+assert(getMaxFiltersForTier(tierFreeUser) === 1, 'FREE tier allows exactly 1 active custom filter');
+assert(getMaxFiltersForTier(tierProUser) === 15, 'PRO tier allows up to 15 active custom filters');
+assert(getMaxFiltersForTier(tierVipUser) === Infinity, 'VIP tier allows unlimited active custom filters (Infinity)');
+assert(getMaxFiltersForTier(tierDeveloperUser) === Infinity, 'Developer allows unlimited active custom filters');
+
+// 3. Maximum Telegram Bots Allowed per Tier
+assert(getMaxBotsForTier(tierFreeUser) === 1, 'FREE tier allows exactly 1 connected Telegram bot');
+assert(getMaxBotsForTier(tierProUser) === 3, 'PRO tier allows up to 3 connected Telegram bots');
+assert(getMaxBotsForTier(tierVipUser) === 10, 'VIP tier allows up to 10 connected Telegram bots');
+assert(getMaxBotsForTier(tierDeveloperUser) === 10, 'Developer tier allows up to 10 connected Telegram bots');
+
+// 4. Super-Combo and Multi-Strategy Synergy Access (VIP Exclusive)
+assert(isSynergyComboAllowed(tierFreeUser) === false, 'FREE user cannot access Super-Combo synergy alerts');
+assert(isSynergyComboAllowed(tierProUser) === false, 'PRO user cannot access Super-Combo synergy alerts (VIP exclusive)');
+assert(isSynergyComboAllowed(tierVipUser) === true, 'VIP user has full access to Super-Combo synergy alerts');
+assert(isSynergyComboAllowed(tierDeveloperUser) === true, 'Developer has full access to Super-Combo synergy alerts');
+
+// 5. Daily AI-Analyst Query Limits
+assert(getAiDailyLimit(tierFreeUser) === 0, 'FREE tier has 0 daily AI queries (locked)');
+assert(getAiDailyLimit(tierProUser) === 10, 'PRO tier has 10 daily AI queries');
+assert(getAiDailyLimit(tierVipUser) === Infinity, 'VIP tier has unlimited daily AI queries');
+
+// 6. Feature Locking for 7 Locked Modules + Synergy + CSV Audit
+assert(isFeatureLockedForUser('daily_report', tierFreeUser) === true, 'Daily report is locked for FREE user');
+assert(isFeatureLockedForUser('momentum_radar', tierFreeUser) === true, 'Momentum radar is locked for FREE user');
+assert(isFeatureLockedForUser('odds_radar', tierFreeUser) === true, 'Odds radar is locked for FREE user');
+assert(isFeatureLockedForUser('proof_of_win', tierFreeUser) === true, 'Proof-of-Win is locked for FREE user');
+assert(isFeatureLockedForUser('ai_analyst', tierFreeUser) === true, 'AI Analyst is locked for FREE user');
+assert(isFeatureLockedForUser('ai_synthesizer', tierFreeUser) === true, 'AI Synthesizer is locked for FREE user');
+assert(isFeatureLockedForUser('bankroll_tracker', tierFreeUser) === true, 'Bankroll Tracker is locked for FREE user');
+assert(isFeatureLockedForUser('synergy_combo', tierFreeUser) === true, 'Synergy Combo is locked for FREE user');
+assert(isFeatureLockedForUser('export_audit_csv', tierFreeUser) === true, 'CSV export is locked for FREE user');
+
+assert(isFeatureLockedForUser('daily_report', tierProUser) === false, 'Daily report is unlocked for PRO user');
+assert(isFeatureLockedForUser('bankroll_tracker', tierProUser) === false, 'Bankroll tracker is unlocked for PRO user');
+assert(isFeatureLockedForUser('export_audit_csv', tierProUser) === false, 'CSV export is unlocked for PRO user');
+assert(isFeatureLockedForUser('synergy_combo', tierProUser) === true, 'Synergy Combo remains locked for PRO user (VIP exclusive)');
+
+assert(isFeatureLockedForUser('synergy_combo', tierVipUser) === false, 'Synergy Combo is unlocked for VIP user');
+assert(isFeatureLockedForUser('bankroll_tracker', tierVipUser) === false, 'Bankroll tracker is unlocked for VIP user');
 
 // ----------------------------------------------------
 // SUMMARY

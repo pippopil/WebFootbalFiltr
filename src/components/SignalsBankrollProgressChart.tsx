@@ -5,6 +5,7 @@ import {
   Area,
   Line,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
@@ -24,6 +25,9 @@ import {
   ShieldCheck,
   Activity,
   Maximize2,
+  BarChart2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { SignalAlert, SportType } from '../types';
 
@@ -33,7 +37,7 @@ interface SignalsBankrollProgressChartProps {
   flatStake?: number;
 }
 
-type ChartViewMode = 'bankroll' | 'roi' | 'winrate' | 'composite';
+type ChartViewMode = 'bankroll' | 'roi' | 'winrate' | 'daily_pnl' | 'composite';
 type TimeRange = '30d' | '14d' | '7d';
 
 export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChartProps> = ({
@@ -41,9 +45,10 @@ export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChart
   initialBank = 100000,
   flatStake = 2000,
 }) => {
-  const [viewMode, setViewMode] = useState<ChartViewMode>('bankroll');
+  const [viewMode, setViewMode] = useState<ChartViewMode>('daily_pnl');
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [selectedSport, setSelectedSport] = useState<SportType | 'all'>('all');
+  const [showDailyBreakdown, setShowDailyBreakdown] = useState<boolean>(false);
 
   const daysCount = timeRange === '7d' ? 7 : timeRange === '14d' ? 14 : 30;
 
@@ -334,6 +339,19 @@ export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChart
           <div className="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs">
             <button
               type="button"
+              onClick={() => setViewMode('daily_pnl')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                viewMode === 'daily_pnl'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Динамика прибыли по дням (бары PnL + тренд)"
+            >
+              <BarChart2 className="h-3 w-3" />
+              <span>Прибыль по дням (₽)</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setViewMode('bankroll')}
               className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1.5 ${
                 viewMode === 'bankroll'
@@ -510,12 +528,15 @@ export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChart
                   ? [-5, 'dataMax + 5']
                   : viewMode === 'winrate'
                   ? [40, 100]
+                  : viewMode === 'daily_pnl'
+                  ? ['auto', 'auto']
                   : ['auto', 'auto']
               }
               tickFormatter={(val) => {
                 if (viewMode === 'bankroll') return `${Math.round(val / 1000)}k ₽`;
                 if (viewMode === 'roi') return `${val}%`;
                 if (viewMode === 'winrate') return `${val}%`;
+                if (viewMode === 'daily_pnl') return `${val > 0 ? '+' : ''}${Math.round(val)} ₽`;
                 return `${val}`;
               }}
             />
@@ -552,6 +573,22 @@ export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChart
               />
             )}
 
+            {/* Reference Line for 0 Break-even in Daily PnL */}
+            {viewMode === 'daily_pnl' && (
+              <ReferenceLine
+                yAxisId="left"
+                y={0}
+                stroke="#64748b"
+                strokeDasharray="4 4"
+                label={{
+                  value: '0 ₽ (Безубыток)',
+                  position: 'insideTopLeft',
+                  fill: '#94a3b8',
+                  fontSize: 10,
+                }}
+              />
+            )}
+
             {/* Reference Lines for WinRate Benchmarks */}
             {(viewMode === 'winrate' || viewMode === 'composite') && (
               <ReferenceLine
@@ -566,6 +603,35 @@ export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChart
                   fontSize: 10,
                 }}
               />
+            )}
+
+            {/* Daily Profit (PnL) Bar Chart with Real-time coloring */}
+            {viewMode === 'daily_pnl' && (
+              <>
+                <Bar
+                  yAxisId="left"
+                  dataKey="dayProfit"
+                  name="Прибыль за день"
+                  radius={[4, 4, 0, 0]}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={entry.dayProfit >= 0 ? '#10b981' : '#f43f5e'}
+                    />
+                  ))}
+                </Bar>
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="dayProfit"
+                  name="Тренд прибыли (₽)"
+                  stroke="#38bdf8"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: '#0284c7' }}
+                  activeDot={{ r: 5, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                />
+              </>
             )}
 
             {/* Bankroll Progression View */}
@@ -635,6 +701,65 @@ export const SignalsBankrollProgressChart: React.FC<SignalsBankrollProgressChart
             )}
           </ComposedChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Expandable Daily Profit & Bets Breakdown Table */}
+      <div className="pt-2 border-t border-slate-800/80">
+        <button
+          type="button"
+          onClick={() => setShowDailyBreakdown(!showDailyBreakdown)}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white transition"
+        >
+          <span className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-emerald-400" />
+            <span>Детализация прибыли по дням ({chartData.length} дней)</span>
+          </span>
+          <span className="flex items-center gap-1 text-[11px] text-slate-400">
+            {showDailyBreakdown ? 'Свернуть' : 'Развернуть таблицу'}
+            {showDailyBreakdown ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </span>
+        </button>
+
+        {showDailyBreakdown && (
+          <div className="mt-2.5 overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/90 max-h-[300px] scrollbar-thin">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-slate-900 border-b border-slate-800 text-[10px] uppercase font-bold text-slate-400">
+                <tr>
+                  <th className="py-2 px-3">Дата</th>
+                  <th className="py-2 px-3 text-center">Ставки дня</th>
+                  <th className="py-2 px-3 text-center">Победы / Поражения</th>
+                  <th className="py-2 px-3 text-center">WinRate дня</th>
+                  <th className="py-2 px-3 text-right">Прибыль дня (₽)</th>
+                  <th className="py-2 px-3 text-right">Доходность дня (ROI)</th>
+                  <th className="py-2 px-3 text-right">Итог банкролла</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {chartData.slice().reverse().map((d, i) => (
+                  <tr key={i} className="hover:bg-slate-800/40 transition">
+                    <td className="py-2 px-3 font-sans text-slate-200 font-medium">
+                      {d.fullDate} {d.isLiveToday && <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold ml-1">LIVE</span>}
+                    </td>
+                    <td className="py-2 px-3 text-center text-slate-300">{d.totalBets}</td>
+                    <td className="py-2 px-3 text-center">
+                      <span className="text-emerald-400 font-bold">{d.wins}W</span> / <span className="text-rose-400 font-bold">{d.losses}L</span>
+                    </td>
+                    <td className="py-2 px-3 text-center text-cyan-300 font-bold">{d.dayWinRate}%</td>
+                    <td className={`py-2 px-3 text-right font-bold ${d.dayProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {d.dayProfit >= 0 ? `+${d.dayProfit.toLocaleString('ru-RU')}` : d.dayProfit.toLocaleString('ru-RU')} ₽
+                    </td>
+                    <td className={`py-2 px-3 text-right ${d.dayRoi >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {d.dayRoi >= 0 ? `+${d.dayRoi}%` : `${d.dayRoi}%`}
+                    </td>
+                    <td className="py-2 px-3 text-right text-white font-bold">
+                      {d.bankroll.toLocaleString('ru-RU')} ₽
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Footer Details: Active Strategies & Real-time Auto-update */}

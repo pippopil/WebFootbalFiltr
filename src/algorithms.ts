@@ -3452,6 +3452,7 @@ export function formatResolvedTelegramAlert(
   }
 ): string {
   const isWin = outcome === 'WIN';
+
   const isLoss = outcome === 'LOSS';
 
   const statusHeader = isWin
@@ -3624,6 +3625,95 @@ export function formatResolvedTelegramAlert(
   );
 }
 
+export const formatSignalResolutionNotification = formatResolvedTelegramAlert;
+
+/**
+ * Checks if a match is not started, upcoming, scheduled, or awaiting kickoff.
+ */
+export function isMatchNotStartedOrUpcoming(match?: {
+  status?: string;
+  minute?: number;
+  lastEvent?: string;
+  startsInMinutes?: number;
+  startTime?: string;
+}): boolean {
+  if (!match) return false;
+  const s = (match.status || '').toUpperCase();
+  if (
+    s === 'PREMATCH' ||
+    s === 'SCHEDULED' ||
+    s === 'NOT_STARTED' ||
+    s === 'AWAITING' ||
+    s === 'WAITING' ||
+    s === 'UPCOMING'
+  ) {
+    return true;
+  }
+  if (match.startsInMinutes !== undefined || match.startTime !== undefined) {
+    if (s !== 'LIVE' && s !== 'HT' && s !== 'FT' && s !== 'FINISHED') {
+      return true;
+    }
+  }
+  if (match.minute === 0 && s !== 'LIVE' && s !== 'HT' && s !== 'FT' && s !== 'FINISHED') {
+    return true;
+  }
+  const text = (match.lastEvent || '').toLowerCase();
+  if (
+    text.includes('не начался') ||
+    text.includes('ожидается') ||
+    text.includes('скоро начнется') ||
+    text.includes('upcoming') ||
+    text.includes('scheduled')
+  ) {
+    if (s !== 'LIVE' && s !== 'HT' && s !== 'FT' && s !== 'FINISHED') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Checks if a match has been postponed, cancelled, suspended, delayed, or interrupted.
+ */
+export function isMatchPostponedOrCancelled(match?: {
+  status?: string;
+  lastEvent?: string;
+}): boolean {
+  if (!match) return false;
+  const s = (match.status || '').toUpperCase();
+  if (
+    s === 'POSTPONED' ||
+    s === 'CANCELLED' ||
+    s === 'CANCELED' ||
+    s === 'DELAYED' ||
+    s === 'SUSPENDED' ||
+    s === 'INTERRUPTED' ||
+    s === 'ABORTED' ||
+    s === 'WALKOVER' ||
+    s === 'VOID'
+  ) {
+    return true;
+  }
+  const text = (match.lastEvent || '').toLowerCase();
+  return (
+    text.includes('перенесен') ||
+    text.includes('перенесён') ||
+    text.includes('отложен') ||
+    text.includes('отменен') ||
+    text.includes('отменён') ||
+    text.includes('приостановлен') ||
+    text.includes('прерван') ||
+    text.includes('postponed') ||
+    text.includes('cancelled') ||
+    text.includes('canceled') ||
+    text.includes('suspended') ||
+    text.includes('interrupted') ||
+    text.includes('delayed') ||
+    text.includes('aborted') ||
+    text.includes('walkover')
+  );
+}
+
 /**
  * Automatically evaluates whether a signal outcome was successful (WIN) or not (LOSS).
  * Supports early wins, first-half conclusion evaluations at HT (Перерыв), or final whistle evaluations.
@@ -3676,6 +3766,71 @@ export function evaluateSignalOutcome(
     };
   }
 
+  // 🛑 0a. Guard for Postponed / Cancelled / Interrupted / Suspended matches:
+  // Postponed or cancelled matches must NEVER resolve as LOSS (не прошло)!
+  // In sports betting and monitoring, they resolve as REFUND (Возврат ставки, коэф. 1.00).
+  const rawStatus = (matchContext?.matchStatus || '').toUpperCase();
+  const isPostponed =
+    rawStatus === 'POSTPONED' ||
+    rawStatus === 'CANCELLED' ||
+    rawStatus === 'CANCELED' ||
+    rawStatus === 'DELAYED' ||
+    rawStatus === 'SUSPENDED' ||
+    rawStatus === 'INTERRUPTED' ||
+    rawStatus === 'ABORTED' ||
+    rawStatus === 'WALKOVER' ||
+    rawStatus === 'VOID';
+
+  if (isPostponed) {
+    return {
+      outcome: 'REFUND',
+      note: 'Матч перенесён или отменён (Возврат ставки, событие не состоялось)',
+      shouldResolve: true,
+    };
+  }
+
+  // 🛑 0b. Guard for Not Started / Upcoming / Expected / Scheduled matches:
+  // Matches that have not started or are expected must NEVER resolve (neither WIN nor LOSS)!
+  // They must strictly stay PENDING until the match is actually played and finished!
+  const isNotStarted =
+    rawStatus === 'PREMATCH' ||
+    rawStatus === 'SCHEDULED' ||
+    rawStatus === 'NOT_STARTED' ||
+    rawStatus === 'AWAITING' ||
+    rawStatus === 'WAITING' ||
+    rawStatus === 'UPCOMING' ||
+    (matchContext?.minute === 0 && rawStatus !== 'LIVE' && rawStatus !== 'HT' && rawStatus !== 'FT' && rawStatus !== 'FINISHED');
+
+  if (isNotStarted) {
+    return {
+      outcome: 'PENDING',
+      note: 'Матч ещё не начался / ожидается (Прематч)',
+      shouldResolve: false,
+    };
+  }
+
+  // 🛑 0c. Regulation duration per sport
+  const sportRegulationMinute =
+    signal.sport === 'basketball' ? 40 :
+    signal.sport === 'hockey' ? 60 :
+    signal.sport === 'volleyball' || signal.sport === 'table_tennis' ? 25 :
+    signal.sport === 'tennis' ? 75 : 90;
+
+  // 🛑 0d. A match is DEFINITIVELY CONCLUDED only when:
+  // - It is NOT currently in-play, NOT in PREMATCH, NOT at halftime, NOT not-started, and NOT under regulation duration
+  // - NOT postponed or cancelled
+  // - AND is marked finished or status is 'FT' / 'FINISHED'
+  const isCurrentlyInPlayOrUpcoming =
+    rawStatus === 'LIVE' ||
+    rawStatus === 'HT' ||
+    isNotStarted ||
+    (matchContext?.minute !== undefined && matchContext.minute < sportRegulationMinute);
+
+  const isMatchDefinitivelyConcluded =
+    !isCurrentlyInPlayOrUpcoming &&
+    !isPostponed &&
+    (Boolean(isMatchFinished) || rawStatus === 'FT' || rawStatus === 'FINISHED');
+
   // 🎯 Check if the strategy explicitly targets the 2nd half or the entire match (Strategies 14/12, 21, 55, 42, 54, etc.)
   const isTargetingSecondHalfOrFullMatch =
     market.includes('во 2-м') ||
@@ -3711,6 +3866,11 @@ export function evaluateSignalOutcome(
     signal.ruleId === 'strat-second-half-sieve' ||
     signal.ruleId === 'strat-underdog-55-halftime' ||
     signal.ruleId === 'strat-synergy-goal-storm' ||
+    signal.ruleId === 'strat-synergy-cards-derby' ||
+    signal.ruleId === 'strat-synergy-late-corners' ||
+    signal.ruleId === 'strat-synergy-smart-comeback' ||
+    ruleNameLower.includes('синергия') ||
+    market.includes('синергия') ||
     signal.ruleId === 'strat-54' ||
     signal.ruleId === 'strat-xg-trap-regression' ||
     signal.ruleId === 'strat-poisson-xg-over25' ||
@@ -4069,12 +4229,7 @@ export function evaluateSignalOutcome(
     market.includes('без ничьей');
 
   if (isNoDrawMarket) {
-    const isFinished =
-      isMatchFinished ||
-      (matchContext?.minute !== undefined && matchContext.minute >= 90) ||
-      matchContext?.matchStatus === 'FT';
-
-    if (isFinished) {
+    if (isMatchDefinitivelyConcluded) {
       const isWin = curHome !== curAway;
       return {
         outcome: isWin ? 'WIN' : 'LOSS',
@@ -4103,11 +4258,7 @@ export function evaluateSignalOutcome(
       };
     }
     // КРИТИЧЕСКИ ВАЖНО: матч ещё идёт во 2-м тайме (минута < 90 и статус не FT) — сигнал обязан оставаться PENDING!
-    const isActuallyComplete =
-      matchContext?.matchStatus === 'FT' ||
-      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
-
-    if (isActuallyComplete) {
+    if (isMatchDefinitivelyConcluded) {
       return {
         outcome: 'LOSS',
         note: `Матч завершён со счётом ${curHome}:${curAway} без голов во 2-м тайме`,
@@ -4125,9 +4276,7 @@ export function evaluateSignalOutcome(
     ruleNameLower.includes('баскетбол');
 
   if (isBasketball) {
-    const isBasketballFinished =
-      matchContext?.matchStatus === 'FT' ||
-      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 40));
+    const isBasketballFinished = isMatchDefinitivelyConcluded;
 
     const initScoreParts = (signal.score || '0:0').split(':').map((s) => parseInt(s.trim(), 10));
     const initTotalPts = (isNaN(initScoreParts[0]) ? 0 : initScoreParts[0]) + (isNaN(initScoreParts[1]) ? 0 : initScoreParts[1]);
@@ -4186,14 +4335,75 @@ export function evaluateSignalOutcome(
         shouldResolve: true,
       };
     }
-    const isActuallyComplete =
-      matchContext?.matchStatus === 'FT' ||
-      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
 
-    if (isActuallyComplete) {
+    // КРИТИЧЕСКИ ВАЖНО: предматчевый/лайв сигнал ТБ 2.5 может быть проигран ТОЛЬКО по окончании матча!
+    // Пока матч идёт (LIVE, HT, PREMATCH, минута < 90) результат строго PENDING!
+    if (isMatchDefinitivelyConcluded) {
       return {
         outcome: 'LOSS',
         note: `Матч завершён со счётом ${curHome}:${curAway} (тотал ${currentTotalGoals} < 2.5)`,
+        shouldResolve: true,
+      };
+    }
+    return { outcome: 'PENDING', shouldResolve: false };
+  }
+
+  // 0c-5b. Стратегия 31: Подозрительный предматчевый прогруз (Инсайд)
+  const isStrat31 =
+    signal.ruleId === 'strat-prematch-insider-drop' ||
+    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 31) ||
+    ruleNameLower.includes('стратегия 31') ||
+    ruleNameLower.includes('предматчевый прогруз') ||
+    ruleNameLower.includes('инсайд');
+
+  if (isStrat31) {
+    if (market.includes('тб 2.5') || market.includes('тб')) {
+      if (currentTotalGoals >= 3) {
+        return {
+          outcome: 'WIN',
+          note: `Инсайд-прогруз на ТБ оправдался: забито ${currentTotalGoals} голов (${curHome}:${curAway})`,
+          shouldResolve: true,
+        };
+      }
+    }
+    if (isMatchDefinitivelyConcluded) {
+      const isWin =
+        market.includes('1x') || market.includes('двойной шанс')
+          ? curHome >= curAway
+          : market.includes('п1')
+          ? curHome > curAway
+          : market.includes('п2')
+          ? curAway > curHome
+          : curHome !== curAway;
+      return {
+        outcome: isWin ? 'WIN' : 'LOSS',
+        note: isWin
+          ? `Инсайд-прогруз оправдался: итоговый счёт ${curHome}:${curAway}`
+          : `Инсайд-прогруз не сыграл: итоговый счёт ${curHome}:${curAway}`,
+        shouldResolve: true,
+      };
+    }
+    return { outcome: 'PENDING', shouldResolve: false };
+  }
+
+  // 0c-5c. Стратегия 46: Хоккей Прематч ТБ 5.5 по очным сериям H2H
+  const isHockeyStrat46 =
+    signal.ruleId === 'strat-hockey-prematch-h2h' ||
+    (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 46) ||
+    (signal.sport === 'hockey' && (market.includes('тб 5.5') || market.includes('тб 4.5') || ruleNameLower.includes('очным сериям')));
+
+  if (isHockeyStrat46) {
+    if (currentTotalGoals >= 6) {
+      return {
+        outcome: 'WIN',
+        note: `Хоккей ТБ 5.5 зашёл! Забито ${currentTotalGoals} шайб (${curHome}:${curAway})`,
+        shouldResolve: true,
+      };
+    }
+    if (isMatchDefinitivelyConcluded) {
+      return {
+        outcome: 'LOSS',
+        note: `Хоккейный матч завершён со счётом ${curHome}:${curAway} (тотал ${currentTotalGoals} < 5.5)`,
         shouldResolve: true,
       };
     }
@@ -4516,6 +4726,31 @@ export function evaluateSignalOutcome(
         shouldResolve: true,
       };
     }
+    // Strategy 71: «Кеф 2 (Strike 92%)» — Гол во 2Т при кэфе от 1.25
+    if (
+      signal.ruleId === 'strat-photo-kef2-ht-over05' ||
+      (signal.ruleId && PRESET_STRATEGY_NUMBER_BY_ID[signal.ruleId] === 71) ||
+      ruleNameLower.includes('стратегия 71')
+    ) {
+      if (goalsSinceSignal > 0) {
+        return {
+          outcome: 'WIN',
+          note: `Гол во 2-м тайме по Стратегии 71 забит (+${goalsSinceSignal}, текущий счёт ${curHome}:${curAway})!`,
+          shouldResolve: true,
+        };
+      }
+      // CRITICAL: While match is in-play in 2nd half (minute < 90, LIVE), it MUST REMAIN PENDING!
+      // Under no circumstances can Strategy 71 resolve as LOSS before the match has definitively concluded!
+      if (isMatchDefinitivelyConcluded) {
+        return {
+          outcome: 'LOSS',
+          note: `Матч завершился со счётом ${curHome}:${curAway} без голов во 2-м тайме после сигнала`,
+          shouldResolve: true,
+        };
+      }
+      return { outcome: 'PENDING', shouldResolve: false };
+    }
+
     if ((signal.ruleId === 'strat-photo-ht-goal-92' || signal.ruleId === 'strat-photo-kef-1h-value') && isHalfTimeEnded) {
       return {
         outcome: goalsSinceSignal > 0 ? 'WIN' : 'LOSS',
@@ -4525,10 +4760,7 @@ export function evaluateSignalOutcome(
         shouldResolve: true,
       };
     }
-    const isActuallyComplete =
-      matchContext?.matchStatus === 'FT' ||
-      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
-    if (isActuallyComplete) {
+    if (isMatchDefinitivelyConcluded) {
       return {
         outcome: 'LOSS',
         note: `Матч завершился со счётом ${curHome}:${curAway} без голов после сигнала`,
@@ -4546,10 +4778,7 @@ export function evaluateSignalOutcome(
     ruleNameLower.includes('теория трёх матчей');
 
   if (isStrat68) {
-    const isActuallyComplete =
-      matchContext?.matchStatus === 'FT' ||
-      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
-    if (isActuallyComplete) {
+    if (isMatchDefinitivelyConcluded) {
       const isWin1X = curHome >= curAway;
       return {
         outcome: isWin1X ? 'WIN' : 'LOSS',
@@ -4572,10 +4801,7 @@ export function evaluateSignalOutcome(
     market.includes('ф(0)');
 
   if (isStrat69) {
-    const isActuallyComplete =
-      matchContext?.matchStatus === 'FT' ||
-      (isMatchFinished && matchContext?.matchStatus !== 'LIVE' && (matchContext?.minute === undefined || matchContext.minute >= 90));
-    if (isActuallyComplete) {
+    if (isMatchDefinitivelyConcluded) {
       // 🤝 При ничейном результате по стратегии с Форой (0) фиксируется ВОЗВРАТ (REFUND) - не проигрыш и не победа!
       if (curHome === curAway) {
         return {
@@ -4604,7 +4830,7 @@ export function evaluateSignalOutcome(
 
   // 0d. Combined TM 2.5 / Draw (ТМ 2.5 / Ничья (X))
   if ((market.includes('ничья') && market.includes('тм')) || market.includes('тм 2.5 / ничья')) {
-    if (isMatchFinished) {
+    if (isMatchDefinitivelyConcluded) {
       if (curHome === curAway || currentTotalGoals <= 2) {
         return {
           outcome: 'WIN',
@@ -4629,7 +4855,7 @@ export function evaluateSignalOutcome(
         shouldResolve: true,
       };
     }
-    if (isMatchFinished) {
+    if (isMatchDefinitivelyConcluded) {
       return {
         outcome: 'LOSS',
         note: `Матч завершён со счётом ${curHome}:${curAway}`,
@@ -4649,7 +4875,7 @@ export function evaluateSignalOutcome(
       if (currentTotalGoals > 2) {
         return { outcome: 'LOSS', note: `ТБ 2.5 пробит (${curHome}:${curAway}, ${currentTotalGoals} голов)`, shouldResolve: true };
       }
-      if (isMatchFinished) {
+      if (isMatchDefinitivelyConcluded) {
         return { outcome: 'WIN', note: `ТМ 2.5 сыграл: итоговый счёт ${curHome}:${curAway}`, shouldResolve: true };
       }
     } else {
@@ -4657,7 +4883,7 @@ export function evaluateSignalOutcome(
       if (goalsSinceSignal > 0) {
         return { outcome: 'LOSS', note: `Забит гол после сигнала (${curHome}:${curAway}), ТМ не сыграл`, shouldResolve: true };
       }
-      if (isMatchFinished) {
+      if (isMatchDefinitivelyConcluded) {
         return { outcome: 'WIN', note: `Счёт удержан (${curHome}:${curAway}), ТМ зашёл!`, shouldResolve: true };
       }
     }
@@ -4665,7 +4891,7 @@ export function evaluateSignalOutcome(
 
   // 0e. Draw / Ничья (X)
   if (market.includes('ничья') || market.includes('исход x') || market === 'x') {
-    if (isMatchFinished) {
+    if (isMatchDefinitivelyConcluded) {
       if (curHome === curAway) {
         return { outcome: 'WIN', note: `Матч завершился вничью (${curHome}:${curAway})`, shouldResolve: true };
       } else {
@@ -4682,35 +4908,27 @@ export function evaluateSignalOutcome(
     market.includes('over')
   ) {
     if (market.includes('тб 1.5') && !market.includes('во 2-м тайме') && !market.includes('1т')) {
-      if (currentTotalGoals >= 2 && goalsSinceSignal > 0) {
-        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 1.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
+      if (currentTotalGoals >= 2) {
+        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 1.5 (счёт ${curHome}:${curAway})`, shouldResolve: true };
       }
-      if (isMatchFinished) {
-        if (currentTotalGoals >= 2 && goalsSinceSignal > 0) {
-          return { outcome: 'WIN', note: `Итоговый тотал ${currentTotalGoals} >= 1.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
-        }
-        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 1.5 (или нет голов после сигнала)`, shouldResolve: true };
+      if (isMatchDefinitivelyConcluded) {
+        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 1.5`, shouldResolve: true };
       }
+      return { outcome: 'PENDING', shouldResolve: false };
     } else if (market.includes('тб 2.5')) {
-      if (currentTotalGoals >= 3 && goalsSinceSignal > 0) {
-        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 2.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
+      if (currentTotalGoals >= 3) {
+        return { outcome: 'WIN', note: `Тотал матча ${currentTotalGoals} >= 2.5 (счёт ${curHome}:${curAway})`, shouldResolve: true };
       }
-      if (isMatchFinished) {
-        if (currentTotalGoals >= 3 && goalsSinceSignal > 0) {
-          return { outcome: 'WIN', note: `Итоговый тотал ${currentTotalGoals} >= 2.5 (+${goalsSinceSignal} гол после сигнала)`, shouldResolve: true };
-        }
-        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 2.5 (или нет голов после сигнала)`, shouldResolve: true };
+      if (isMatchDefinitivelyConcluded) {
+        return { outcome: 'LOSS', note: `Итоговый тотал ${currentTotalGoals} < 2.5`, shouldResolve: true };
       }
+      return { outcome: 'PENDING', shouldResolve: false };
     } else {
       // General goal after signal (ТБ 0.5 во 2Т / Гол в матче / Поздний гол)
       if (goalsSinceSignal > 0) {
         return { outcome: 'WIN', note: `Забит гол после сигнала (${curHome}:${curAway}, +${goalsSinceSignal} гол)`, shouldResolve: true };
       }
-      const isActuallyMatchDone =
-        isMatchFinished &&
-        (matchContext?.matchStatus === 'FT' ||
-          (matchContext?.minute !== undefined ? matchContext.minute >= (signal.sport === 'basketball' ? 40 : 90) : true));
-      if (isActuallyMatchDone) {
+      if (isMatchDefinitivelyConcluded) {
         return { outcome: 'LOSS', note: 'Матч завершён без новых голов', shouldResolve: true };
       }
     }
@@ -4721,13 +4939,13 @@ export function evaluateSignalOutcome(
     if (curHome > 0 && curAway > 0) {
       return { outcome: 'WIN', note: `Обе команды забили (${curHome}:${curAway})`, shouldResolve: true };
     }
-    if (isMatchFinished) {
+    if (isMatchDefinitivelyConcluded) {
       return { outcome: 'LOSS', note: `Матч завершён со счётом ${curHome}:${curAway}`, shouldResolve: true };
     }
   }
 
   // 3. Default evaluation on match finish: if goals were scored after signal -> WIN, else LOSS
-  if (isMatchFinished) {
+  if (isMatchDefinitivelyConcluded) {
     if (goalsSinceSignal > 0) {
       return { outcome: 'WIN', note: `Счёт изменился с ${signal.score} на ${curHome}:${curAway}`, shouldResolve: true };
     } else {

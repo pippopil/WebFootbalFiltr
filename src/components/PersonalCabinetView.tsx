@@ -14,6 +14,7 @@ import {
   EyeOff,
   Shield,
   Crown,
+  Lock,
   Wallet,
   TrendingUp,
   Activity,
@@ -45,6 +46,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, TelegramBotProfile, FilterRule, AdBannerItem, DataSourceType, DataSourceConfig } from '../types';
 import { SubscriptionPaymentModal } from './SubscriptionPaymentModal';
+import { getMaxBotsForTier, getMaxFiltersForTier, getSubscriptionTier } from '../utils/filterDefaults';
 
 interface PersonalCabinetViewProps {
   currentUser: UserProfile;
@@ -125,13 +127,11 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPlan, setNewUserPlan] = useState<'FREE' | 'PRO_ANALYST' | 'VIP_CLUB'>('PRO_ANALYST');
 
-  // Max bots allowed based on user tier (FREE = 1 bot, PRO = 5 bots, VIP = 15 bots, GOD = 999 bots)
+  // Max bots allowed based on user tier (FREE = 1 bot, PRO = 3 bots, VIP = 10 bots, GOD = 999 bots)
   const maxBotsAllowed = React.useMemo(() => {
     if (currentUser.role === 'god' || currentUser.plan === 'GOD_MODE') return 999;
-    if (currentUser.plan === 'FREE') return 1;
-    if (currentUser.plan === 'PRO_ANALYST') return 5;
-    return 15; // VIP_CLUB
-  }, [currentUser.plan, currentUser.role]);
+    return getMaxBotsForTier(currentUser);
+  }, [currentUser]);
 
   // Count filters bound to each bot
   const botFilterCounts = React.useMemo(() => {
@@ -317,7 +317,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   };
 
   const handleTogglePreferredDataSource = (sourceId: DataSourceType) => {
-    const currentList = currentUser.preferredDataSources || ['flashscore', 'public-feed', 'sofascore'];
+    const currentList: DataSourceType[] = currentUser.preferredDataSources || ['flashscore', 'fonbet', '1xbet'];
     const exists = currentList.includes(sourceId);
     let updatedList: DataSourceType[];
     if (exists) {
@@ -330,7 +330,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
       updatedList = [...currentList, sourceId];
     }
 
-    let updatedDefault = currentUser.defaultDataSource || 'flashscore';
+    let updatedDefault: DataSourceType = currentUser.defaultDataSource || 'flashscore';
     if (!updatedList.includes(updatedDefault)) {
       updatedDefault = updatedList[0];
     }
@@ -346,8 +346,8 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   };
 
   const handleSetDefaultDataSource = (sourceId: DataSourceType) => {
-    const currentList = currentUser.preferredDataSources || ['flashscore', 'public-feed', 'sofascore'];
-    const updatedList = currentList.includes(sourceId) ? currentList : [...currentList, sourceId];
+    const currentList: DataSourceType[] = currentUser.preferredDataSources || ['flashscore', 'fonbet', '1xbet'];
+    const updatedList: DataSourceType[] = currentList.includes(sourceId) ? currentList : [...currentList, sourceId];
 
     const updatedUser: UserProfile = {
       ...currentUser,
@@ -363,8 +363,8 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
   };
 
   const renderDataSourcesSection = () => {
-    const preferredList = currentUser.preferredDataSources || ['flashscore', 'public-feed', 'sofascore'];
-    const currentDefault = currentUser.defaultDataSource || (preferredList[0] || 'flashscore');
+    const preferredList: DataSourceType[] = currentUser.preferredDataSources || ['flashscore', 'fonbet', '1xbet'];
+    const currentDefault: DataSourceType = currentUser.defaultDataSource || (preferredList[0] || 'flashscore');
 
     const PROVIDERS: Array<{
       id: DataSourceType;
@@ -405,76 +405,6 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
         latency: '~180 ms',
         badge: 'Угловые & ЖК',
         badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
-      },
-      {
-        id: 'sofascore',
-        name: 'Sofascore Live',
-        tag: 'Relay без VPN',
-        icon: '⚽',
-        desc: 'Браузерный релей без блокировок. Мгновенные расчетные xG, тепловые карты атак и динамика опасности.',
-        latency: '~210 ms',
-        badge: 'xG Модель',
-        badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-      },
-      {
-        id: 'sstats',
-        name: 'SStats.net API',
-        tag: 'Официальный API',
-        icon: '📊',
-        desc: 'Профессиональный коммерческий REST API спортивной статистики. Гарантированный SLA 99.9% и стабильность.',
-        latency: '~90 ms',
-        badge: 'API Key',
-        badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-      },
-      {
-        id: 'public-feed',
-        name: 'Public Feed (ESPN)',
-        tag: 'Открытый фид',
-        icon: '🌐',
-        desc: 'Бесплатный публичный поток данных топ-чемпионатов Европы (АПЛ, Ла Лига, Серия А, Бундеслига, ЛЧ).',
-        latency: '~250 ms',
-        badge: 'Без VPN',
-        badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
-      },
-      {
-        id: 'api-football',
-        name: 'API-Football (v3)',
-        tag: 'RapidAPI Fixtures',
-        icon: '⚡',
-        desc: 'Полнофункциональный шлюз API-Football v3 с расширенной росписью событий и таймлайном матча.',
-        latency: '~140 ms',
-        badge: 'v3 Global',
-        badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
-      },
-      {
-        id: 'football-data',
-        name: 'Football-Data.org',
-        tag: 'Европейский реестр',
-        icon: '🏆',
-        desc: 'Синхронизация с официальными матчами и турнирными таблицами европейских футбольных ассоциаций.',
-        latency: '~220 ms',
-        badge: 'UEFA Focus',
-        badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-      },
-      {
-        id: 'webhook',
-        name: 'Пользовательский Webhook',
-        tag: 'Ingest API / Скрипты',
-        icon: '🔌',
-        desc: 'Прием входящих JSON-пакетов от ваших собственных парсеров или серверов (POST /api/feed/ingest).',
-        latency: '< 50 ms',
-        badge: 'Кастомный',
-        badgeColor: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
-      },
-      {
-        id: 'simulated',
-        name: 'Демо-генератор',
-        tag: 'Тестовая песочница',
-        icon: '🎮',
-        desc: 'Генератор реалистичных матчей для безопасного тестирования сигналов, отладки ботов и проверки стратегий.',
-        latency: 'Локально',
-        badge: 'Песочница',
-        badgeColor: 'bg-slate-700/40 text-slate-400 border-slate-600/40',
       },
     ];
 
@@ -920,10 +850,23 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 }
                 setIsAddingBot(!isAddingBot);
               }}
-              className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 transition active:scale-95 shrink-0"
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-lg transition active:scale-95 shrink-0 ${
+                currentUser.plan === 'FREE' && currentUser.telegramBots.length >= 1
+                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-950/50'
+              }`}
             >
-              <Plus className="h-4 w-4" />
-              <span>{isAddingBot ? 'Закрыть форму' : '+ Добавить бота'}</span>
+              {currentUser.plan === 'FREE' && currentUser.telegramBots.length >= 1 ? (
+                <>
+                  <Lock className="h-4 w-4 text-amber-400" />
+                  <span>Добавить 2-го бота (PRO)</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  <span>{isAddingBot ? 'Закрыть форму' : '+ Добавить бота'}</span>
+                </>
+              )}
             </button>
           </div>
 
@@ -1307,6 +1250,48 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 </div>
               );
             })}
+
+            {currentUser.plan === 'FREE' && currentUser.telegramBots.length === 1 && (
+              <div
+                onClick={() => setShowUpgradeModal(true)}
+                className="bg-slate-900/40 border border-dashed border-amber-500/40 rounded-2xl p-5 space-y-4 flex flex-col justify-between cursor-pointer hover:border-amber-500/70 hover:bg-amber-500/5 transition-all group"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Lock className="h-4 w-4 text-amber-400" />
+                        <h3 className="font-bold text-slate-200 text-sm group-hover:text-amber-300 transition">
+                          Бот #2 (PRO / VIP)
+                        </h3>
+                      </div>
+                      <span className="text-[11px] text-amber-400/80 font-mono">
+                        Доступно по подписке
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold text-[10px] border border-amber-500/30">
+                      PRO
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Подключите второй бот, чтобы разделить сигналы по отдельным каналам Telegram (например, отдельный канал для голов и отдельный для угловых/карточек).
+                  </p>
+                </div>
+                <div className="pt-3 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowUpgradeModal(true);
+                    }}
+                    className="w-full py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition active:scale-95"
+                  >
+                    <Crown className="h-3.5 w-3.5" />
+                    <span>Разблокировать в тарифе PRO</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1461,23 +1446,23 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 <ul className="space-y-2.5 text-xs text-slate-300">
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>Полный функционал фильтров в ручном режиме:</strong> все 20+ метрик (xG, удары, опасные атаки, угловые, давление, прогрузы коэффициентов Smart Money, камбэки).</span>
+                    <span><strong>Настройка и сохранение 1 фильтра:</strong> доступ к сканеру и авторским настройкам.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>0 секунд задержки:</strong> моментальная отправка сигналов в Telegram без замедления.</span>
+                    <span><strong>1 Telegram-бот:</strong> доставка алертов в личный чат или канал.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>1 Telegram-бот:</strong> отправка в личный чат или ваш канал.</span>
-                  </li>
-                  <li className="flex items-start gap-2 text-slate-400">
-                    <Sparkles className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span><strong>Рекламная поддержка:</strong> показ проверенных фрибетов и акций легальных БК РФ (Единый ЦУПИС, 18+).</span>
+                    <span><strong>3 источника:</strong> Flashscore, Fonbet, 1xBet в режиме реального времени.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Неограниченный бэктестинг стратегий по базе матчей.</span>
+                    <span>Базовый лайв-инспектор и визуальный график накопленного xG.</span>
+                  </li>
+                  <li className="flex items-start gap-2 text-slate-500">
+                    <Lock className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span>🔒 Замок на 7 расширенных модулях (Суточный отчёт, Радары, Proof-of-Win, Банкролл, AI).</span>
                   </li>
                 </ul>
               </div>
@@ -1502,7 +1487,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                           showBanners: true,
                         },
                       });
-                      alert('Переключено на бесплатный тариф FREE. Лимит: 1 бот, реклама включена.');
+                      alert('Переключено на бесплатный тариф FREE. Лимит: 1 фильтр, 1 бот.');
                     }}
                     className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition active:scale-95"
                   >
@@ -1529,7 +1514,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold uppercase border border-emerald-500/30">
-                    Для профи & капперов
+                    Для профи & трейдеров
                   </span>
                   {currentUser.plan === 'PRO_ANALYST' && (
                     <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
@@ -1544,7 +1529,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                     <Sparkles className="h-4 w-4 text-amber-400" />
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    Мульти-боты под разные стратегии и работа без отвлекающей рекламы
+                    Профессиональный инструмент для мульти-стратегической торговли
                   </p>
                 </div>
 
@@ -1558,23 +1543,27 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 <ul className="space-y-2.5 text-xs text-slate-200">
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong className="text-amber-300">До 5 Telegram-ботов одновременно:</strong> привязывайте отдельные боты под разные фильтры (например: Бот угловых, Бот камбэков, Бот Smart Money, Бот голов во 2-м тайме, Бот карточек).</span>
+                    <span><strong className="text-emerald-300">До 15 активных фильтров:</strong> одновременная работа по футболу, хоккею, баскетболу и теннису.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong className="text-emerald-300">Полное отключение рекламы (Ad-Free):</strong> чистый интерфейс без баннеров для максимальной концентрации.</span>
+                    <span><strong className="text-amber-300">До 3 Telegram-ботов:</strong> раздельная маршрутизация алертов по каналам.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>0 секунд задержки:</strong> приоритетные выделенные очереди отправки при пиковой нагрузке выходных.</span>
+                    <span><strong>Разблокированы 7 аналитических модулей:</strong> Банкролл-трекер, Радар доминации, Радар кэфов, Proof-of-Win, Суточный отчёт.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Неограниченное число активных фильтров и правил.</span>
+                    <span><strong>Авто-бэктестинг:</strong> тестирование стратегий на базе 1200+ матчей (WinRate, ROI, Drawdown).</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Приоритетная техническая поддержка в Telegram.</span>
+                    <span><strong>AI-аналитика:</strong> до 10 глубоких разборов матчей в сутки.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>Ad-Free:</strong> полное отключение баннеров + высокий приоритет доставки.</span>
                   </li>
                 </ul>
               </div>
@@ -1610,7 +1599,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-extrabold uppercase border border-amber-500/30">
-                    Для синдикатов
+                    Для синдикатов & клубов
                   </span>
                   {currentUser.plan === 'VIP_CLUB' && (
                     <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1">
@@ -1625,7 +1614,7 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                     <Crown className="h-4 w-4 text-amber-400" />
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    Для закрытых сообществ, каналов и алгоритмических команд
+                    Максимальная автоматизация, комбо-синергия и безлимитный ИИ
                   </p>
                 </div>
 
@@ -1639,19 +1628,27 @@ export const PersonalCabinetView: React.FC<PersonalCabinetViewProps> = ({
                 <ul className="space-y-2.5 text-xs text-slate-300">
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span><strong>До 15 Telegram-ботов</strong> для распределения по сеткам каналов.</span>
+                    <span><strong className="text-amber-300">Безлимитные фильтры:</strong> запуск всех 72+ авторских и предустановленных стратегий.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span><strong>Персональный Webhook API:</strong> получение потока сигналов в ваши скрипты.</span>
+                    <span><strong className="text-amber-300">До 10 Telegram-ботов / каналов</strong> для масштабных сеток оповещений.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span><strong>Доступ в закрытый VIP-чат:</strong> готовые пресеты с винрейтом 80%+.</span>
+                    <span>👑 <strong>Эксклюзив: Супер-Комбо и Синергии</strong> — сигналы сверхвысокой точности (пробой 2+ стратегий).</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span>Полное отключение рекламы.</span>
+                    <span><strong>Безлимитный AI-аналитик & ИИ-синтезатор</strong> новых стратегий.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span><strong>Экспорт в CSV & Персональный Webhook:</strong> интеграция с вашим софтом.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <span><strong>0 сек задержки:</strong> наивысший приоритет парсинга кэфов и отправки.</span>
                   </li>
                 </ul>
               </div>

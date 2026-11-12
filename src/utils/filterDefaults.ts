@@ -169,6 +169,127 @@ export const isUserPaid = (user?: UserProfile | null): boolean => {
 };
 
 /**
+ * 7 ключевых аналитических функций, закрытых «замком» для пользователей бесплатного тарифа (FREE):
+ * 1. СУТОЧНЫЙ ОТЧЕТ
+ * 2. Радар доминации
+ * 3. Радар кэфов
+ * 4. Proof-of-Win
+ * 5. Ai-аналитика
+ * 6. ИИ-синтезатор
+ * 7. Банкролл-трекер
+ */
+export const LOCKED_FREE_FEATURE_KEYS = [
+  'daily_report',
+  'momentum_radar',
+  'odds_radar',
+  'proof_of_win',
+  'ai_analyst',
+  'ai_synthesizer',
+  'bankroll_tracker',
+] as const;
+
+export type LockedFreeFeatureKey = (typeof LOCKED_FREE_FEATURE_KEYS)[number];
+
+export const LOCKED_FREE_FEATURE_NAMES: Record<LockedFreeFeatureKey, string> = {
+  daily_report: 'СУТОЧНЫЙ ОТЧЕТ',
+  momentum_radar: 'Радар доминации',
+  odds_radar: 'Радар кэфов',
+  proof_of_win: 'Proof-of-Win',
+  ai_analyst: 'Ai-аналитика',
+  ai_synthesizer: 'ИИ-синтезатор',
+  bankroll_tracker: 'Банкролл-трекер',
+};
+
+export const isFeatureLockedForFreeUser = (
+  feature: LockedFreeFeatureKey,
+  user?: UserProfile | null
+): boolean => {
+  return !isUserPaid(user);
+};
+
+export type SubscriptionTier = 'FREE' | 'PRO' | 'VIP';
+
+export const getSubscriptionTier = (user?: UserProfile | null): SubscriptionTier => {
+  if (!user) return 'FREE';
+  if (
+    isUserDeveloper(user) ||
+    user.role === 'god' ||
+    user.plan === 'GOD_MODE' ||
+    user.plan === 'VIP_CLUB' ||
+    user.role === 'vip'
+  ) {
+    return 'VIP';
+  }
+  if (user.plan === 'PRO_ANALYST' || user.role === 'pro') {
+    return 'PRO';
+  }
+  return 'FREE';
+};
+
+/**
+ * Лимит активных/сохраненных фильтров по тарифам:
+ * FREE: ровно 1 фильтр
+ * PRO: до 15 фильтров
+ * VIP: безлимитно (Infinity)
+ */
+export const getMaxFiltersForTier = (user?: UserProfile | null): number => {
+  const tier = getSubscriptionTier(user);
+  if (tier === 'FREE') return 1;
+  if (tier === 'PRO') return 15;
+  return Infinity;
+};
+
+/**
+ * Лимит подключенных Telegram-ботов по тарифам:
+ * FREE: 1 бот
+ * PRO: до 3 ботов
+ * VIP: до 10 ботов
+ */
+export const getMaxBotsForTier = (user?: UserProfile | null): number => {
+  const tier = getSubscriptionTier(user);
+  if (tier === 'FREE') return 1;
+  if (tier === 'PRO') return 3;
+  return 10;
+};
+
+/**
+ * Доступ к Супер-Комбо и Синергиям стратегий (2+ совпавших фильтра):
+ * Эксклюзив для VIP тарифа.
+ */
+export const isSynergyComboAllowed = (user?: UserProfile | null): boolean => {
+  return getSubscriptionTier(user) === 'VIP';
+};
+
+/**
+ * Лимит запросов AI-аналитики в сутки:
+ * FREE: 0 (заблокировано)
+ * PRO: 10 запросов / день
+ * VIP: безлимитно
+ */
+export const getAiDailyLimit = (user?: UserProfile | null): number => {
+  const tier = getSubscriptionTier(user);
+  if (tier === 'FREE') return 0;
+  if (tier === 'PRO') return 10;
+  return Infinity;
+};
+
+/**
+ * Универсальная проверка блокировки фичи по тарифу:
+ */
+export const isFeatureLockedForUser = (
+  feature: LockedFreeFeatureKey | 'synergy_combo' | 'export_audit_csv',
+  user?: UserProfile | null
+): boolean => {
+  const tier = getSubscriptionTier(user);
+  if (tier === 'VIP') return false;
+  if (feature === 'synergy_combo') {
+    return true; // Synergy/Super-Combo is exclusive to VIP
+  }
+  if (tier === 'PRO') return false;
+  return true;
+};
+
+/**
  * Проверка прав разработчика / создателя платформы
  * Только разработчик имеет доступ к просмотру внутренних формул, порогов и редактированию вшитых алгоритмов.
  * Для всех обычных пользователей параметры скрыты для защиты от копирования.

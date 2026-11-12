@@ -22,7 +22,23 @@ export interface MatchStats {
   xg: [number, number];
 }
 
-export type MatchStatus = 'LIVE' | 'HT' | 'FT' | 'PREMATCH';
+export type MatchStatus =
+  | 'LIVE'
+  | 'HT'
+  | 'FT'
+  | 'PREMATCH'
+  | 'POSTPONED'
+  | 'CANCELLED'
+  | 'DELAYED'
+  | 'SUSPENDED'
+  | 'INTERRUPTED'
+  | 'SCHEDULED'
+  | 'NOT_STARTED'
+  | 'AWAITING'
+  | 'WAITING'
+  | 'UPCOMING'
+  | 'FINISHED'
+  | 'VOID';
 
 export interface Match {
   id: string;
@@ -490,7 +506,7 @@ export interface ScannerMatrixConfig {
 
 export type SignalOutcome = 'WIN' | 'LOSS' | 'PENDING' | 'REFUND';
 
-export type StrategyMetricCategory = 'corners' | 'cards' | 'goals' | 'basketball' | 'other';
+export type StrategyMetricCategory = 'corners' | 'cards' | 'goals' | 'basketball' | 'tennis' | 'other';
 
 export interface StrategyMetricSnapshot {
   category: StrategyMetricCategory;
@@ -509,6 +525,7 @@ export interface StrategyMetricSnapshot {
 export interface SignalAlert {
   id: string;
   timestamp: string;
+  createdAt?: number;
   matchId: string;
   matchName: string;
   league: string;
@@ -580,6 +597,7 @@ export interface SignalAlert {
   comboConfidence?: number;
   comboTargetCluster?: string;
   comboClusterName?: string;
+  isComboLockedForPlan?: boolean;
   // Clear TB / TM action
   targetAction?: 'TB' | 'TM' | 'OTHER';
   targetLine?: string;
