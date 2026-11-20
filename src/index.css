@@ -400,3 +400,72 @@ html.light,
   background-color: #f8fafc !important;
 }
 
+/* ========================================================
+   xG-Deficit Progress Indicator Smooth Slide & Alert Glow
+   ======================================================== */
+@keyframes xg-alert-sheen {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.xg-progress-fill {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  transform: scaleX(var(--xg-progress, 0));
+  transition:
+    transform 560ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 480ms ease,
+    box-shadow 480ms ease;
+  will-change: transform;
+  overflow: hidden;
+}
+
+.xg-progress-fill--alert {
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.5);
+}
+
+.xg-progress-fill--alert::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.38) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: xg-alert-sheen 2.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+.xg-indicator-card {
+  transition:
+    border-color 480ms ease,
+    box-shadow 480ms ease,
+    background-color 480ms ease;
+}
+
+.xg-indicator-card--alert {
+  border-color: rgba(244, 63, 94, 0.45);
+  box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.16), 0 8px 24px -14px rgba(244, 63, 94, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xg-progress-fill,
+  .xg-indicator-card {
+    transition: none;
+  }
+  .xg-progress-fill--alert::after {
+    animation: none;
+    display: none;
+  }
+}
+
+

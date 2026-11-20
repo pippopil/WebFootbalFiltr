@@ -29,11 +29,12 @@ import {
   Info,
   DollarSign,
   Search,
+  Calculator,
 } from 'lucide-react';
 import { FilterRule, SportType } from '../types';
 
 interface EducationGuideViewProps {
-  onNavigateTab: (tab: 'matches' | 'filters' | 'signals' | 'telegram') => void;
+  onNavigateTab: (tab: 'matches' | 'filters' | 'signals' | 'telegram' | 'xg-calculator') => void;
   onApplyPresetFilter?: (preset: Partial<FilterRule>) => void;
   onOpenFilterBuilder?: (preset?: Partial<FilterRule>) => void;
 }
@@ -170,6 +171,14 @@ export const EducationGuideView: React.FC<EducationGuideViewProps> = ({
             >
               <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
               <span>Открыть интерактивный тренажер</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('xg-calculator')}
+              className="w-full sm:w-auto px-4 py-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-emerald-300 border border-emerald-500/40 font-bold text-sm flex items-center justify-center gap-2 transition"
+            >
+              <Calculator className="h-4 w-4 text-emerald-400" />
+              <span>Калькулятор xG-Перекоса</span>
             </button>
             <button
               type="button"

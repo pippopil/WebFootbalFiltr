@@ -15,6 +15,7 @@ import {
   GraduationCap,
   Download,
   Smartphone,
+  Calculator,
 } from 'lucide-react';
 import { SiteAnalyticsData, AdBannerItem } from '../types';
 import { AppLogo } from './AppLogo';
@@ -24,7 +25,7 @@ interface AppFooterProps {
   analytics: SiteAnalyticsData;
   ads: AdBannerItem[];
   activeTab: string;
-  onSelectTab: (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education') => void;
+  onSelectTab: (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education' | 'xg-calculator') => void;
   dataSourceName: string;
   isMonitoringActive: boolean;
   liveMatchesCount: number;
@@ -52,7 +53,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
     }
   };
 
-  const handleNavigate = (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education') => {
+  const handleNavigate = (tab: 'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education' | 'xg-calculator') => {
     onSelectTab(tab);
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -269,6 +270,21 @@ export const AppFooter: React.FC<AppFooterProps> = ({
                     <span>{t('navCabinet')}</span>
                   </span>
                   <span className="text-[10px] text-purple-400 font-mono">ROOT</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  id="footer-xg-calculator-link"
+                  onClick={() => handleNavigate('xg-calculator')}
+                  className={`flex items-center justify-between w-full p-1.5 rounded-lg hover:bg-slate-900 transition text-left ${
+                    activeTab === 'xg-calculator' ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Calculator className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>xG-Калькулятор Value</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono">TOOL</span>
                 </button>
               </li>
               <li className="pt-1">

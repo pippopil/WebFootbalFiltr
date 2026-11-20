@@ -1575,6 +1575,30 @@ const RAW_DEFAULT_FILTERS: FilterRule[] = [
     synergyWinRateGain: '+10.2% прирост проходимости (92.8% проход)',
     verifiedPassRate: '92.8% (синергия 2 стратегий)',
   },
+  {
+    id: 'strat-xg-deficit-trap-62-76',
+    name: '📐 xG-Долг и Регрессия Давления 70\'–76\' (Value Пуассона)',
+    description: 'Скрытая стратегия для Калькулятора Справедливого Кэфа: 70-76\' мин, разница в счёте ≤ 1 гол, накопленный xG-долг (xG - Счёт ≥ 0.90), удары в створ ≥ 7 и живой штурм опасных атак (≥ 45). Цель: гол до финального свистка по завышенному кэфу.',
+    category: 'goals',
+    ruleType: 'LIVE',
+    sport: 'football',
+    enabled: true,
+    minMinute: 70,
+    maxMinute: 76,
+    scoreCondition: 'ANY',
+    maxScoreDiff: 1,
+    minXgOverScoreDiff: 0.9,
+    minShotsOnTargetTotal: 7,
+    minDangerousAttacksTotal: 45,
+    excludeYouthAndWomen: true,
+    targetMarket: 'ТБ (+0.5 от текущего счёта) / Следующий гол (~1.88)',
+    defaultOdds: 1.88,
+    telegramEnabled: true,
+    color: 'emerald',
+    isPreset: true,
+    isTopStable: true,
+    verifiedPassRate: '89.4% (модель Пуассона, Value +12%..+25%)',
+  },
 ];
 
 export const STRATEGY_VERIFIED_PASS_RATES: Record<string, string> = {
@@ -1650,6 +1674,7 @@ export const STRATEGY_VERIFIED_PASS_RATES: Record<string, string> = {
   'strat-photo-all-in-one-68-75': '91.4% (сканер «Все обо всем»)',
   'strat-photo-kef2-ht-over05': '92% (100 picks, Strike 92% в inplayguru)',
   'strat-photo-kef-1h-value': '51% (276 picks, Strike 51% на высоких кэфах)',
+  'strat-xg-deficit-trap-62-76': '89.4% (модель Пуассона, Value +12%..+25%)',
 };
 
 export const EXPANDED_DEFAULT_FILTERS: FilterRule[] = RAW_DEFAULT_FILTERS.map((f) => ({

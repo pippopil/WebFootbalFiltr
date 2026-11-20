@@ -45,6 +45,14 @@ import { isSoundMuted, setSoundMuted, playAlertSound } from '../src/utils/audioA
 import { runBacktest } from '../src/backtestEngine';
 import { LARGE_HISTORICAL_MATCHES } from '../src/data/largeHistoricalDatabase';
 import { buildXgTimeline } from '../src/components/MatchXgTimelineChart';
+import {
+  calculateXgDeficitFairOdds,
+  XG_CALCULATOR_PRESETS,
+  extractXgCalculatorInputFromMatch,
+  rankLiveMatchesForXgCalculator,
+  isXgDeficitStrategyRule,
+  computeXgDeficitReadiness,
+} from '../src/utils/xgCalculator';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -2630,6 +2638,148 @@ assert(isFeatureLockedForUser('synergy_combo', tierProUser) === true, 'Synergy C
 
 assert(isFeatureLockedForUser('synergy_combo', tierVipUser) === false, 'Synergy Combo is unlocked for VIP user');
 assert(isFeatureLockedForUser('bankroll_tracker', tierVipUser) === false, 'Bankroll tracker is unlocked for VIP user');
+
+// ----------------------------------------------------
+// Test Group 31: xG FairOdds Calculator & Strategy 73 (strat-xg-deficit-trap-62-76)
+// ----------------------------------------------------
+console.log('\n--- Test Group 31: xG FairOdds Calculator & Strategy 73 (xG Deficit 62-76) ---');
+
+// 1. Preset 1: Classic Trap (66', 0:1, xG 1.65:0.45, 8 SOT, 18 DA, odds 1.95 -> +EV SIGNAL_VALUE)
+const calcClassic = calculateXgDeficitFairOdds(XG_CALCULATOR_PRESETS[0].input);
+assert(calcClassic.verdict === 'SIGNAL_VALUE', `Classic preset produces SIGNAL_VALUE verdict (got ${calcClassic.verdict})`);
+assert(calcClassic.passedRulesCount === 5, `Classic preset satisfies all 5 strategy rules (got ${calcClassic.passedRulesCount})`);
+assert(calcClassic.valueEdgePct >= 12, `Classic preset yields >= 12% Value Edge (${calcClassic.valueEdgePct}%)`);
+assert(calcClassic.fairOdds < XG_CALCULATOR_PRESETS[0].input.bookieOdds, `Fair odds (${calcClassic.fairOdds}) lower than bookie odds (${XG_CALCULATOR_PRESETS[0].input.bookieOdds})`);
+assert(
+  calcClassic.shareablePostText.includes('Справедливый кэф:') &&
+    calcClassic.shareablePostText.includes('Value)'),
+  'Calculator generates ready-to-share Telegram/forum breakdown'
+);
+
+// 2. Preset 3: Anti-case (74', 2:0, diff >= 2 -> SKIP)
+const calcAntiCase = calculateXgDeficitFairOdds(XG_CALCULATOR_PRESETS[2].input);
+assert(calcAntiCase.verdict === 'SKIP', `Anti-case (2:0 blowout) produces SKIP verdict (got ${calcAntiCase.verdict})`);
+assert(calcAntiCase.rules[1].passed === false, 'Rule 2 (score difference <= 1) fails on 2:0 score');
+
+// 3. Red card on attacking team invalidates Rule 4 & produces SKIP
+const calcRedCard = calculateXgDeficitFairOdds({
+  ...XG_CALCULATOR_PRESETS[0].input,
+  redCardStatus: 'attacking',
+});
+assert(calcRedCard.rules[3].passed === false, 'Rule 4 fails when attacking team has a red card');
+assert(calcRedCard.verdict === 'SKIP', `Attacking team red card switches verdict to SKIP (got ${calcRedCard.verdict})`);
+
+// 4. Strategy 73 integration in EXPANDED_DEFAULT_FILTERS & evaluateFilterRule
+const strat73 = EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-xg-deficit-trap-62-76')!;
+assert(strat73 !== undefined, 'Strategy 73 (strat-xg-deficit-trap-62-76) exists in EXPANDED_DEFAULT_FILTERS');
+assert(strat73.minMinute === 70 && strat73.maxMinute === 76, `Strategy 73 minute window is 70-76 (got ${strat73.minMinute}-${strat73.maxMinute})`);
+assert(getStrategyCardDisplayName(strat73, false) === 'Стратегия 73', 'Strategy 73 renders protected numbered name for non-developers');
+
+const match73Pass: Match = {
+  ...minimalMatch,
+  id: 'm-strat73-pass',
+  homeTeam: 'Real Sociedad',
+  awayTeam: 'Villarreal',
+  league: 'La Liga',
+  minute: 72,
+  status: 'LIVE',
+  score: [0, 1],
+  stats: {
+    ...minimalMatch.stats,
+    xg: [1.35, 0.60], // sum xG = 1.95, goals = 1 => xG - Goals = 0.95 >= 0.90
+    shotsOnTarget: [6, 2], // sum = 8 >= 7
+    dangerousAttacks: [42, 18], // sum = 60 >= 45
+  },
+};
+assert(strat73.minXgOverScoreDiff === 0.9, `Strategy 73 xG threshold is 0.90 (got ${strat73.minXgOverScoreDiff})`);
+const eval73Pass = evaluateFilterRule(match73Pass, strat73);
+assert(eval73Pass.matches === true, 'Strategy 73 triggers on qualifying 72 min 0:1 match with xG deficit >= 0.90 and high pressure');
+
+const eval73TooEarly = evaluateFilterRule({ ...match73Pass, minute: 66 }, strat73);
+assert(eval73TooEarly.matches === false, 'Strategy 73 rejects minute 66 (before 70-76 entry window)');
+
+const calcTooEarly66 = calculateXgDeficitFairOdds({ ...XG_CALCULATOR_PRESETS[0].input, minute: 66 });
+assert(calcTooEarly66.rules[0].passed === false, 'Calculator Rule 1 fails at minute 66 (outside 70-76 window)');
+
+const match73RejectBlowout: Match = {
+  ...match73Pass,
+  id: 'm-strat73-blowout',
+  score: [2, 0], // score diff = 2 > maxScoreDiff(1)
+  stats: {
+    ...match73Pass.stats,
+    xg: [2.8, 0.8], // deficit would still be 1.6 if not blocked by maxScoreDiff
+  },
+};
+const eval73Reject = evaluateFilterRule(match73RejectBlowout, strat73);
+assert(eval73Reject.matches === false, 'Strategy 73 rejects 2:0 match via maxScoreDiff <= 1 guardrail');
+
+// 5. Automatic live match extraction & auto-ranking without manual input
+const autoLiveSignalMatch: Match = {
+  ...match73Pass,
+  id: 'm-auto-xg-signal',
+  homeTeam: 'Бавария',
+  awayTeam: 'РБ Лейпциг',
+  minute: 71,
+  status: 'LIVE',
+  score: [0, 1],
+  stats: {
+    ...match73Pass.stats,
+    xg: [1.85, 0.60],
+    shotsOnTarget: [6, 3],
+    dangerousAttacks: [66, 26],
+    redCards: [0, 0],
+  },
+  odds: {
+    home: 2.35,
+    draw: 3.1,
+    away: 2.9,
+    over15: 2.08,
+    over25: 2.75,
+  },
+};
+
+const autoExtracted = extractXgCalculatorInputFromMatch(autoLiveSignalMatch);
+assert(autoExtracted.minute === 71, 'Auto extractor pulls live minute automatically');
+assert(autoExtracted.bookieOdds === 2.08, `Auto extractor picks exact over15 odds at 0:1 (${autoExtracted.bookieOdds})`);
+assert(autoExtracted.homeXg === 1.85 && autoExtracted.awayXg === 0.60, 'Auto extractor preserves exact live xG');
+
+const autoLiveWeakMatch: Match = {
+  ...minimalMatch,
+  id: 'm-auto-xg-weak',
+  minute: 24,
+  status: 'LIVE',
+  score: [0, 0],
+  stats: {
+    ...minimalMatch.stats,
+    xg: [0.18, 0.14],
+    shotsOnTarget: [1, 0],
+    dangerousAttacks: [10, 8],
+  },
+};
+
+const autoFinishedMatch: Match = {
+  ...autoLiveSignalMatch,
+  id: 'm-auto-xg-ft',
+  status: 'FT',
+  minute: 90,
+};
+
+const rankedLive = rankLiveMatchesForXgCalculator([autoLiveWeakMatch, autoFinishedMatch, autoLiveSignalMatch]);
+assert(rankedLive.length === 2, `Auto ranker excludes FT matches and keeps live football matches (${rankedLive.length})`);
+assert(rankedLive[0].match.id === 'm-auto-xg-signal', 'Auto ranker places SIGNAL_VALUE live match at #1 automatically');
+assert(rankedLive[0].result.verdict === 'SIGNAL_VALUE', `Top auto-selected live match has SIGNAL_VALUE verdict (${rankedLive[0].result.verdict})`);
+
+// 6. Graphical readiness progress computation & rule detection
+assert(isXgDeficitStrategyRule(strat73) === true, 'isXgDeficitStrategyRule matches Strategy 73');
+assert(isXgDeficitStrategyRule(EXPANDED_DEFAULT_FILTERS[0]) === false, 'isXgDeficitStrategyRule ignores unrelated strategies');
+
+const readinessFull = computeXgDeficitReadiness(rankedLive[0].input, rankedLive[0].result, 0.9);
+assert(readinessFull.overallReadinessPct === 100, `SIGNAL_VALUE match reaches 100% readiness (got ${readinessFull.overallReadinessPct}%)`);
+assert(readinessFull.xgDeficitPct === 100, `Qualifying xG deficit fills progress bar to 100% (got ${readinessFull.xgDeficitPct}%)`);
+assert(readinessFull.statusLabel === 'Вход подтверждён', `Qualifying readiness displays confirmed label (${readinessFull.statusLabel})`);
+
+const readinessWeak = computeXgDeficitReadiness(rankedLive[1].input, rankedLive[1].result, 0.9);
+assert(readinessWeak.xgDeficitPct < 50 && readinessWeak.overallReadinessPct < 70, `Early low-xG match shows partial progress (${readinessWeak.xgDeficitPct}% xG, ${readinessWeak.overallReadinessPct}% overall)`);
 
 // ----------------------------------------------------
 // SUMMARY

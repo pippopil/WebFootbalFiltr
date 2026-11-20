@@ -197,6 +197,7 @@ import { voiceAnnouncer } from './services/voiceAlertAnnouncer';
 import { ScannerSignalsTableView } from './components/ScannerSignalsTableView';
 import { StrategyAuditLogModal } from './components/StrategyAuditLogModal';
 import { MatchXgTimelineChart } from './components/MatchXgTimelineChart';
+import { MatchMiniXgProgressChart } from './components/MatchMiniXgProgressChart';
 import { TeamFormSparkline } from './components/TeamFormSparkline';
 import { logStrategyTrigger, logStrategyResolution } from './services/strategyAuditLogger';
 import { runDailyPrematchAnalysis, getDailyCachedPrematch } from './services/prematchScheduler';
@@ -221,6 +222,9 @@ import { isMatchSearchMatch, getMatchTeamCodes } from './utils/teamCodes';
 import { generateMatchResultCanvas } from './utils/shareResultCanvas';
 import { ShareResultModal } from './components/ShareResultModal';
 import { OffensiveTrendSparkline } from './components/OffensiveTrendSparkline';
+import { XgFairOddsCalculatorView } from './components/XgFairOddsCalculatorView';
+import { XgDeficitProgressIndicator } from './components/XgDeficitProgressIndicator';
+import { isXgDeficitStrategyRule } from './utils/xgCalculator';
 
 // Real signals start clean - no synthetic dummy seed alerts
 const INITIAL_SIGNALS: SignalAlert[] = [];
@@ -1860,7 +1864,19 @@ export default function App() {
   const inspectorRef = useRef<HTMLDivElement>(null);
 
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education'>('matches');
+  const [activeTab, setActiveTab] = useState<'matches' | 'filters' | 'signals' | 'backtest' | 'telegram' | 'cabinet' | 'advertiser' | 'education' | 'xg-calculator'>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('tool') === 'xg-calculator' || window.location.hash === '#xg-calculator') {
+          return 'xg-calculator';
+        }
+      } catch {
+        // ignore URL parse errors
+      }
+    }
+    return 'matches';
+  });
   const [filterViewMode, setFilterViewMode] = useState<'matrix' | 'cards' | 'prematch'>('matrix');
   const [selectedSport, setSelectedSport] = useState<SportType | 'all'>('football');
   const [signalsViewMode, setSignalsViewMode] = useState<'table' | 'cards'>('table');
@@ -1904,10 +1920,27 @@ export default function App() {
     }
   }, [analytics.yandexMetrikaCounterId]);
 
-  // Redirect legacy telegram tab to personal cabinet
+  // Redirect legacy telegram tab to personal cabinet & keep hidden calculator URL synced
   useEffect(() => {
     if (activeTab === 'telegram') {
       setActiveTab('cabinet');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        if (activeTab === 'xg-calculator') {
+          if (url.searchParams.get('tool') !== 'xg-calculator') {
+            url.searchParams.set('tool', 'xg-calculator');
+            window.history.replaceState({}, '', url.toString());
+          }
+        } else if (url.searchParams.get('tool') === 'xg-calculator') {
+          url.searchParams.delete('tool');
+          window.history.replaceState({}, '', url.toString());
+        }
+      } catch {
+        // ignore history API errors in sandboxed iframes
+      }
     }
   }, [activeTab]);
   
@@ -4805,6 +4838,89 @@ export default function App() {
       return updated;
     });
   };
+
+  const handleActivateXgCalculatorStrategy = useCallback(() => {
+    if (!isAuthenticated) {
+      setActiveTab('filters');
+      return;
+    }
+
+    const presetBase =
+      EXPANDED_DEFAULT_FILTERS.find((f) => f.id === 'strat-xg-deficit-trap-62-76') || {
+        id: 'strat-xg-deficit-trap-62-76',
+        name: "📐 xG-Долг и Регрессия Давления 70'–76' (Value Пуассона)",
+        description:
+          "70-76' мин, разница в счёте ≤ 1 гол, накопленный xG-долг (xG - Счёт ≥ 0.90), удары в створ ≥ 7 и живой штурм опасных атак (≥ 45).",
+        category: 'goals' as FilterCategory,
+        ruleType: 'LIVE' as const,
+        sport: 'football' as SportType,
+        enabled: true,
+        minMinute: 70,
+        maxMinute: 76,
+        scoreCondition: 'ANY' as ScoreCondition,
+        maxScoreDiff: 1,
+        minXgOverScoreDiff: 0.9,
+        minShotsOnTargetTotal: 7,
+        minDangerousAttacksTotal: 45,
+        excludeYouthAndWomen: true,
+        targetMarket: 'ТБ (+0.5 от текущего счёта) / Следующий гол (~1.88)',
+        defaultOdds: 1.88,
+        telegramEnabled: true,
+        color: 'emerald',
+      };
+
+    const tier = getSubscriptionTier(currentUser);
+    if (tier === 'FREE') {
+      const existingCustomCopy = filters.find((f) => f.id === 'custom-xg-deficit-trap-62-76');
+      const existingCustomCount = filters.filter((f) => !f.isPreset).length;
+      if (existingCustomCopy || existingCustomCount === 0) {
+        handleSaveFilter({
+          ...presetBase,
+          id: 'custom-xg-deficit-trap-62-76',
+          isPreset: false,
+          enabled: true,
+          telegramEnabled: true,
+          userId: currentUser.id,
+        });
+        setActiveTab('filters');
+        return;
+      }
+
+      setEditingFilter({
+        id: `custom-xg-trap-${Date.now()}`,
+        name: presetBase.name,
+        description: presetBase.description,
+        category: presetBase.category,
+        ruleType: 'LIVE',
+        sport: 'football',
+        enabled: true,
+        telegramEnabled: true,
+        minMinute: 70,
+        maxMinute: 76,
+        scoreCondition: 'ANY',
+        maxScoreDiff: 1,
+        minXgOverScoreDiff: 0.9,
+        minShotsOnTargetTotal: 7,
+        minDangerousAttacksTotal: 45,
+        excludeYouthAndWomen: true,
+        targetMarket: presetBase.targetMarket,
+        defaultOdds: presetBase.defaultOdds,
+        color: 'emerald',
+        userId: currentUser.id,
+      });
+      setActiveTab('filters');
+      setIsFilterModalOpen(true);
+      return;
+    }
+
+    const existingPreset = filters.find((f) => f.id === 'strat-xg-deficit-trap-62-76');
+    handleSaveFilter({
+      ...(existingPreset || presetBase),
+      enabled: true,
+      telegramEnabled: true,
+    });
+    setActiveTab('filters');
+  }, [isAuthenticated, currentUser, filters]);
 
   const handleDeleteFilter = (id: string) => {
     setFilters((prev) => prev.filter((f) => f.id !== id));
@@ -7892,6 +8008,9 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Recharts Mini xG Progress Chart (selectedMatch.stats.xg) */}
+                  <MatchMiniXgProgressChart match={selectedMatch} />
+
                   {/* Recharts In-Depth Cumulative xG Timeline & Danger Moments Analysis (Linear & Bar Toggle) */}
                   <MatchXgTimelineChart match={selectedMatch} />
 
@@ -8233,6 +8352,7 @@ export default function App() {
                 userBots={currentUser?.telegramBots}
                 currentUserId={currentUser?.id}
                 liveMatches={matches}
+                selectedMatch={selectedMatch}
                 selectedSport={selectedSport}
                 onOpenEducation={() => setActiveTab('education')}
                 isPaidUser={isPaidUser}
@@ -9074,6 +9194,15 @@ export default function App() {
                                   {signals.filter((s) => s.ruleId === filter.id).length}
                                 </span>
                               </div>
+                            )}
+
+                            {/* Graphical Criteria Progress Bar for 'xG-Долг и Регрессия Давления' */}
+                            {isXgDeficitStrategyRule(filter) && (
+                              <XgDeficitProgressIndicator
+                                selectedMatch={selectedMatch}
+                                liveMatches={matches}
+                                targetDeficit={filter.minXgOverScoreDiff || 0.9}
+                              />
                             )}
                           </div>
 
@@ -11011,6 +11140,16 @@ export default function App() {
           />
         )}
 
+        {/* Tab 9 (Hidden Utility Lead-Magnet): xG FairOdds & Value Calculator */}
+        {activeTab === 'xg-calculator' && (
+          <XgFairOddsCalculatorView
+            matches={matches}
+            isAuthenticated={isAuthenticated}
+            onNavigateToScanner={() => setActiveTab('matches')}
+            onActivateStrategyInScanner={handleActivateXgCalculatorStrategy}
+          />
+        )}
+
         {/* Filter Builder & Editor Modal */}
         <FilterBuilderModal
           isOpen={isFilterModalOpen}
@@ -11857,9 +11996,9 @@ export default function App() {
       </div>
     )}
 
-    {/* Authentication Gate & Logo Splash Screen Modal */}
+    {/* Authentication Gate & Logo Splash Screen Modal (bypassed for public xG Value Calculator) */}
     <AuthGateModal
-      isOpen={!isAuthenticated}
+      isOpen={!isAuthenticated && activeTab !== 'xg-calculator'}
       allUsers={allUsers}
       onLogin={handleLogin}
       onRegisterUser={(newUser) => {

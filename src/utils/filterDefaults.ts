@@ -407,6 +407,7 @@ export const PRESET_STRATEGY_NUMBER_BY_ID: Record<string, number> = {
   'strat-photo-all-in-one-68-75': 70,
   'strat-photo-kef2-ht-over05': 71,
   'strat-photo-kef-1h-value': 72,
+  'strat-xg-deficit-trap-62-76': 73,
 };
 
 /**

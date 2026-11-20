@@ -2276,39 +2276,40 @@ async function startServer() {
   });
 
   // Vite middleware for development or static serving for production
-  const isProduction =
-    process.env.NODE_ENV === 'production' ||
-    process.env.K_SERVICE !== undefined ||
-    process.env.IS_DOCKER !== undefined;
-
-  const candidateDirs = [
+  const builtDistDirs = [
     path.join(process.cwd(), 'dist'),
-    appDirname,
     path.join(appDirname, 'dist'),
-    path.join(process.cwd()),
+    ...(path.basename(appDirname) === 'dist' ? [appDirname] : []),
   ];
   const resolvedDistDir =
-    candidateDirs.find((d) => fs.existsSync(path.join(d, 'index.html'))) || path.join(process.cwd(), 'dist');
+    builtDistDirs.find((d) => fs.existsSync(path.join(d, 'index.html'))) || path.join(process.cwd(), 'dist');
+
+  const hasBuiltDist = fs.existsSync(path.join(resolvedDistDir, 'index.html'));
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    (process.env.NODE_ENV !== 'development' && hasBuiltDist && (process.env.IS_DOCKER !== undefined || process.env.K_SERVICE !== undefined));
 
   if (!isProduction) {
     try {
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: { middlewareMode: true, hmr: false },
         appType: 'spa',
       });
       app.use(vite.middlewares);
     } catch (err) {
       console.warn('Vite dev middleware failed to initialize, falling back to static build:', err);
-      app.use(express.static(resolvedDistDir));
-      app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api')) return next();
-        const indexPath = path.join(resolvedDistDir, 'index.html');
-        if (fs.existsSync(indexPath)) {
-          res.sendFile(indexPath);
-        } else {
-          res.status(404).send('Application page not found. Please build the frontend.');
-        }
-      });
+      if (hasBuiltDist) {
+        app.use(express.static(resolvedDistDir));
+        app.get('*', (req, res, next) => {
+          if (req.path.startsWith('/api')) return next();
+          res.sendFile(path.join(resolvedDistDir, 'index.html'));
+        });
+      } else {
+        app.get('*', (req, res, next) => {
+          if (req.path.startsWith('/api')) return next();
+          res.status(503).send('Vite dev middleware failed to start and no production build exists.');
+        });
+      }
     }
   } else {
     app.use(express.static(resolvedDistDir));

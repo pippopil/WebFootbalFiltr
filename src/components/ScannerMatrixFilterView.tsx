@@ -71,6 +71,8 @@ import {
   cleanPresetTitle,
   getStrategyCardDisplayName,
 } from '../utils/filterDefaults';
+import { XgDeficitProgressIndicator } from './XgDeficitProgressIndicator';
+import { isXgDeficitStrategyRule } from '../utils/xgCalculator';
 
 interface ScannerMatrixFilterViewProps {
   filters: FilterRule[];
@@ -83,6 +85,7 @@ interface ScannerMatrixFilterViewProps {
   userBots?: TelegramBotProfile[];
   currentUserId?: string;
   liveMatches?: Match[];
+  selectedMatch?: Match | null;
   selectedSport?: SportType | 'all';
   onOpenEducation?: () => void;
   isPaidUser?: boolean;
@@ -130,6 +133,7 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
   userBots = [],
   currentUserId,
   liveMatches = [],
+  selectedMatch = null,
   selectedSport = 'football',
   onOpenEducation,
   isPaidUser = false,
@@ -737,6 +741,15 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                           <span className="text-slate-500 font-mono">0 LIVE</span>
                         )}
                       </div>
+
+                      {isXgDeficitStrategyRule(f) && (
+                        <XgDeficitProgressIndicator
+                          selectedMatch={selectedMatch}
+                          liveMatches={liveMatches}
+                          targetDeficit={f.minXgOverScoreDiff || 0.9}
+                          compact
+                        />
+                      )}
                     </div>
                   );
                 })
@@ -852,6 +865,15 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                           <span className="text-slate-500 font-mono">0 LIVE</span>
                         )}
                       </div>
+
+                      {isXgDeficitStrategyRule(f) && (
+                        <XgDeficitProgressIndicator
+                          selectedMatch={selectedMatch}
+                          liveMatches={liveMatches}
+                          targetDeficit={f.minXgOverScoreDiff || 0.9}
+                          compact
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -929,6 +951,16 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                       {selectedRule.minMinute ?? 0}'–{selectedRule.maxMinute ?? 90}' мин
                     </span>
                   </div>
+                </div>
+              )}
+
+              {selectedRule && isXgDeficitStrategyRule(selectedRule) && (
+                <div className="max-w-xl mx-auto">
+                  <XgDeficitProgressIndicator
+                    selectedMatch={selectedMatch}
+                    liveMatches={liveMatches}
+                    targetDeficit={selectedRule.minXgOverScoreDiff || 0.9}
+                  />
                 </div>
               )}
 
@@ -1018,6 +1050,16 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                 </div>
               </div>
 
+              {isXgDeficitStrategyRule(selectedRule) && (
+                <div className="max-w-xl mx-auto">
+                  <XgDeficitProgressIndicator
+                    selectedMatch={selectedMatch}
+                    liveMatches={liveMatches}
+                    targetDeficit={selectedRule.minXgOverScoreDiff || 0.9}
+                  />
+                </div>
+              )}
+
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-left text-xs text-amber-200/90 max-w-xl mx-auto space-y-2 leading-relaxed">
                 <div className="font-bold text-amber-300 flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5" />
@@ -1099,6 +1141,15 @@ export const ScannerMatrixFilterView: React.FC<ScannerMatrixFilterViewProps> = (
                   <span className="text-[11px] text-purple-400">
                     Вшитая стратегия: формулы и матричные веса открыты для калибровки
                   </span>
+                </div>
+              )}
+              {selectedRule && isXgDeficitStrategyRule(selectedRule) && (
+                <div className="mb-3">
+                  <XgDeficitProgressIndicator
+                    selectedMatch={selectedMatch}
+                    liveMatches={liveMatches}
+                    targetDeficit={selectedRule.minXgOverScoreDiff || 0.9}
+                  />
                 </div>
               )}
               {/* Editor Header: Name & Target Market with Clean Blank button */}
